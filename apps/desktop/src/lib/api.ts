@@ -39,6 +39,8 @@ export const openSettings = (section?: SettingsSection) =>
   desktopInvoke<void>("open_settings", section ? { section } : undefined);
 export const getDesktopSettings = () =>
   desktopInvoke<DesktopSettings>("get_desktop_settings");
+export const quitApp = () => desktopInvoke<void>("quit_app");
+export const settingsReady = () => desktopInvoke<void>("settings_ready");
 export const saveDesktopSettings = (
   autostartEnabled: boolean,
   notificationsEnabled: boolean,

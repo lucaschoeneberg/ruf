@@ -18,6 +18,8 @@ fn main() {
             "preview_ringtone",
             "stop_ringtone_preview",
             "get_desktop_settings",
+            "settings_ready",
+            "quit_app",
             "save_desktop_settings",
         ]),
     ))

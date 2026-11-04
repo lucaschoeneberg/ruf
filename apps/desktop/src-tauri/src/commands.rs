@@ -53,7 +53,17 @@ pub async fn save_account(
     name: String,
     account: AccountConfig,
 ) -> Result<EngineSnapshot, PhoneError> {
-    with_session(app, state, move |session| session.save(id, name, account)).await
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    state
+        .save_account(directory, cache, id, name, account)
+        .await
 }
 
 /// Compatibility command: save/replace the selected account using its username as name.
@@ -63,11 +73,15 @@ pub async fn configure_account(
     state: tauri::State<'_, PhoneState>,
     account: AccountConfig,
 ) -> Result<EngineSnapshot, PhoneError> {
-    with_session(app, state, move |session| {
-        let id = session.snapshot()?.selected_account_id;
-        session.save(id, account.username.clone(), account)
-    })
-    .await
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    state.configure_account(directory, cache, account).await
 }
 
 /// Persist outgoing selection; other user agents remain registered.
@@ -199,6 +213,19 @@ fn window_error() -> PhoneError {
         ErrorCode::NativeFailure,
         "The settings window could not be opened. Please try again.",
     )
+}
+
+/// Mark the settings discard/quit listeners ready before the form becomes editable.
+#[tauri::command]
+pub fn settings_ready(app: tauri::AppHandle) {
+    crate::shell::settings_ready(&app);
+}
+
+/// Continue an explicit quit after the settings window has handled its drafts.
+/// Running calls still require native confirmation; this does not force an exit.
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    crate::shell::quit_after_settings(&app);
 }
 
 /// Read current native audio endpoint metadata without starting SIP or microphone capture.

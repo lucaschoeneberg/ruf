@@ -110,13 +110,15 @@
           : "unavailable",
   );
   const setupLabel = $derived(
-    browser || !nativeAvailable
-      ? "Starthilfe öffnen"
-      : registration === "failed"
-        ? "Verbindung prüfen"
-        : registration === "registering"
-          ? "Anmeldung läuft · Angaben ansehen"
-          : "SIP-Konto verbinden",
+    !error && !browser && !snapshot && info?.telephony !== "notLinked"
+      ? "Status erneut laden"
+      : browser || !nativeAvailable
+        ? "Starthilfe öffnen"
+        : registration === "failed"
+          ? "Verbindung prüfen"
+          : registration === "registering"
+            ? "Anmeldung läuft · Angaben ansehen"
+            : "SIP-Konto verbinden",
   );
   const connectionHint = $derived(
     audioUnknown
@@ -174,7 +176,7 @@
     if (next.accounts.length) markIntroduction();
     if (next.registration === "registered") {
       if (becameRegistered) firstCallHint = true;
-      if (view === "start") selectView("dialer");
+      if (view === "start" && becameRegistered) selectView("dialer");
     } else if (next.registration === "failed") firstCallHint = false;
   }
   async function refreshNativeState() {
@@ -261,7 +263,13 @@
             applySnapshot(result);
         })
         .catch((reason: unknown) => {
-          if (mounted && epoch === operationEpoch) error = errorMessage(reason);
+          if (
+            mounted &&
+            epoch === operationEpoch &&
+            revision === snapshotRevision &&
+            !busy
+          )
+            error = errorMessage(reason);
         })
         .finally(() => {
           polling = false;
@@ -350,9 +358,11 @@
           value={snapshot?.selectedAccountId ?? ""}
           disabled={busy || !callIdle}
           onchange={(event) => {
-            void perform(() =>
-              selectAccount(Number(event.currentTarget.value)),
+            const id = Number(event.currentTarget.value);
+            event.currentTarget.value = String(
+              snapshot?.selectedAccountId ?? "",
             );
+            void perform(() => selectAccount(id));
           }}
           >{#each snapshot?.accounts ?? [] as item}<option
               value={item.id}
@@ -391,10 +401,10 @@
   {#if error}<div class="error-notice">
       <div class="error-copy">
         <p role="alert">{error}</p>
-        {#if !info && !browser}<button
+        {#if (!info || !snapshot) && !browser}<button
             class="text-button"
             type="button"
-            disabled={loading}
+            disabled={loading || busy}
             onclick={() => {
               void refreshNativeState();
             }}>Status erneut laden</button
@@ -441,6 +451,7 @@
       <GettingStarted
         runtime={introRuntime}
         {registration}
+        hasAccount={(snapshot?.accounts.length ?? 0) > 0}
         {audioUnknown}
         onsetup={() => {
           void showSettings();
@@ -460,7 +471,14 @@
             void placeCall();
           }}
           onsetup={() => {
-            if (nativeAvailable) void showSettings();
+            if (
+              !error &&
+              !browser &&
+              !snapshot &&
+              info?.telephony !== "notLinked"
+            )
+              void refreshNativeState();
+            else if (nativeAvailable) void showSettings();
             else selectView("start");
           }}
         />{/if}

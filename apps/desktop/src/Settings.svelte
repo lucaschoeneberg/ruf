@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import {
     errorMessage,
@@ -14,6 +15,8 @@
     stopRingtonePreview,
     getDesktopSettings,
     saveDesktopSettings,
+    quitApp,
+    settingsReady,
     type SettingsSection,
   } from "./lib/api";
   import type {
@@ -69,23 +72,34 @@
   let devicesLoading = $state(false);
   let devicesError = $state<string | null>(null);
   let baseline = $state("");
-  let pendingNavigation = $state<{
-    section: Section;
-    id: number | null;
-  } | null>(null);
+  type PendingAction =
+    | { kind: "navigate"; section: Section; id: number | null }
+    | { kind: "close" | "quit" };
+  let pendingNavigation = $state<PendingAction | null>(null);
+  let ownsPreview = false;
+  let closing = false;
   let mounted = false;
+  let registerWindowGuard: (() => Promise<void>) | null = null;
   let epoch = 0;
   let snapshotRevision = 0;
   let firstLoad = true;
   let discardNotice = $state<HTMLDivElement>();
   let keepEditing = $state<HTMLButtonElement>();
+  let errorNotice = $state<HTMLDivElement>();
+  $effect(() => {
+    if (error)
+      void tick().then(() => errorNotice?.scrollIntoView({ block: "nearest" }));
+  });
   const existing = $derived(
     snapshot?.accounts.find((a) => a.id === editedId) ?? null,
   );
   const accounts = $derived(snapshot?.accounts ?? []);
+  const removedDraft = $derived(
+    editedId !== null && snapshot !== null && !existing,
+  );
   const callIdle = $derived(!snapshot || snapshot.call === "idle");
   const disabled = $derived(
-    loading || !info || info.telephony !== "linked" || !callIdle,
+    loading || !info || info.telephony !== "linked" || !snapshot || !callIdle,
   );
   const accountDirty = $derived(
     baseline !== "" &&
@@ -173,16 +187,63 @@
   function navigate(next: Section, id: number | null = editedId) {
     if (busy || (next === section && id === editedId)) return;
     if (dirty) {
-      pendingNavigation = { section: next, id };
-      void tick().then(() => {
-        discardNotice?.scrollIntoView({ block: "nearest" });
-        keepEditing?.focus({ preventScroll: true });
-      });
+      showDiscard({ kind: "navigate", section: next, id });
       return;
     }
     applyNavigation(next, id);
   }
+  function showDiscard(action: PendingAction) {
+    pendingNavigation = action;
+    void tick().then(() => {
+      discardNotice?.scrollIntoView({ block: "nearest" });
+      keepEditing?.focus({ preventScroll: true });
+    });
+  }
+  async function stopOwnedPreview() {
+    if (!ownsPreview) return;
+    ownsPreview = false;
+    if (!callIdle) return;
+    const revision = snapshotRevision;
+    const result = await stopRingtonePreview();
+    if (mounted && revision === snapshotRevision) applySnapshot(result);
+  }
+  async function finishWindowAction(kind: "close" | "quit") {
+    if (busy) return;
+    busy = true;
+    try {
+      await stopOwnedPreview();
+      if (kind === "quit") await quitApp();
+      else {
+        closing = true;
+        await getCurrentWindow().destroy();
+      }
+    } catch (reason) {
+      closing = false;
+      if (mounted) error = errorMessage(reason);
+    } finally {
+      if (mounted) busy = false;
+    }
+  }
+  function requestWindowAction(kind: "close" | "quit") {
+    if (busy) {
+      error =
+        "Eine Änderung wird noch gespeichert. Warte kurz und versuche es erneut.";
+    } else if (dirty) showDiscard({ kind });
+    else void finishWindowAction(kind);
+  }
+  function discardChanges() {
+    if (busy) return;
+    const action = pendingNavigation;
+    pendingNavigation = null;
+    if (!action) return;
+    if (action.kind === "navigate") applyNavigation(action.section, action.id);
+    else void finishWindowAction(action.kind);
+  }
   function applyNavigation(next: Section, id: number | null) {
+    if (section === "audio")
+      void stopOwnedPreview().catch((reason) => {
+        if (mounted) error = errorMessage(reason);
+      });
     if (section === "audio" && soundDirty)
       resetSound(snapshot?.soundSettings ?? defaultSound());
     if (section === "general" && desktopSettings) resetDesktop(desktopSettings);
@@ -197,12 +258,16 @@
     if (firstLoad) {
       firstLoad = false;
       edit(result.selectedAccountId ?? result.accounts[0]?.id ?? null);
-    } else if (
-      !accountDirty &&
-      editedId !== null &&
-      !result.accounts.some((a) => a.id === editedId)
-    )
-      edit(result.accounts[0]?.id ?? null);
+    } else if (!accountDirty && editedId !== null) {
+      const updated = result.accounts.find((a) => a.id === editedId);
+      if (!updated) edit(result.accounts[0]?.id ?? null);
+      else if (
+        name !== updated.name ||
+        account.registrar !== updated.registrar ||
+        account.username !== updated.username
+      )
+        edit(updated.id);
+    }
     if (result.audioMode) account.audioMode = result.audioMode;
   }
   async function refresh() {
@@ -212,23 +277,30 @@
     const current = epoch;
     const revision = snapshotRevision;
     try {
+      await registerWindowGuard?.();
+      if (!mounted || current !== epoch) return;
       const result = await getAppInfo();
       if (!mounted || current !== epoch) return;
       info = result;
-      const [state, desktop] = await Promise.all([
+      const [state, desktop] = await Promise.allSettled([
         result.telephony === "linked" ? getEngineSnapshot() : null,
         getDesktopSettings(),
       ]);
       if (!mounted || current !== epoch) return;
-      if (state && revision === snapshotRevision) applySnapshot(state);
-      else if (!state && !accountDirty) edit(null);
-      if (!desktopDirty) resetDesktop(desktop);
-      else desktopSettings = desktop;
+      if (state.status === "fulfilled") {
+        if (state.value && revision === snapshotRevision)
+          applySnapshot(state.value);
+        else if (!state.value && !accountDirty) edit(null);
+      } else error = errorMessage(state.reason);
+      if (desktop.status === "fulfilled") {
+        if (!desktopDirty) resetDesktop(desktop.value);
+        else desktopSettings = desktop.value;
+      } else error = errorMessage(desktop.reason);
       if (section === "audio") void loadDevices();
     } catch (reason) {
       if (mounted && current === epoch) error = errorMessage(reason);
     } finally {
-      if (mounted) loading = false;
+      if (mounted && current === epoch) loading = false;
     }
   }
   onMount(() => {
@@ -245,6 +317,33 @@
       if (mounted) unlisteners.push(unlisten);
       else unlisten();
     }
+    let closeGuardInstalled = false;
+    let quitGuardInstalled = false;
+    registerWindowGuard = async () => {
+      await Promise.all([
+        closeGuardInstalled
+          ? Promise.resolve()
+          : getCurrentWindow()
+              .onCloseRequested((event) => {
+                if (closing) return;
+                event.preventDefault();
+                requestWindowAction("close");
+              })
+              .then((unlisten) => {
+                closeGuardInstalled = true;
+                retain(unlisten);
+              }),
+        quitGuardInstalled
+          ? Promise.resolve()
+          : listen("settings-quit-requested", () => {
+              if (mounted) requestWindowAction("quit");
+            }).then((unlisten) => {
+              quitGuardInstalled = true;
+              retain(unlisten);
+            }),
+      ]);
+      if (mounted) await settingsReady();
+    };
     if (browser) {
       loading = false;
       edit(null);
@@ -298,10 +397,12 @@
     document.addEventListener("visibilitychange", poll);
     return () => {
       mounted = false;
+      registerWindowGuard = null;
       clearInterval(timer);
       for (const unlisten of unlisteners) unlisten();
       document.removeEventListener("visibilitychange", poll);
       account.password = "";
+      void stopOwnedPreview().catch(() => {});
     };
   });
   function resetDesktop(value: DesktopSettings) {
@@ -365,7 +466,7 @@
       if (!mounted) return;
       if (revision === snapshotRevision) applySnapshot(result);
       if (saved) {
-        resetSound(result.soundSettings);
+        resetSound(snapshot?.soundSettings ?? result.soundSettings);
         feedback =
           "Ton-Einstellungen gespeichert. Sie gelten ab dem nächsten Gespräch.";
       }
@@ -377,7 +478,7 @@
     }
   }
   async function save(config: AccountConfig, label: string) {
-    if (busy || disabled) return;
+    if (busy || disabled || removedDraft || existing?.removing) return;
     busy = true;
     epoch++;
     error = null;
@@ -396,7 +497,6 @@
     } catch (reason) {
       if (mounted) error = errorMessage(reason);
     } finally {
-      account.password = "";
       if (mounted) busy = false;
     }
   }
@@ -411,7 +511,9 @@
       if (mounted) {
         if (revision === snapshotRevision) applySnapshot(result);
         edit(accounts.find((a) => !a.removing)?.id ?? null);
-        feedback = "Konto entfernt.";
+        feedback = result.accounts.some((item) => item.removing)
+          ? "Das Konto wird entfernt …"
+          : "Konto entfernt.";
         if (result.lastError) error = errorMessage(result.lastError);
       }
     } catch (reason) {
@@ -510,7 +612,7 @@
           Maximal acht Konten.
         </p>{/if}
     {:else if !visibleSections.length}<p class="accounts-empty" role="status">
-        Keine Treffer für „{query}“.
+        Keine Treffer für „{query}“. Ändere die Suche oder leere das Suchfeld.
       </p>{/if}
     <div class="settings-sidebar-footer">
       <span>SIP</span><span>{info ? `v${info.version}` : "Einstellungen"}</span>
@@ -533,7 +635,11 @@
       {#if loading}<p class="settings-feedback" role="status">
           Einstellungen werden geladen …
         </p>{/if}
-      {#if error}<div class="settings-feedback error" role="alert">
+      {#if error}<div
+          bind:this={errorNotice}
+          class="settings-feedback error"
+          role="alert"
+        >
           <p>{error}</p>
           <button
             class="text-button"
@@ -568,13 +674,8 @@
             ><button
               class="secondary-button"
               type="button"
-              onclick={() => {
-                if (pendingNavigation)
-                  applyNavigation(
-                    pendingNavigation.section,
-                    pendingNavigation.id,
-                  );
-              }}>Änderungen verwerfen</button
+              disabled={busy}
+              onclick={discardChanges}>Änderungen verwerfen</button
             >
           </div>
         </div>{/if}
@@ -681,12 +782,25 @@
           </div>
         </fieldset>
       {:else if section === "accounts"}
+        {#if removedDraft}<div class="settings-feedback error" role="alert">
+            <p>
+              Dieses Konto wurde entfernt. Dein Entwurf bleibt sichtbar. Verwirf
+              ihn, um ein anderes Konto zu bearbeiten.
+            </p>
+            <button
+              class="text-button"
+              type="button"
+              onclick={() => navigate("accounts", accounts[0]?.id ?? null)}
+              >Anderes Konto wählen</button
+            >
+          </div>{/if}
         {#key editedId}<AccountSetup
             bind:account
             bind:name
             {existing}
+            removed={removedDraft}
             {busy}
-            {disabled}
+            disabled={disabled || removedDraft}
             onconfigure={save}
             onremove={() => {
               void remove();
@@ -717,9 +831,11 @@
           }}
           onpreview={() => {
             const device = sound.ringDevice;
+            ownsPreview = true;
             void soundOperation(() => previewRingtone(device), false);
           }}
           onstop={() => {
+            ownsPreview = false;
             void soundOperation(stopRingtonePreview, false);
           }}
         />

@@ -23,6 +23,7 @@ pub(crate) struct ShellState {
     stopping: AtomicBool,
     allow_exit: AtomicBool,
     quit_prompt: AtomicBool,
+    settings_guard_ready: AtomicBool,
 }
 
 pub(crate) fn setup(app: &mut tauri::App) -> tauri::Result<()> {
@@ -105,6 +106,13 @@ pub(crate) fn window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
         sync_activation(window.app_handle());
     }
     if matches!(event, tauri::WindowEvent::Destroyed) {
+        if window.label() == "settings" {
+            window
+                .app_handle()
+                .state::<ShellState>()
+                .settings_guard_ready
+                .store(false, Ordering::Release);
+        }
         let app = window.app_handle().clone();
         let queued = app.clone();
         let _ = app.run_on_main_thread(move || sync_activation(&queued));
@@ -119,6 +127,38 @@ pub(crate) fn exit_requested(app: &tauri::AppHandle, api: &tauri::ExitRequestApi
 }
 
 fn request_quit(app: &tauri::AppHandle) {
+    if app
+        .state::<ShellState>()
+        .settings_guard_ready
+        .load(Ordering::Acquire)
+        && let Some(window) = app.get_webview_window("settings")
+    {
+        // Quit is an explicit user action: make draft confirmation visible even
+        // when Settings was minimized, instead of leaving a hidden dead end.
+        let visible = make_regular(app)
+            .and_then(|()| window.unminimize())
+            .and_then(|()| window.show())
+            .and_then(|()| window.set_focus());
+        if visible.is_err()
+            || app
+                .emit_to("settings", "settings-quit-requested", ())
+                .is_err()
+        {
+            app.dialog().message("Die Einstellungen konnten nicht erreicht werden. Öffne sie erneut, um deine Änderungen vor dem Beenden zu prüfen.")
+                .title("SIP beenden").show(|_| {});
+        }
+        return;
+    }
+    quit_after_settings(app);
+}
+
+pub(crate) fn settings_ready(app: &tauri::AppHandle) {
+    app.state::<ShellState>()
+        .settings_guard_ready
+        .store(true, Ordering::Release);
+}
+
+pub(crate) fn quit_after_settings(app: &tauri::AppHandle) {
     let state = app.state::<ShellState>();
     if state.stopping.load(Ordering::Acquire) || state.quit_prompt.swap(true, Ordering::AcqRel) {
         return;

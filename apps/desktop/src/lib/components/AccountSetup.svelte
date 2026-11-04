@@ -12,6 +12,7 @@
     account = $bindable(),
     name = $bindable(),
     existing,
+    removed = false,
     busy,
     disabled,
     onconfigure,
@@ -20,6 +21,7 @@
     account: AccountConfig;
     name: string;
     existing: AccountSnapshot | null;
+    removed?: boolean;
     busy: boolean;
     disabled: boolean;
     onconfigure: (account: AccountConfig, name: string) => Promise<void>;
@@ -31,7 +33,7 @@
   let confirmRemove = $state(false);
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (disabled || busy) return;
+    if (disabled || busy || removed) return;
     const normalized = normalizeAccount(account);
     errors = validateAccount(normalized, existing !== null);
     nameError =
@@ -65,11 +67,19 @@
 
 <div class="settings-title">
   <div>
-    <h1>{existing ? existing.name : "Konto hinzufügen"}</h1>
+    <h1>
+      {removed
+        ? "Konto entfernt"
+        : existing
+          ? existing.name
+          : "Konto hinzufügen"}
+    </h1>
     <p>
-      {existing
-        ? `${existing.username}@${existing.registrar}`
-        : "Verbinde eine Telefonanlage oder deinen SIP-Anbieter."}
+      {removed
+        ? `${account.username}@${account.registrar}`
+        : existing
+          ? `${existing.username}@${existing.registrar}`
+          : "Verbinde eine Telefonanlage oder deinen SIP-Anbieter."}
     </p>
   </div>
   {#if existing}<span
@@ -86,7 +96,7 @@
   </p>{/if}
 
 <form bind:this={form} onsubmit={submit} novalidate>
-  <fieldset disabled={disabled || busy || existing?.removing}>
+  <fieldset disabled={disabled || busy || removed || existing?.removing}>
     <h2 class="settings-group">Kontoinformationen</h2>
     <div class="setting-row">
       <div class="setting-description">
@@ -164,7 +174,7 @@
       <div class="setting-description">
         <label for="password">Passwort</label>
         <p id="password-help">
-          {existing
+          {existing || removed
             ? "Leer lassen, um das gespeicherte Passwort zu behalten."
             : "Wird sicher im System-Schlüsselbund gespeichert."}
         </p>
@@ -175,9 +185,11 @@
           name="password"
           bind:value={account.password}
           type="password"
-          placeholder={existing ? "Gespeichertes Passwort" : "SIP-Passwort"}
+          placeholder={existing || removed
+            ? "Gespeichertes Passwort"
+            : "SIP-Passwort"}
           autocomplete="new-password"
-          required={!existing}
+          required={!existing && !removed}
           aria-invalid={!!errors.password}
           aria-describedby={errors.password
             ? "password-error"
@@ -190,11 +202,13 @@
     <div class="settings-form-actions">
       <p>Änderungen werden mit dem Speichern übernommen.</p>
       <button class="primary-button" type="submit"
-        >{busy
-          ? "Wird gespeichert …"
-          : existing
-            ? "Speichern & verbinden"
-            : "Konto hinzufügen"}</button
+        >{removed
+          ? "Konto entfernt"
+          : busy
+            ? "Wird gespeichert …"
+            : existing
+              ? "Speichern & verbinden"
+              : "Konto hinzufügen"}</button
       >
     </div>
   </fieldset>

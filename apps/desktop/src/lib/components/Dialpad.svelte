@@ -26,6 +26,7 @@
   } = $props();
   let input: HTMLInputElement;
   let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  let holdPointer: number | null = null;
   let plusInserted = false;
   const invalidNumber = $derived(
     value.length > 0 && !/^[0-9+*#]{1,64}$/.test(value),
@@ -49,8 +50,15 @@
     input.focus();
     return cancelHold;
   });
-  function cancelHold() {
+  function cancelHold(event?: PointerEvent) {
+    if (event && event.pointerId !== holdPointer) return;
     clearTimeout(holdTimer);
+    holdPointer = null;
+  }
+  function resetHold(event?: PointerEvent) {
+    if (event && event.pointerId !== holdPointer) return;
+    cancelHold();
+    plusInserted = false;
   }
   async function edit(digit: string | null, focus: boolean) {
     const start = input.selectionStart ?? value.length;
@@ -64,16 +72,21 @@
     if (focus) input.focus();
     input.setSelectionRange(change.caret, change.caret);
   }
-  function beginHold(digit: string) {
+  function beginHold(event: PointerEvent, digit: string) {
+    if (!event.isPrimary || event.button !== 0 || holdPointer !== null) return;
     cancelHold();
     plusInserted = false;
-    if (digit === "0")
+    if (digit === "0") {
+      holdPointer = event.pointerId;
       holdTimer = setTimeout(() => {
         plusInserted = true;
         void edit("+", true);
       }, 550);
+    }
   }
 </script>
+
+<svelte:window onblur={() => resetHold()} />
 
 <form
   class="dial-view"
@@ -128,16 +141,10 @@
             ? `${digit}, ${letters}`
             : digit}
         disabled={busy}
-        onpointerdown={() => beginHold(digit)}
+        onpointerdown={(event) => beginHold(event, digit)}
         onpointerup={cancelHold}
-        onpointerleave={() => {
-          cancelHold();
-          plusInserted = false;
-        }}
-        onpointercancel={() => {
-          cancelHold();
-          plusInserted = false;
-        }}
+        onpointerleave={resetHold}
+        onpointercancel={resetHold}
         onclick={(event) => {
           if (!plusInserted) void edit(digit, event.detail > 0);
           plusInserted = false;

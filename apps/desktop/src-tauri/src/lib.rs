@@ -48,6 +48,8 @@ pub fn run() {
             commands::preview_ringtone,
             commands::stop_ringtone_preview,
             commands::get_desktop_settings,
+            commands::settings_ready,
+            commands::quit_app,
             commands::save_desktop_settings,
             commands::hangup
         ])

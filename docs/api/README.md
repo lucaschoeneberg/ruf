@@ -240,3 +240,30 @@ Network address/DNS recovery runs on the SIP thread every five seconds. Address
 changes are reconciled before a quiet poll rebinds/re-registers transports. All
 mutations are deferred while a call occupies the slot; failed resets retry with a
 capped 60-second backoff. It does not alter Tailscale or OS network configuration.
+
+## Responsive account saves and protected Settings exit
+
+`save_account` and `configure_account` retain their existing input/output DTOs.
+They journal a candidate key under the session lock, perform foreground credential
+authorization outside that lock, then revalidate and commit under the lock.
+Snapshot delivery, native call controls and shutdown continue while authorization
+is pending. A call or account/audio change during authorization can reject the
+commit with `busy` or `invalidState`; the existing account is preserved and orphan
+cleanup remains durably journaled. Background credential reads/cleanup are
+noninteractive and never wait for a foreground authorization prompt.
+
+The Settings window preserves failed-save drafts, including an entered password
+for an immediate retry. Closing/discarding clears that draft from the component;
+passwords are never returned through IPC or saved in browser storage. Removing an
+account externally does not silently convert its dirty edit into a new account.
+Desktop preference load failures do not block account or sound settings.
+
+Settings-only commands `settings_ready` and `quit_app` take no arguments and
+return null. `settings_ready` marks installed close/quit handlers ready before the
+form is editable. Rust routes an explicit app Quit to the ready Settings window
+with `settings-quit-requested` (null payload), making it visible even when minimized.
+The existing discard panel handles drafts; busy saves must finish first. Only
+then does `quit_app` continue the native call confirmation and shutdown path.
+It never bypasses active-call confirmation. Clean or explicitly discarded native
+window closes use the scoped `core:window:allow-destroy` permission; no other
+window gains this permission. Settings destruction clears guard readiness.

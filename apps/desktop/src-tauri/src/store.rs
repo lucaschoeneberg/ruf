@@ -109,11 +109,60 @@ impl AccountStore {
     }
 }
 
+/// Internal credential boundary; system calls may display OS authorization UI.
+pub(crate) trait CredentialStore: Send + Sync {
+    fn read(&self, key: &str, interactive: bool) -> Result<String, PhoneError>;
+    fn write(&self, key: &str, password: &str) -> Result<(), PhoneError>;
+    fn delete(&self, key: &str) -> Result<(), PhoneError>;
+}
+
+pub(crate) struct SystemCredentials;
+impl CredentialStore for SystemCredentials {
+    fn read(&self, key: &str, interactive: bool) -> Result<String, PhoneError> {
+        credential_operation(interactive, || read_password(key))
+    }
+    fn write(&self, key: &str, password: &str) -> Result<(), PhoneError> {
+        credential_operation(true, || write_password(key, password))
+    }
+    fn delete(&self, key: &str) -> Result<(), PhoneError> {
+        credential_operation(false, || delete_password(key))
+    }
+}
+
+// macOS authorization policy is process-global, so never change it while another
+// credential operation owns an interactive prompt. Session-locked callers fail
+// promptly instead of waiting for that prompt.
+static CREDENTIAL_ACCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn credential_operation<T>(
+    interactive: bool,
+    operation: impl FnOnce() -> Result<T, PhoneError>,
+) -> Result<T, PhoneError> {
+    let _access = if interactive {
+        CREDENTIAL_ACCESS.lock().map_err(|_| storage_error())?
+    } else {
+        CREDENTIAL_ACCESS.try_lock().map_err(|_| storage_error())?
+    };
+    #[cfg(target_os = "macos")]
+    let _ui = if !interactive
+        && security_framework::os::macos::keychain::SecKeychain::user_interaction_allowed()
+            .map_err(|_| storage_error())?
+    {
+        Some(
+            security_framework::os::macos::keychain::SecKeychain::disable_user_interaction()
+                .map_err(|_| storage_error())?,
+        )
+    } else {
+        None
+    };
+    operation()
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn entry(key: &str) -> Result<keyring::Entry, PhoneError> {
     keyring::Entry::new("org.sipsoftphone.desktop", key).map_err(|_| storage_error())
 }
-pub(crate) fn read_password(key: &str) -> Result<String, PhoneError> {
+fn read_password(key: &str) -> Result<String, PhoneError> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         entry(key)?.get_password().map_err(|_| storage_error())
@@ -124,7 +173,7 @@ pub(crate) fn read_password(key: &str) -> Result<String, PhoneError> {
         Err(storage_error())
     }
 }
-pub(crate) fn write_password(key: &str, password: &str) -> Result<(), PhoneError> {
+fn write_password(key: &str, password: &str) -> Result<(), PhoneError> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         entry(key)?
@@ -137,7 +186,7 @@ pub(crate) fn write_password(key: &str, password: &str) -> Result<(), PhoneError
         Err(storage_error())
     }
 }
-pub(crate) fn delete_password(key: &str) -> Result<(), PhoneError> {
+fn delete_password(key: &str) -> Result<(), PhoneError> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         match entry(key)?.delete_credential() {
@@ -161,6 +210,36 @@ pub(crate) fn storage_error() -> PhoneError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn noninteractive_credential_access_defers_during_authorization() {
+        use std::{sync::mpsc, time::Duration};
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let authorization = std::thread::spawn(move || {
+            credential_operation(true, || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            })
+        });
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (result_tx, result_rx) = mpsc::channel();
+        let background = std::thread::spawn(move || {
+            result_tx
+                .send(credential_operation(false, || Ok(())))
+                .unwrap();
+        });
+        let result = result_rx.recv_timeout(Duration::from_secs(2));
+        release_tx.send(()).unwrap();
+        authorization.join().unwrap().unwrap();
+        background.join().unwrap();
+        assert!(
+            result.is_ok(),
+            "background credentials waited for foreground authorization"
+        );
+        assert_eq!(result.unwrap().unwrap_err().code, ErrorCode::StorageFailure);
+    }
+
     #[test]
     fn metadata_roundtrip_and_replacement_contain_no_password() {
         let directory = std::env::temp_dir().join(format!("sip-store-{}", std::process::id()));

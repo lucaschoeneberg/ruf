@@ -15,6 +15,9 @@
     "allow-stop-ringtone-preview",
     "allow-get-desktop-settings",
     "allow-save-desktop-settings",
+    "allow-settings-ready",
+    "allow-quit-app",
+    "core:window:allow-destroy",
     "core:event:allow-listen",
     "core:event:allow-unlisten"
   ]
