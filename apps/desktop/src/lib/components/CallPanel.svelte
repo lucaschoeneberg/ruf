@@ -7,6 +7,7 @@
     elapsed,
     busy,
     compact,
+    testAudio = false,
     onanswer,
     onhangup,
   }: {
@@ -15,6 +16,7 @@
     elapsed: string;
     busy: boolean;
     compact: boolean;
+    testAudio?: boolean;
     onanswer: () => void;
     onhangup: () => void;
   } = $props();
@@ -41,6 +43,9 @@
   </div>
   {#if state === "active"}<p class="call-timer" aria-label="Gesprächsdauer">
       {elapsed}
+    </p>{/if}
+  {#if testAudio}<p class="call-test-note">
+      Testton · empfangenes Audio wird aufgezeichnet
     </p>{/if}
   <div class="call-actions">
     {#if state === "incoming"}<button

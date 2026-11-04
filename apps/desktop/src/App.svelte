@@ -11,16 +11,19 @@
     hangup,
   } from "./lib/api";
   import type {
+    AccountConfig,
     AppInfo,
-    AudioMode,
     EngineSnapshot,
     RegistrationState,
   } from "./lib/generated/AppInfo";
   import Icon from "./lib/components/Icon.svelte";
   import Dialpad from "./lib/components/Dialpad.svelte";
   import CallPanel from "./lib/components/CallPanel.svelte";
+  import AccountSetup from "./lib/components/AccountSetup.svelte";
+  import GettingStarted from "./lib/components/GettingStarted.svelte";
+  import { hasSeenIntroduction, rememberIntroduction } from "./lib/onboarding";
 
-  type View = "dialer" | "contacts" | "history" | "settings";
+  type View = "dialer" | "contacts" | "history" | "settings" | "start";
   let view = $state<View>("dialer");
   let previousView: Exclude<View, "settings"> = "dialer";
   let info = $state<AppInfo | null>(null);
@@ -32,10 +35,20 @@
   let lastNativeError: string | null = null;
   let operationEpoch = 0;
   let mounted = false;
-  let registrar = $state("127.0.0.1:5070");
-  let username = $state("1000");
-  let password = $state("");
-  let audioMode = $state<AudioMode>("testTone");
+  let account = $state<AccountConfig>({
+    registrar: "",
+    username: "",
+    password: "",
+    audioMode: "system",
+  });
+  let introductionSeen = true;
+  let introductionStorage: Storage | null = null;
+  let initialSnapshotReceived = false;
+  let navigated = false;
+  let pendingRegistration = false;
+  let pendingName = "";
+  let audioLocked = $state(false);
+  let firstCallHint = $state(false);
   let accountName = $state("");
   let destination = $state("");
   let lastDialed = $state("");
@@ -72,9 +85,11 @@
       ? "Telefonie wird geladen …"
       : browser
         ? "Browser-Vorschau"
-        : !nativeAvailable
+        : info?.telephony === "notLinked"
           ? "Telefonie nicht eingebunden"
-          : registrationLabels[registration],
+          : !snapshot
+            ? "Status nicht verfügbar"
+            : registrationLabels[registration],
   );
   const tabs = [
     { id: "dialer", label: "Tastatur", icon: "keypad" },
@@ -82,8 +97,41 @@
     { id: "history", label: "Verlauf", icon: "history" },
   ] as const;
 
+  const introRuntime = $derived(
+    browser
+      ? "browser"
+      : info?.telephony === "notLinked"
+        ? "unlinked"
+        : nativeAvailable
+          ? "desktop"
+          : "unavailable",
+  );
+  const setupLabel = $derived(
+    browser || !nativeAvailable
+      ? "Starthilfe öffnen"
+      : registration === "failed"
+        ? "Verbindung prüfen"
+        : registration === "registering"
+          ? "Anmeldung läuft · Angaben ansehen"
+          : "SIP-Konto verbinden",
+  );
+  const connectionHint = $derived(
+    account.audioMode === "testTone"
+      ? "Testton statt Mikrofon · Audio wird aufgezeichnet"
+      : firstCallHint
+        ? "Verbunden. Jetzt eine Nummer wählen."
+        : "0 halten für + · Enter zum Anrufen",
+  );
+
+  function markIntroduction() {
+    if (introductionSeen) return;
+    introductionSeen = true;
+    if (introductionStorage) rememberIntroduction(introductionStorage);
+  }
   function selectView(next: View) {
-    password = "";
+    account.password = "";
+    navigated = true;
+    if (view === "start" && next !== "start") markIntroduction();
     if (next === "settings" && view !== "settings") previousView = view;
     view = next;
   }
@@ -98,28 +146,78 @@
     }
     now = Date.now();
     const nextError = next.lastError?.message ?? null;
-    if (nextError && nextError !== lastNativeError) error = nextError;
+    if (
+      nextError &&
+      nextError !== lastNativeError &&
+      next.registration !== "failed"
+    )
+      error = errorMessage(next.lastError);
     lastNativeError = nextError;
     snapshot = next;
+    if (!initialSnapshotReceived) {
+      initialSnapshotReceived = true;
+      if (
+        !introductionSeen &&
+        !navigated &&
+        next.call === "idle" &&
+        next.registration === "unconfigured"
+      )
+        view = "start";
+    }
+    if (next.registration !== "unconfigured") audioLocked = true;
+    if (next.registration === "registered") {
+      markIntroduction();
+      if (pendingRegistration) {
+        pendingRegistration = false;
+        accountName = pendingName;
+        firstCallHint = true;
+        if (view === "settings" || view === "start") selectView("dialer");
+      }
+    } else if (next.registration === "failed") {
+      pendingRegistration = false;
+      firstCallHint = false;
+    }
+  }
+  async function refreshNativeState() {
+    if (browser) return;
+    loading = true;
+    error = null;
+    const epoch = operationEpoch;
+    try {
+      const result = await getAppInfo();
+      if (!mounted || epoch !== operationEpoch) return;
+      info = result;
+      if (result.telephony === "linked") {
+        const state = await getEngineSnapshot();
+        if (mounted && epoch === operationEpoch && !busy) applySnapshot(state);
+      } else if (!introductionSeen && !navigated) view = "start";
+    } catch (reason: unknown) {
+      if (mounted) {
+        error = errorMessage(reason);
+        if (!introductionSeen && !navigated) view = "start";
+      }
+    } finally {
+      if (mounted) loading = false;
+    }
   }
   onMount(() => {
     mounted = true;
+    try {
+      introductionStorage = window.localStorage;
+    } catch {
+      /* Restricted webview: session-only introduction. */
+    }
+    introductionSeen = introductionStorage
+      ? hasSeenIntroduction(introductionStorage)
+      : false;
     browser = !isTauri();
     let polling = false;
-    if (browser) loading = false;
-    else
-      void getAppInfo()
-        .then((result) => {
-          if (mounted) info = result;
-        })
-        .catch((reason: unknown) => {
-          if (mounted) error = errorMessage(reason);
-        })
-        .finally(() => {
-          if (mounted) loading = false;
-        });
+    if (browser) {
+      loading = false;
+      if (!introductionSeen) view = "start";
+    } else void refreshNativeState();
     const timer = setInterval(() => {
-      if (!mounted || polling || busy || !nativeAvailable) return;
+      if (!mounted || loading || polling || busy || !nativeAvailable) return;
       polling = true;
       const epoch = operationEpoch;
       void getEngineSnapshot()
@@ -137,9 +235,10 @@
     return () => {
       mounted = false;
       clearInterval(timer);
-      password = "";
+      account.password = "";
     };
   });
+
   async function perform(
     operation: () => Promise<EngineSnapshot>,
   ): Promise<boolean> {
@@ -159,25 +258,28 @@
       if (mounted) busy = false;
     }
   }
-  async function register(event: SubmitEvent) {
-    event.preventDefault();
+  async function register(submitted: AccountConfig) {
     if (!nativeAvailable || !callIdle || busy) return;
-    const account = { registrar, username, password, audioMode };
-    password = "";
-    if (await perform(() => configureAccount(account))) {
-      accountName = account.username;
-      selectView("dialer");
-    }
+    account = { ...submitted, password: "" };
+    pendingRegistration = true;
+    pendingName = submitted.username;
+    markIntroduction();
+    const queued = await perform(() => configureAccount(submitted));
+    if (queued) audioLocked = true;
+    else pendingRegistration = false;
   }
   async function placeCall() {
     if (!canCall || busy) return;
     const target = destination;
-    if (await perform(() => dial(target))) lastDialed = target;
+    if (await perform(() => dial(target))) {
+      lastDialed = target;
+      firstCallHint = false;
+    }
   }
   function onEscape(event: KeyboardEvent) {
-    if (event.key === "Escape" && view === "settings") {
+    if (event.key === "Escape" && (view === "settings" || view === "start")) {
       event.preventDefault();
-      selectView(previousView);
+      selectView(view === "start" ? "dialer" : previousView);
     }
   }
 </script>
@@ -194,28 +296,53 @@
         ><span class="status-dot" aria-hidden="true"></span>{availability}</span
       >
     </div>
-    <button
-      class="icon-button settings-button"
-      class:selected={view === "settings"}
-      type="button"
-      aria-label={view === "settings"
-        ? "Einstellungen schließen"
-        : "Kontoeinstellungen"}
-      title={view === "settings"
-        ? "Einstellungen schließen"
-        : "Kontoeinstellungen"}
-      aria-pressed={view === "settings"}
-      onclick={() =>
-        selectView(view === "settings" ? previousView : "settings")}
-      ><Icon
-        name={view === "settings" ? "close" : "settings"}
-        size={20}
-      /></button
-    >
+    <div class="header-actions">
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Starthilfe"
+        title="Starthilfe"
+        aria-pressed={view === "start"}
+        onclick={() => selectView(view === "start" ? "dialer" : "start")}
+        ><Icon name="info" size={19} /></button
+      >
+      <button
+        class="icon-button settings-button"
+        class:selected={view === "settings"}
+        type="button"
+        aria-label={view === "settings"
+          ? "Einstellungen schließen"
+          : "Kontoeinstellungen"}
+        title={view === "settings"
+          ? "Einstellungen schließen"
+          : "Kontoeinstellungen"}
+        aria-pressed={view === "settings"}
+        onclick={() =>
+          selectView(view === "settings" ? previousView : "settings")}
+        ><Icon
+          name={view === "settings" ? "close" : "settings"}
+          size={20}
+        /></button
+      >
+    </div>
   </header>
 
   {#if error}<div class="error-notice">
-      <p role="alert">{error}</p>
+      <div class="error-copy">
+        <p role="alert">{error}</p>
+        {#if !info && !browser}<button
+            class="text-button"
+            type="button"
+            disabled={loading}
+            onclick={() => {
+              void refreshNativeState();
+            }}>Status erneut laden</button
+          >{:else if registration === "failed" && view !== "settings"}<button
+            class="text-button"
+            type="button"
+            onclick={() => selectView("settings")}>Verbindung prüfen</button
+          >{/if}
+      </div>
       <button
         class="icon-button"
         type="button"
@@ -231,6 +358,7 @@
         peer={incoming ? "Unbekannte Nummer" : lastDialed || "Aktueller Anruf"}
         elapsed={elapsedLabel}
         {busy}
+        testAudio={account.audioMode === "testTone"}
         compact={view !== "dialer"}
         onanswer={() => {
           void perform(answer);
@@ -241,93 +369,39 @@
       />
     {/if}
 
-    {#if view === "dialer"}
+    {#if view === "start"}
+      <GettingStarted
+        runtime={introRuntime}
+        {registration}
+        onsetup={() => selectView("settings")}
+        onexplore={() => selectView("dialer")}
+      />
+    {:else if view === "dialer"}
       {#if callIdle}<Dialpad
           bind:value={destination}
           {canCall}
           {busy}
           {registered}
+          {connectionHint}
+          {setupLabel}
+          setupEnabled={!loading}
           oncall={() => {
             void placeCall();
           }}
-          onsetup={() => selectView("settings")}
+          onsetup={() => selectView(nativeAvailable ? "settings" : "start")}
         />{/if}
     {:else if view === "settings"}
-      <section class="settings-view" aria-labelledby="account-heading">
-        <div class="view-heading">
-          <button
-            class="icon-button back-button"
-            type="button"
-            aria-label="Zurück"
-            onclick={() => selectView(previousView)}
-            ><Icon name="back" size={18} /></button
-          >
-          <h1 id="account-heading">SIP-Konto</h1>
-        </div>
-        <p class="view-description">
-          Verbinde dein Telefon mit der Testanlage.
-        </p>
-        {#if !nativeAvailable}<p class="inline-note">
-            <Icon name="info" size={16} /><span
-              >{browser
-                ? "Die Vorschau zeigt das Layout. Anmelden und telefonieren kannst du in der Desktop-App."
-                : "Dieser Build enthält keine native Telefonie-Engine."}</span
-            >
-          </p>{/if}
-        <form onsubmit={register}>
-          <fieldset disabled={busy || !callIdle}>
-            <label for="registrar">Registrar</label><input
-              id="registrar"
-              bind:value={registrar}
-              required
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="sip.example.org"
-            />
-            <label for="username">Benutzername</label><input
-              id="username"
-              bind:value={username}
-              required
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <label for="password">Passwort</label><input
-              id="password"
-              bind:value={password}
-              type="password"
-              required
-              autocomplete="off"
-            />
-            <label for="audio">Audio</label><select
-              id="audio"
-              bind:value={audioMode}
-              ><option value="testTone">Testton · lokale Testanlage</option
-              ><option value="system">Mikrofon und Lautsprecher</option></select
-            >
-            <button
-              class="primary-button register-button"
-              type="submit"
-              disabled={!nativeAvailable || busy || !callIdle}
-              >{busy
-                ? "Wird angemeldet …"
-                : registered
-                  ? "Konto neu anmelden"
-                  : "Anmelden"}</button
-            >
-          </fieldset>
-        </form>
-        <div class="settings-notes">
-          <p>Dein Passwort bleibt nur im Arbeitsspeicher.</p>
-          <p>
-            SIP/UDP ist unverschlüsselt. Verwende vorerst ein isoliertes
-            Testnetz.
-          </p>
-          <p>
-            Im Testton-Modus wird empfangenes Audio im App-Cache gespeichert.
-            Ein Wechsel des Audiomodus erfordert einen App-Neustart.
-          </p>
-        </div>
-      </section>
+      <AccountSetup
+        bind:account
+        {nativeAvailable}
+        {browser}
+        {busy}
+        {callIdle}
+        {registration}
+        {audioLocked}
+        onconfigure={register}
+        onback={() => selectView(previousView)}
+      />
     {:else}
       <section class="collection-view" aria-labelledby="collection-heading">
         <div class="view-heading">
@@ -339,13 +413,13 @@
           <Icon name={view === "contacts" ? "contacts" : "history"} size={32} />
           <h2>
             {view === "contacts"
-              ? "Deine Kontakte. Bald hier."
-              : "Deine Anrufe im Überblick."}
+              ? "Kontakte noch nicht verbunden"
+              : "Verlauf noch nicht verfügbar"}
           </h2>
           <p>
             {view === "contacts"
-              ? "Die Adressbuch-Anbindung ist noch nicht verfügbar. Wähle eine Nummer direkt über die Tastatur."
-              : "Der Anrufverlauf wird noch nicht gespeichert. Hier findest du ihn, sobald die Anbindung verfügbar ist."}
+              ? "Hier sollen deine Kontakte zum schnellen Anrufen erscheinen. Die Adressbuch-Anbindung fehlt noch; du kannst Nummern bereits direkt wählen."
+              : "Hier sollen vergangene und verpasste Anrufe erscheinen. Diese Version speichert noch keinen Verlauf. Wähle direkt über die Tastatur."}
           </p>
           <button
             class="secondary-button"

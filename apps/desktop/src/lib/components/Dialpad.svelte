@@ -8,6 +8,9 @@
     canCall,
     busy,
     registered,
+    connectionHint,
+    setupLabel,
+    setupEnabled,
     oncall,
     onsetup,
   }: {
@@ -15,6 +18,9 @@
     canCall: boolean;
     busy: boolean;
     registered: boolean;
+    connectionHint: string;
+    setupLabel: string;
+    setupEnabled: boolean;
     oncall: () => void;
     onsetup: () => void;
   } = $props();
@@ -150,8 +156,11 @@
     disabled={!canCall || busy}><Icon name="phone" size={18} />Anrufen</button
   >
   <div class="dial-help">
-    {#if !registered}<button type="button" class="text-button" onclick={onsetup}
-        >Zuerst SIP-Konto einrichten</button
-      >{:else}<span>Zum Anrufen auch die Eingabetaste nutzen</span>{/if}
+    {#if !registered}<button
+        type="button"
+        class="text-button"
+        disabled={!setupEnabled}
+        onclick={onsetup}>{setupLabel}</button
+      >{:else}<span role="status">{connectionHint}</span>{/if}
   </div>
 </form>
