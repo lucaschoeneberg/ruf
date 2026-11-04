@@ -1,5 +1,11 @@
 # Desktop IPC API
 
+Native macOS phonebook commands and generated DTOs are documented in
+[Contacts](contacts.md). Local call-history commands, queries and callbacks are
+documented in [History](history.md). `EngineSnapshot.callerContact` is an authorized
+current address-book projection; `historyError` is a nullable sticky `PhoneError`
+for history recording failures. Both fields are required nullable output fields.
+
 No HTTP server or HTTP status-code mapping is exposed. Frontend wrappers reject
 browser previews. Rust phone-core and ts-rs own the DTOs; `bun run types:generate`
 updates the TypeScript contract. All success responses are password-free.
@@ -16,18 +22,18 @@ shared Rust session, registrations and any call. The main phone stays compact.
 
 ## Commands
 
-| Command               | Input                                                                          | Result / behavior                                                                                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_app_info`        | none                                                                           | `AppInfo {version, telephony: "linked" \| "notLinked"}`. Compiled availability only; does not initialize SIP or read credentials.                                                   |
-| `open_settings`       | optional `{section: "accounts" \| "audio" \| "general" \| "about"}`, main only | `null` on success; opens/focuses the singleton settings window.                                                                                                                     |
-| `get_engine_snapshot` | none                                                                           | `EngineSnapshot`. Startup restores saved accounts in Rust independently of windows. Reads share the same managed session and can complete initialization if needed.                 |
-| `save_account`        | `{id: number \| null, name: string, account: AccountConfig}`                   | Null/missing ID creates; existing ID updates. Saves metadata/keychain credentials and waits for native configuration acceptance. Actual registration remains asynchronous.          |
-| `select_account`      | `{id: number}`                                                                 | Persists outgoing selection without unregistering other accounts. Requires idle call state.                                                                                         |
-| `remove_account`      | `{id: number}`                                                                 | Requires idle state. Waits for native removal, commits metadata deletion and removes the keychain secret. A native incoming-call rejection leaves saved data unchanged.             |
-| `configure_account`   | `{account: AccountConfig}`                                                     | Compatibility command, settings only: save/replace the selected account, using username as its name. **Now durable**, unlike the earlier ephemeral API. New UI uses `save_account`. |
-| `dial`                | `{destination: string}`                                                        | Reserves the single call slot on the selected, registered account. Number/extension: 1–64 ASCII digits or `+ * #`; arbitrary SIP URIs are unsupported.                              |
-| `answer`              | required `{callId: string}`                                                    | Accepts the current incoming call on its own account, independent of outgoing selection.                                                                                            |
-| `hangup`              | required `{callId: string}`                                                    | Rejects/ends the current call; native completion follows through state.                                                                                                             |
+| Command               | Input                                                                                        | Result / behavior                                                                                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_app_info`        | none                                                                                         | `AppInfo {version, telephony: "linked" \| "notLinked"}`. Compiled availability only; does not initialize SIP or read credentials.                                                   |
+| `open_settings`       | optional `{section: "accounts" \| "audio" \| "general" \| "contacts" \| "about"}`, main only | `null` on success; opens/focuses the singleton settings window.                                                                                                                     |
+| `get_engine_snapshot` | none                                                                                         | `EngineSnapshot`. Startup restores saved accounts in Rust independently of windows. Reads share the same managed session and can complete initialization if needed.                 |
+| `save_account`        | `{id: number \| null, name: string, account: AccountConfig}`                                 | Null/missing ID creates; existing ID updates. Saves metadata/keychain credentials and waits for native configuration acceptance. Actual registration remains asynchronous.          |
+| `select_account`      | `{id: number}`                                                                               | Persists outgoing selection without unregistering other accounts. Requires idle call state.                                                                                         |
+| `remove_account`      | `{id: number}`                                                                               | Requires idle state. Waits for native removal, commits metadata deletion and removes the keychain secret. A native incoming-call rejection leaves saved data unchanged.             |
+| `configure_account`   | `{account: AccountConfig}`                                                                   | Compatibility command, settings only: save/replace the selected account, using username as its name. **Now durable**, unlike the earlier ephemeral API. New UI uses `save_account`. |
+| `dial`                | `{destination: string}`                                                                      | Reserves the single call slot on the selected, registered account. Number/extension: 1–64 ASCII digits or `+ * #`; arbitrary SIP URIs are unsupported.                              |
+| `answer`              | required `{callId: string}`                                                                  | Accepts the current incoming call on its own account, independent of outgoing selection.                                                                                            |
+| `hangup`              | required `{callId: string}`                                                                  | Rejects/ends the current call; native completion follows through state.                                                                                                             |
 
 All except `get_app_info` can reject with `PhoneError`. Tauri separately rejects
 malformed arguments, missing required fields, unknown account fields/enum values,
@@ -70,6 +76,7 @@ do not use this mode for private calls. The upstream path limit is 127 UTF-8 byt
   selectedAccountId: number | null;
   callAccountId: number | null;
   callId: string | null;
+  caller: { name: string | null; number: string | null } | null;
   audioMode: "system" | "testTone" | null;
   soundSettings: SoundSettings;
   ringtonePlaying: boolean;
@@ -82,6 +89,17 @@ incoming calls to another account. `audioMode` is the real shared native mode,
 null before engine initialization. Webview reloads/settings windows read this
 value and do not infer it from draft defaults. `active` means SIP established;
 [the echo test](../../tests/interop/asterisk/README.md) separately verifies media.
+
+`caller` is a required nullable `CallerIdentity`. Its required nullable `name` and
+`number` fields are the bounded, plain-text display name and URI user from the
+incoming SIP From header, not a verified identity. Only incoming calls supply it;
+it remains through `answering`/`active` and clears on idle/new outgoing calls.
+Display names fit 128 UTF-8 bytes, URI users 80 bytes, truncated at UTF-8 boundaries;
+malformed or control/bidi-containing fields are omitted. SIP URI hosts/passwords and
+P-Asserted-Identity are never used as the displayed number. Anonymous/withheld
+From values or Privacy `id` suppress the number. The UI shows name and number,
+number alone, or “Unbekannter Anrufer”. No caller data is added to diagnostics
+or account metadata. Address-book matching is not part of this contract.
 
 `AccountSnapshot` contains required `id`, `name`, `registrar`, `username`,
 `registration`, nullable `lastError`, and boolean `removing`. Registration failures
@@ -199,7 +217,13 @@ Login start is user-session startup, not a system daemon or sleep/offline servic
 
 Rust emits `phone-state-changed` with the full password-free `EngineSnapshot` to
 `main` and `settings` when observed state changes. Both windows subscribe and retain
-initial/visible fallback reads. Native ring audio and registration do not depend on
+initial/visible fallback reads. Main-thread delivery keeps one pending snapshot,
+replacing it with the latest observation while the UI queue is blocked; this event
+is a current-state projection, not a complete transition log. If a read fails after
+a successful observation, the observer retains the last known call, account and
+notification preference state and attaches the read error as `lastError`; it does
+not infer call termination or disabled notifications. A later successful read
+replaces that retained state. Native ring audio and registration do not depend on
 those listeners. Rust emits `settings-section` (one of the four section strings)
 only to the settings window; existing drafts still require an explicit discard.
 The optional `open_settings.section` defaults to `accounts`; invalid sections
@@ -207,17 +231,18 @@ reject with `invalidInput`. Existing-window focus/build failures use `nativeFail
 
 Settings-only commands:
 
-| Command                 | Required input                                               | Output / errors                                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `get_desktop_settings`  | none                                                         | `DesktopSettings`; `storageFailure` or `nativeFailure` if the store/OS state is unavailable.                                                                                         |
-| `save_desktop_settings` | `{autostartEnabled: boolean, notificationsEnabled: boolean}` | Actual `DesktopSettings` after saving. `invalidInput` when enabling login start in unsupported locations; `storageFailure` on persistence errors; `nativeFailure` for OS operations. |
+| Command                           | Required input                                               | Output / errors                                                                                                                                                                                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_desktop_settings`            | none                                                         | `DesktopSettings`; `storageFailure` or `nativeFailure` if the store/OS state is unavailable.                                                                                                                                                                                      |
+| `request_notification_permission` | none                                                         | `DesktopSettings` after an explicit foreground OS authorization request. Denial returns `notificationsGranted: false`; unsupported launch contexts return null. Native bridge failures use `nativeFailure`; persistence read failures use `storageFailure`. Settings window only. |
+| `save_desktop_settings`           | `{autostartEnabled: boolean, notificationsEnabled: boolean}` | Actual `DesktopSettings` after saving. `invalidInput` when enabling login start in unsupported locations; `storageFailure` on persistence errors; `nativeFailure` for OS operations.                                                                                              |
 
 `DesktopSettings` has required boolean `autostartEnabled`, `autostartAvailable`,
 `notificationsEnabled`, and nullable boolean `notificationsGranted`. Login-start
 registration comes from the official OS integration plugin. On macOS it checks
 the LaunchAgent entry; an external OS background-item policy can still disable
-execution, which this API cannot detect. Release installations in `/Applications/SIP.app`,
-`~/Applications/SIP.app`, or the standard Windows per-user/Program Files `SIP`
+execution, which this API cannot detect. Release installations in `/Applications/Ruf.app`,
+`~/Applications/Ruf.app`, or the standard Windows per-user/Program Files `Ruf`
 locations can register; debug/temporary bundles cannot register or alter an existing
 installed app's login entry. First successful account registration enables login
 start once. Explicitly disabling it is respected on subsequent starts.
@@ -228,13 +253,42 @@ Existing metadata without this object loads unchanged; credentials remain in the
 system store. Preference updates serialize the OS change with metadata commits
 and attempt rollback if persistence fails.
 
-`notificationsGranted` is **null on desktop**: the current plugin cannot query real
-OS authorization, even though its permission API reports Granted unconditionally.
-The UI does not claim authorization. OS notification settings and Focus modes may
-suppress banners; native ringing and tray controls remain available. Incoming calls
-produce at most one passive notification per observed call, without focusing a
-window. There are no stale notification call buttons. Useful native call actions
-carry the displayed `callId`, including when a native menu remains open across calls.
+`notificationsGranted` reflects native OS authorization: true when authorized,
+false when not yet decided/denied/blocked, null for an unsupported platform or
+launch context (including unbundled macOS binaries and temporary Windows builds).
+Reading settings or receiving calls never requests permission. Only enabling
+notices in foreground settings or clicking “Mitteilungen erlauben” can request it.
+A prior OS denial must be changed in system settings. Focus/display policy can
+still suppress authorized banners; native ringing remains independent.
+
+Incoming calls produce a silent native banner with caller name/number and the
+receiving account, plus **Annehmen** / **Ablehnen**. No window is focused by
+arrival or either button, including on errors. Clicking the banner body opens
+the phone without answering. OS presentation can place actions under an options
+menu. The native APIs are UserNotifications.framework on macOS and WinRT toasts
+with a COM activator on Windows; the Tauri notification plugin is not used.
+
+Native delivery runs on a separate worker with a bounded latest-state handoff;
+OS latency cannot stall phone-state events. Show/withdraw/reset effects serialize
+separately from live call authorization, preventing an in-flight show from
+overtaking a cancellation, permission refresh or shutdown.
+
+Every offer uses a fresh random 16-hex-character token, mapped to the current
+session-local `callId`. Tokens carry no caller data and are not exposed via IPC.
+Actions recheck token, call ID, Incoming state and one-time claim under the phone
+session lock; the native SIP thread repeats its generation/unanswered check.
+A stale notice or duplicate callback cannot answer a replacement call or reject
+an active call. Answer enters `answering`; only the native ACK/established event
+sets `active`. Errors remain passive; a still-ringing failed attempt can be
+offered again. Answering, rejection, cancellation, preference disable and shutdown
+withdraw pending and delivered notices. No per-call persistent record is created.
+
+Windows installed releases register a per-user COM activator and AppUserModelId;
+NSIS uninstall removes those exact keys. `--notification-activation` keeps COM
+launches hidden and cannot bypass live-call validation. Development/temporary
+Windows builds do not register or overwrite installed-app activation entries.
+Windows Notification Center actions require runtime acceptance on Windows;
+cross-compilation alone does not confirm delivery or installer behavior.
 
 Network address/DNS recovery runs on the SIP thread every five seconds. Address
 changes are reconciled before a quiet poll rebinds/re-registers transports. All
@@ -267,3 +321,33 @@ then does `quit_app` continue the native call confirmation and shutdown path.
 It never bypasses active-call confirmation. Clean or explicitly discarded native
 window closes use the scoped `core:window:allow-destroy` permission; no other
 window gains this permission. Settings destruction clears guard readiness.
+
+## Ruf desktop identity
+
+The display name is **Ruf** and the bundle identifier is `org.rufapp.desktop`.
+Commands, DTO fields, validation and error codes are unchanged by the rename.
+The release bundle is `Ruf.app` on macOS and installs under `Ruf` on Windows;
+the internal executable remains `sip-desktop`.
+
+Account metadata, desktop preferences and contact favorites use this bundle's
+own application-data directory (`org.rufapp.desktop` for Ruf). OS passwords use
+`org.rufapp.desktop` as their credential service. The former compatibility
+routing to `org.sipsoftphone.desktop` has been removed at the user's request.
+There is no fallback or automatic import of old SIP accounts, favorites or
+settings. A clean Ruf installation starts without accounts; add credentials
+again through the existing account settings. Other bundle identifiers use their
+own application-data directories.
+
+Incoming notifications use the Ruf bundle identity and its platform icon.
+Caller titles and notification actions belong to the existing call-notification
+implementation; the rename does not change their contracts.
+macOS may require fresh microphone, contacts and notification consent for the new
+identity. Its menu-bar symbol is a transparent monochrome r/handset template; the
+OS applies light/dark tint, including after every status-image update: light
+on a dark menu bar and dark on a light menu bar. Windows uses the same blue mark. A small badge means
+a registered account is available; a larger badge means a non-idle call. No badge
+means neither condition holds. Tooltip and menu text describe the actual state.
+
+OS login registrations created under SIP remain separate. Remove a stale SIP
+login item and enable login start in Ruf after installing the renamed bundle.
+A saved explicit opt-out remains respected.

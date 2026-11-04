@@ -9,20 +9,19 @@ async fn with_session(
     state: tauri::State<'_, PhoneState>,
     operation: impl FnOnce(&mut PhoneSession) -> Result<EngineSnapshot, PhoneError> + Send + 'static,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let directory = crate::store::data_directory(&app)?;
     let cache = app
         .path()
         .app_cache_dir()
         .map_err(|_| crate::store::storage_error())?;
-    state
+    let mut snapshot = state
         .execute(move |session| {
             session.load(directory, cache)?;
             operation(session)
         })
-        .await
+        .await?;
+    crate::contacts::enrich_snapshot(&app, &mut snapshot);
+    Ok(snapshot)
 }
 
 /// Read startup information without initializing telephony or accessing credentials.
@@ -53,10 +52,7 @@ pub async fn save_account(
     name: String,
     account: AccountConfig,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let directory = crate::store::data_directory(&app)?;
     let cache = app
         .path()
         .app_cache_dir()
@@ -73,10 +69,7 @@ pub async fn configure_account(
     state: tauri::State<'_, PhoneState>,
     account: AccountConfig,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let directory = crate::store::data_directory(&app)?;
     let cache = app
         .path()
         .app_cache_dir()
@@ -153,7 +146,10 @@ pub async fn open_settings(
     section: Option<String>,
 ) -> Result<(), PhoneError> {
     let section = section.unwrap_or_else(|| "accounts".into());
-    if !matches!(section.as_str(), "general" | "accounts" | "audio" | "about") {
+    if !matches!(
+        section.as_str(),
+        "general" | "accounts" | "audio" | "contacts" | "about"
+    ) {
         return Err(PhoneError::new(
             ErrorCode::InvalidInput,
             "Unknown settings section.",
@@ -174,7 +170,7 @@ pub async fn open_settings(
         "settings",
         tauri::WebviewUrl::App(format!("index.html?window=settings&section={section}").into()),
     )
-    .title("SIP · Einstellungen")
+    .title("Ruf · Einstellungen")
     .inner_size(900.0, 660.0)
     .min_inner_size(740.0, 540.0)
     .theme(Some(tauri::Theme::Dark))
@@ -192,6 +188,21 @@ pub async fn get_desktop_settings(
     tauri::async_runtime::spawn_blocking(move || crate::desktop::settings(&app))
         .await
         .map_err(|_| window_error())?
+}
+
+/// Ask for native notification access only after a foreground settings action.
+/// Returns current desktop settings; denial is a normal permission result.
+#[tauri::command]
+pub async fn request_notification_permission(
+    app: tauri::AppHandle,
+) -> Result<phone_core::DesktopSettings, PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::call_notifications::permission(true)?;
+        crate::call_notifications::refresh_authorization(&app);
+        crate::desktop::settings(&app)
+    })
+    .await
+    .map_err(|_| window_error())?
 }
 
 /// Change login-start/notification preferences from the foreground settings window only.

@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import phone from "../tests/ui/browser/phone.mjs";
 import settings from "../tests/ui/browser/settings.mjs";
 import layout from "../tests/ui/browser/layout.mjs";
+import history from "../tests/ui/browser/history.mjs";
+import contacts from "../tests/ui/browser/contacts.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = mkdtempSync(join(tmpdir(), "sip-ui-flows-"));
@@ -110,6 +112,8 @@ try {
   mkdirSync(join(root, "output/playwright"), { recursive: true });
   run("open", url, `--config=${config}`);
   for (const [name, test] of [
+    ["contacts", contacts],
+    ["history", history],
     ["phone", phone],
     ["settings", settings],
     ["layout", layout],

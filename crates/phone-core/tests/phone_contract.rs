@@ -161,3 +161,14 @@ fn sound_defaults_and_device_boundaries_preserve_native_configuration() {
     sound.ring_device = "bad\0device".into();
     assert!(sound.validate().is_err());
 }
+
+#[test]
+fn reserving_outgoing_call_discards_previous_caller_identity() {
+    let mut state = multiple_accounts();
+    state.caller = Some(phone_core::CallerIdentity {
+        name: Some("Lab Caller".into()),
+        number: Some("1001".into()),
+    });
+    state.reserve_dial("600").unwrap();
+    assert!(state.caller.is_none());
+}

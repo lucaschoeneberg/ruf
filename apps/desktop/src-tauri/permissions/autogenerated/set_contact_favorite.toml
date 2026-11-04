@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-contact-favorite"
+description = "Enables the set_contact_favorite command without any pre-configured scope."
+commands.allow = ["set_contact_favorite"]
+
+[[permission]]
+identifier = "deny-set-contact-favorite"
+description = "Denies the set_contact_favorite command without any pre-configured scope."
+commands.deny = ["set_contact_favorite"]

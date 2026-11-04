@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SIP",
+  "productName": "Ruf",
   "version": "../../../package.json",
-  "identifier": "org.sipsoftphone.desktop",
+  "identifier": "org.rufapp.desktop",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "SIP",
+        "title": "Ruf",
         "width": 340,
         "height": 500,
         "minWidth": 320,
@@ -31,7 +31,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "shortDescription": "SIP softphone native development build",
+    "shortDescription": "Ruf · kompaktes SIP-Softphone",
     "resources": {
       "../../../LICENSE": "LICENSE",
       "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
@@ -44,6 +44,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "14.0",
       "signingIdentity": "-",

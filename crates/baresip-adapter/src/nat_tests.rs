@@ -46,6 +46,27 @@ struct Lab {
     target: String,
 }
 impl Lab {
+    fn request_in_dialog(
+        &self,
+        response: &str,
+        method: &str,
+        sequence: u32,
+        headers: &str,
+        body: &str,
+    ) {
+        let endpoint = self.incoming.local_addr().unwrap();
+        let packet = format!(
+            "{method} {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKevent{sequence};rport\r\nMax-Forwards: 70\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: {sequence} {method}\r\nContact: <sip:caller@{endpoint}>\r\n{headers}Content-Length: {}\r\n\r\n{body}",
+            uri(header(response, "Contact:")),
+            header(response, "From:"),
+            header(response, "To:"),
+            header(response, "Call-ID:"),
+            body.len(),
+        );
+        self.incoming
+            .send_to(packet.as_bytes(), self.local)
+            .unwrap();
+    }
     fn socket() -> UdpSocket {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         socket
@@ -101,14 +122,31 @@ impl Lab {
         }
     }
     fn invite(&self, sequence: u32) -> String {
+        let long_caller = format!("\"{}\" <sip:{}@lab>", "é".repeat(80), "a".repeat(100));
+        let caller = match sequence {
+            2 => "\"Anonymous\" <sip:anonymous@anonymous.invalid>",
+            5 => "\"SIP User\" <sip:alice.sip_42:private-password@lab>",
+            6 => "\"Lab Caller\" <sip:unsafe%0Auser@lab>",
+            7 => "\"Telefon\" <tel:+4930555>",
+            8 => "\"Secret Name\" <sip:%61nonymous@lab>",
+            9 => &long_caller,
+            _ => "\"Lab Caller\" <sip:+493012345@lab>",
+        };
+        let privacy = if sequence == 3 {
+            "Privacy: id\r\nP-Asserted-Identity: <sip:secret@lab>\r\n"
+        } else {
+            ""
+        };
         let endpoint = self.incoming.local_addr().unwrap();
         let sdp = "v=0\r\no=lab 1 1 IN IP4 127.0.0.1\r\ns=synthetic\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio 9000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n";
         let packet = format!(
-            "INVITE {} SIP/2.0\r\nVia: SIP/2.0/UDP {};branch=z9hG4bKsynthetic{};rport\r\nMax-Forwards: 70\r\nFrom: <sip:caller@lab>;tag=caller{}\r\nTo: <{}>\r\nCall-ID: synthetic-{}\r\nCSeq: 1 INVITE\r\nContact: <sip:caller@{}>\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{}",
+            "INVITE {} SIP/2.0\r\nVia: SIP/2.0/UDP {};branch=z9hG4bKsynthetic{};rport\r\nMax-Forwards: 70\r\nFrom: {};tag=caller{}\r\n{}To: <{}>\r\nCall-ID: synthetic-{}\r\nCSeq: 1 INVITE\r\nContact: <sip:caller@{}>\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{}",
             self.target,
             endpoint,
             sequence,
+            caller,
             sequence,
+            privacy,
             self.target,
             sequence,
             endpoint,
@@ -172,7 +210,53 @@ impl Lab {
 }
 
 #[test]
+fn unsupported_refer_is_rejected_without_changing_the_established_call() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut engine = Engine::start(
+        AudioMode::TestTone,
+        Some(std::env::temp_dir().join("sip-refer-policy.wav")),
+    )
+    .unwrap();
+    let lab = Lab::register(&mut engine);
+    lab.invite(90);
+    wait(&engine, |s| s.call == CallState::Incoming);
+    lab.response("SIP/2.0 180");
+    engine.answer().unwrap();
+    let response = lab.response("SIP/2.0 200");
+    lab.in_dialog(&response, "ACK");
+    wait(&engine, |s| s.call == CallState::Active);
+    let token = engine.snapshot().unwrap().call_id;
+    lab.request_in_dialog(
+        &response,
+        "REFER",
+        2,
+        "Refer-To: <sip:999@127.0.0.1>\r\nRefer-Sub: false\r\n",
+        "",
+    );
+    let rejected = lab.response("SIP/2.0 ");
+    assert!(
+        rejected.starts_with("SIP/2.0 501"),
+        "unsupported REFER was accepted: {}",
+        rejected.lines().next().unwrap()
+    );
+    let state = engine.snapshot().unwrap();
+    assert_eq!(state.call, CallState::Active);
+    assert_eq!(state.call_id, token);
+    assert!(
+        !header(&response, "Allow:")
+            .split(',')
+            .any(|m| m.trim() == "REFER")
+    );
+    engine.shutdown().unwrap();
+}
+
+#[test]
 fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let mut engine = Engine::start(
         AudioMode::TestTone,
         Some(std::env::temp_dir().join("sip-synthetic-nat.wav")),
@@ -187,6 +271,14 @@ fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
     for sequence in 1..=2 {
         lab.invite(sequence);
         wait(&engine, |s| s.call == CallState::Incoming);
+        let identity = engine.snapshot().unwrap().caller.unwrap();
+        if sequence == 1 {
+            assert_eq!(identity.name.as_deref(), Some("Lab Caller"));
+            assert_eq!(identity.number.as_deref(), Some("+493012345"));
+        } else {
+            assert!(identity.number.is_none());
+            assert_eq!(identity.name.as_deref(), Some("Unterdrückte Rufnummer"));
+        }
         lab.contact(&lab.response("SIP/2.0 180"));
         let token = engine.snapshot().unwrap().call_id.unwrap();
         if let Some(previous) = &previous_token {
@@ -201,6 +293,11 @@ fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
         }
         engine.answer_call(&token).unwrap();
         assert_eq!(engine.snapshot().unwrap().call, CallState::Answering);
+        assert_eq!(engine.snapshot().unwrap().caller.as_ref(), Some(&identity));
+        assert_eq!(
+            engine.reject_call(&token).unwrap_err().code,
+            ErrorCode::InvalidState
+        );
         assert_eq!(
             engine.answer_call(&token).unwrap_err().code,
             ErrorCode::InvalidState
@@ -208,15 +305,28 @@ fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
         let response = lab.response("SIP/2.0 200");
         lab.in_dialog(&response, "ACK");
         wait(&engine, |s| s.call == CallState::Active);
+        assert_eq!(engine.snapshot().unwrap().caller.as_ref(), Some(&identity));
+        assert_eq!(
+            engine.reject_call(&token).unwrap_err().code,
+            ErrorCode::InvalidState
+        );
         lab.in_dialog(&response, "BYE");
         lab.response("SIP/2.0 200");
         wait(&engine, |s| s.call == CallState::Idle);
         assert!(engine.snapshot().unwrap().call_id.is_none());
+        assert!(engine.snapshot().unwrap().caller.is_none());
         previous_token = Some(token);
     }
     // A remote CANCEL must release an unanswered call and preserve the next slot.
     let invite = lab.invite(3);
     wait(&engine, |s| s.call == CallState::Incoming);
+    assert_eq!(
+        engine.snapshot().unwrap().caller.unwrap(),
+        phone_core::CallerIdentity {
+            name: Some("Unterdrückte Rufnummer".into()),
+            number: None,
+        }
+    );
     let cancel = format!(
         "CANCEL {} SIP/2.0\r\nVia: {}\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: 1 CANCEL\r\nContent-Length: 0\r\n\r\n",
         lab.target,
@@ -237,6 +347,7 @@ fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
     );
     lab.incoming.send_to(ack.as_bytes(), lab.local).unwrap();
     wait(&engine, |s| s.call == CallState::Idle);
+    assert!(engine.snapshot().unwrap().caller.is_none());
     // No ACK: the native transaction must time out, close the slot and permit
     // another incoming call. This deliberately exercises the real SIP timer.
     lab.invite(4);
@@ -275,6 +386,13 @@ fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
         .unwrap();
     lab.invite(5);
     wait(&engine, |s| s.call == CallState::Incoming);
+    assert_eq!(
+        engine.snapshot().unwrap().caller.unwrap(),
+        phone_core::CallerIdentity {
+            name: Some("SIP User".into()),
+            number: Some("alice.sip_42".into()),
+        }
+    );
     engine.answer().unwrap();
     let response = lab.response("SIP/2.0 200");
     lab.in_dialog(&response, "ACK");
@@ -282,5 +400,39 @@ fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
     lab.in_dialog(&response, "BYE");
     lab.response("SIP/2.0 200");
     wait(&engine, |s| s.call == CallState::Idle);
+    for (sequence, expected_number) in [
+        (6, None),
+        (7, Some("+4930555".to_owned())),
+        (8, None),
+        (9, Some("a".repeat(80))),
+    ] {
+        let invite = lab.invite(sequence);
+        wait(&engine, |s| s.call == CallState::Incoming);
+        let state = engine.snapshot().unwrap();
+        let identity = state.caller.unwrap();
+        assert_eq!(identity.number, expected_number);
+        if sequence == 9 {
+            assert_eq!(identity.name, Some("é".repeat(64)));
+        }
+        if sequence == 8 {
+            assert_eq!(identity.name.as_deref(), Some("Unterdrückte Rufnummer"));
+        }
+        engine
+            .reject_call(state.call_id.as_deref().unwrap())
+            .unwrap();
+        let response = lab.response("SIP/2.0 486");
+        let ack = format!(
+            "ACK {} SIP/2.0\r\nVia: {}\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: 1 ACK\r\nContent-Length: 0\r\n\r\n",
+            lab.target,
+            header(&invite, "Via:"),
+            header(&invite, "From:"),
+            header(&response, "To:"),
+            header(&invite, "Call-ID:")
+        );
+        lab.incoming.send_to(ack.as_bytes(), lab.local).unwrap();
+        wait(&engine, |s| s.call == CallState::Idle);
+        assert!(engine.snapshot().unwrap().caller.is_none());
+    }
     engine.shutdown().unwrap();
+    assert!(engine.snapshot().unwrap().caller.is_none());
 }

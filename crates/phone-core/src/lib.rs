@@ -7,6 +7,10 @@ mod phone;
 pub use phone::*;
 mod desktop;
 pub use desktop::*;
+mod contacts;
+pub use contacts::*;
+mod history;
+pub use history::*;
 
 /// Native telephone engine availability. This is not an account registration state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]

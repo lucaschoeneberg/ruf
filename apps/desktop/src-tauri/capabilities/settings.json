@@ -5,6 +5,9 @@
   "windows": ["settings"],
   "permissions": [
     "allow-get-app-info",
+    "allow-get-contacts-permission",
+    "allow-request-contacts-permission",
+    "allow-open-contacts-settings",
     "allow-get-engine-snapshot",
     "allow-save-account",
     "allow-remove-account",
@@ -14,6 +17,7 @@
     "allow-preview-ringtone",
     "allow-stop-ringtone-preview",
     "allow-get-desktop-settings",
+    "allow-request-notification-permission",
     "allow-save-desktop-settings",
     "allow-settings-ready",
     "allow-quit-app",

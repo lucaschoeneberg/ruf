@@ -34,11 +34,14 @@ export const removeAccount = (id: number) =>
   desktopInvoke<EngineSnapshot>("remove_account", { id });
 export const selectAccount = (id: number) =>
   desktopInvoke<EngineSnapshot>("select_account", { id });
-export type SettingsSection = "accounts" | "audio" | "general" | "about";
+export type SettingsSection =
+  "accounts" | "audio" | "general" | "contacts" | "about";
 export const openSettings = (section?: SettingsSection) =>
   desktopInvoke<void>("open_settings", section ? { section } : undefined);
 export const getDesktopSettings = () =>
   desktopInvoke<DesktopSettings>("get_desktop_settings");
+export const requestNotificationPermission = () =>
+  desktopInvoke<DesktopSettings>("request_notification_permission");
 export const quitApp = () => desktopInvoke<void>("quit_app");
 export const settingsReady = () => desktopInvoke<void>("settings_ready");
 export const saveDesktopSettings = (
@@ -81,6 +84,26 @@ export function errorMessage(error: unknown): string {
         return "Die Kontoänderung ist gespeichert. Ein altes Passwort konnte noch nicht aus dem Schlüsselbund gelöscht werden. Erlaube den Zugriff und starte die App erneut, damit die Löschung wiederholt wird.";
       case "storageFailure":
         return "Das Konto konnte nicht dauerhaft gespeichert oder geladen werden. Prüfe den Zugriff auf den System-Schlüsselbund und den App-Datenordner. Versuche es danach erneut.";
+      case "sipRedirect":
+        return "Der Anruf wurde umgeleitet. Bitte prüfe die Zielnummer und versuche es erneut.";
+      case "sipAuthenticationFailed":
+        return "Die SIP-Anmeldung wurde abgelehnt. Prüfe die Zugangsdaten in den Kontoeinstellungen.";
+      case "sipForbidden":
+        return "Diese SIP-Aktion ist für dein Konto nicht erlaubt. Prüfe die Freigaben beim Anbieter.";
+      case "sipNotFound":
+        return "Die Rufnummer oder das SIP-Konto wurde nicht gefunden. Prüfe die Angaben.";
+      case "sipTimeout":
+        return "Die SIP-Gegenstelle hat nicht rechtzeitig geantwortet. Versuche es erneut.";
+      case "sipUnavailable":
+        return "Die SIP-Gegenstelle ist gerade nicht erreichbar. Versuche es später erneut.";
+      case "sipBusy":
+        return "Die Gegenstelle ist besetzt. Versuche es später erneut.";
+      case "sipNotAcceptable":
+        return "Die Gegenstelle unterstützt die angebotenen Medien nicht. Prüfe die Audioeinstellungen oder den SIP-Anbieter.";
+      case "sipRejected":
+        return "Der Anruf wurde von der Gegenstelle abgelehnt.";
+      case "sipFailure":
+        return "Die SIP-Verbindung ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.";
       case "nativeFailure":
         return "Die Telefonie-Aktion ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.";
     }

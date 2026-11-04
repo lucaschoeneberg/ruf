@@ -122,6 +122,15 @@ button {
   border-bottom: 1px solid var(--border);
   background: var(--surface-panel);
 }
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.app-brand > img {
+  flex-shrink: 0;
+}
 .identity {
   min-width: 0;
   display: grid;
@@ -1248,4 +1257,12 @@ input {
 * {
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
+}
+
+.call-number {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
 }

@@ -14,6 +14,8 @@
   } from "./lib/api";
   import type {
     AppInfo,
+    Contact,
+    ContactReference,
     EngineSnapshot,
     RegistrationState,
   } from "./lib/generated/AppInfo";
@@ -21,10 +23,76 @@
   import Dialpad from "./lib/components/Dialpad.svelte";
   import CallPanel from "./lib/components/CallPanel.svelte";
   import GettingStarted from "./lib/components/GettingStarted.svelte";
+  import HistoryPanel from "./lib/components/HistoryPanel.svelte";
+  import { getContacts } from "./lib/contacts-api";
+  import { callbackHistory } from "./lib/history-api";
+  import ContactsPanel from "./lib/components/ContactsPanel.svelte";
   import { hasSeenIntroduction, rememberIntroduction } from "./lib/onboarding";
 
   type View = "dialer" | "contacts" | "history" | "start";
   let view = $state<View>("dialer");
+  let contactFocusId = $state<string | null>(null);
+  let historyContactId: string | null = null;
+  let historyScope = $state<{ name: string; numbers: string[] } | null>(null);
+  function showContactHistory(contact: Contact) {
+    historyContactId = contact.id;
+    historyScope = {
+      name: contact.name,
+      numbers: contact.phones.filter((p) => p.destination).map((p) => p.number),
+    };
+    selectView("history");
+  }
+  function showHistoryContact(contact: ContactReference) {
+    contactFocusId = contact.id;
+    selectView("contacts");
+  }
+  async function returnCall(id: string, number: string | null) {
+    if (
+      await perform(() =>
+        callbackHistory(id).catch((reason: unknown) => {
+          if (
+            reason &&
+            typeof reason === "object" &&
+            "code" in reason &&
+            reason.code === "storageFailure"
+          )
+            throw new Error(
+              "Der Rückruf konnte nicht aus dem Verlauf geladen werden. Prüfe den App-Datenordner und starte Ruf neu.",
+            );
+          throw reason;
+        }),
+      )
+    ) {
+      lastDialed = number ?? "";
+      selectView("dialer");
+    }
+  }
+  function clearHistoryScope() {
+    historyContactId = null;
+    historyScope = null;
+  }
+  async function refreshHistoryScope() {
+    const id = historyContactId;
+    if (!id) return;
+    try {
+      const contacts = await getContacts();
+      if (!mounted || historyContactId !== id) return;
+      const contact =
+        contacts.permission === "authorized"
+          ? contacts.contacts.find((contact) => contact.id === id)
+          : null;
+      if (contact?.phones.some((phone) => phone.destination)) {
+        historyScope = {
+          name: contact.name,
+          numbers: contact.phones
+            .filter((p) => p.destination)
+            .map((p) => p.number),
+        };
+      } else clearHistoryScope();
+    } catch {
+      if (mounted && historyContactId === id) clearHistoryScope();
+    }
+  }
   let info = $state<AppInfo | null>(null);
   let snapshot = $state<EngineSnapshot | null>(null);
   let browser = $state(false);
@@ -33,7 +101,6 @@
   let error = $state<string | null>(null);
   let lastNativeError: string | null = null;
   let operationEpoch = 0;
-  let snapshotRevision = 0;
   let mounted = false;
   let introductionSeen = true;
   let introductionStorage: Storage | null = null;
@@ -47,11 +114,30 @@
   const callAccount = $derived(
     snapshot?.accounts.find((a) => a.id === snapshot?.callAccountId),
   );
-  const accountName = $derived((callAccount ?? selectedAccount)?.name ?? "SIP");
+  const accountName = $derived((callAccount ?? selectedAccount)?.name ?? "Ruf");
+  const incomingPeer = $derived(
+    snapshot?.callerContact?.name ??
+      snapshot?.caller?.name ??
+      snapshot?.caller?.number ??
+      "Unbekannter Anrufer",
+  );
   let destination = $state("");
   let lastDialed = $state("");
-  let incoming = $state(false);
-  let connectedAt = $state(0);
+  const incoming = $derived(
+    !!snapshot?.caller ||
+      snapshot?.call === "incoming" ||
+      snapshot?.call === "answering",
+  );
+  const connectedAt = $derived(snapshot?.callConnectedAtMs ?? 0);
+  const receivedDtmf = $derived(
+    snapshot?.callEvents
+      .slice()
+      .reverse()
+      .find(
+        (event) =>
+          event.callId === snapshot?.callId && event.event.kind === "dtmfStart",
+      )?.event,
+  );
   let now = $state(Date.now());
   const nativeAvailable = $derived(info?.telephony === "linked");
   const registration = $derived(snapshot?.registration ?? "unconfigured");
@@ -141,20 +227,15 @@
     view = next;
   }
   function applySnapshot(next: EngineSnapshot) {
+    if (snapshot && next.revision < snapshot.revision) return;
     const becameRegistered =
       next.registration === "registered" &&
       (snapshot?.registration !== "registered" ||
         snapshot?.selectedAccountId !== next.selectedAccountId);
-    if (next.call === "incoming" || next.call === "answering") incoming = true;
-    if (next.call === "calling") incoming = false;
-    if (next.call === "active" && snapshot?.call !== "active")
-      connectedAt = Date.now();
-    if (next.call === "idle") {
-      connectedAt = 0;
-      incoming = false;
-    }
     now = Date.now();
-    const nextError = next.lastError?.message ?? null;
+    const nextError = next.lastError
+      ? `${next.lastError.code}:${next.lastError.sipStatus}:${next.lastError.message}`
+      : null;
     if (
       nextError &&
       nextError !== lastNativeError &&
@@ -184,23 +265,21 @@
     loading = true;
     error = null;
     const epoch = operationEpoch;
-    const revision = snapshotRevision;
+    const revision = snapshot?.revision;
     try {
       const result = await getAppInfo();
       if (!mounted || epoch !== operationEpoch) return;
       info = result;
       if (result.telephony === "linked") {
         const state = await getEngineSnapshot();
-        if (
-          mounted &&
-          epoch === operationEpoch &&
-          revision === snapshotRevision &&
-          !busy
-        )
-          applySnapshot(state);
+        if (mounted) applySnapshot(state);
       } else if (!introductionSeen && !navigated) view = "start";
     } catch (reason: unknown) {
-      if (mounted && epoch === operationEpoch) {
+      if (
+        mounted &&
+        epoch === operationEpoch &&
+        revision === snapshot?.revision
+      ) {
         error = errorMessage(reason);
         if (!introductionSeen && !navigated) view = "start";
       }
@@ -225,10 +304,23 @@
       if (!introductionSeen) view = "start";
     }
     let unlistenState: UnlistenFn | undefined;
+    let unlistenContacts: UnlistenFn | undefined;
+    if (!browser)
+      void listen("contacts-changed", () => void refreshHistoryScope())
+        .then((unlisten) => {
+          if (!mounted) unlisten();
+          else unlistenContacts = unlisten;
+        })
+        .catch(() => {
+          /* Focus restoration revalidates the contact scope. */
+        });
+    const contactFocus = () => {
+      if (!browser) void refreshHistoryScope();
+    };
+    window.addEventListener("focus", contactFocus);
     if (!browser)
       void listen<EngineSnapshot>("phone-state-changed", ({ payload }) => {
         if (!mounted) return;
-        snapshotRevision++;
         applySnapshot(payload);
       })
         .then((unlisten) => {
@@ -251,22 +343,16 @@
         return;
       polling = true;
       const epoch = operationEpoch;
-      const revision = snapshotRevision;
+      const revision = snapshot?.revision;
       void getEngineSnapshot()
         .then((result) => {
-          if (
-            mounted &&
-            epoch === operationEpoch &&
-            revision === snapshotRevision &&
-            !busy
-          )
-            applySnapshot(result);
+          if (mounted) applySnapshot(result);
         })
         .catch((reason: unknown) => {
           if (
             mounted &&
             epoch === operationEpoch &&
-            revision === snapshotRevision &&
+            revision === snapshot?.revision &&
             !busy
           )
             error = errorMessage(reason);
@@ -285,6 +371,8 @@
       clearInterval(timer);
       clearInterval(clock);
       unlistenState?.();
+      unlistenContacts?.();
+      window.removeEventListener("focus", contactFocus);
       document.removeEventListener("visibilitychange", poll);
     };
   });
@@ -296,11 +384,10 @@
     operationEpoch++;
     busy = true;
     error = null;
-    const revision = snapshotRevision;
     try {
       const result = await operation();
       if (!mounted) return false;
-      if (revision === snapshotRevision) applySnapshot(result);
+      applySnapshot(result);
       return true;
     } catch (reason: unknown) {
       if (mounted) error = errorMessage(reason);
@@ -332,6 +419,12 @@
       firstCallHint = false;
     }
   }
+  async function placeContactCall(target: string) {
+    if (!nativeAvailable || audioUnknown || !registered || !callIdle || busy)
+      return;
+    destination = target;
+    await placeCall();
+  }
   function onEscape(event: KeyboardEvent) {
     if (browser && (event.metaKey || event.ctrlKey) && event.key === ",") {
       event.preventDefault();
@@ -346,34 +439,38 @@
 
 <svelte:window onkeydown={onEscape} />
 
-<div class="softphone" aria-label="SIP Softphone">
+<div class="softphone" aria-label="Ruf Softphone">
   <header class="app-header">
-    <div class="identity">
-      {#if (snapshot?.accounts.length ?? 0) > 1}<label
-          class="sr-only"
-          for="outgoing-account">Konto für ausgehende Anrufe</label
-        ><select
-          class="account-picker"
-          id="outgoing-account"
-          value={snapshot?.selectedAccountId ?? ""}
-          disabled={busy || !callIdle}
-          onchange={(event) => {
-            const id = Number(event.currentTarget.value);
-            event.currentTarget.value = String(
-              snapshot?.selectedAccountId ?? "",
-            );
-            void perform(() => selectAccount(id));
-          }}
-          >{#each snapshot?.accounts ?? [] as item}<option
-              value={item.id}
-              disabled={item.removing}>{item.name}</option
-            >{/each}</select
-        >{:else}<span class="app-name">{accountName}</span>{/if}<span
-        class="availability"
-        class:available={registered}
-        class:failed={registration === "failed"}
-        ><span class="status-dot" aria-hidden="true"></span>{availability}</span
-      >
+    <div class="app-brand">
+      <img src="/ruf.svg" alt="" width="32" height="32" />
+      <div class="identity">
+        {#if (snapshot?.accounts.length ?? 0) > 1}<label
+            class="sr-only"
+            for="outgoing-account">Konto für ausgehende Anrufe</label
+          ><select
+            class="account-picker"
+            id="outgoing-account"
+            value={snapshot?.selectedAccountId ?? ""}
+            disabled={busy || !callIdle}
+            onchange={(event) => {
+              const id = Number(event.currentTarget.value);
+              event.currentTarget.value = String(
+                snapshot?.selectedAccountId ?? "",
+              );
+              void perform(() => selectAccount(id));
+            }}
+            >{#each snapshot?.accounts ?? [] as item}<option
+                value={item.id}
+                disabled={item.removing}>{item.name}</option
+              >{/each}</select
+          >{:else}<span class="app-name">{accountName}</span>{/if}<span
+          class="availability"
+          class:available={registered}
+          class:failed={registration === "failed"}
+          ><span class="status-dot" aria-hidden="true"
+          ></span>{availability}</span
+        >
+      </div>
     </div>
     <div class="header-actions">
       <button
@@ -398,6 +495,10 @@
     </div>
   </header>
 
+  {#if snapshot?.historyError}<p class="error-notice" role="alert">
+      Der Anrufverlauf kann gerade nicht gespeichert werden. Prüfe den Zugriff
+      auf den App-Datenordner.
+    </p>{/if}
   {#if error}<div class="error-notice">
       <div class="error-copy">
         <p role="alert">{error}</p>
@@ -428,10 +529,12 @@
     {#if !callIdle}
       <CallPanel
         state={callState}
-        peer={incoming
-          ? `Anruf für ${callAccount?.name ?? "SIP"}`
-          : lastDialed || "Aktueller Anruf"}
+        peer={incoming ? incomingPeer : lastDialed || "Aktueller Anruf"}
+        number={incoming ? (snapshot?.caller?.number ?? null) : null}
         elapsed={elapsedLabel}
+        receivedDtmf={receivedDtmf?.kind === "dtmfStart"
+          ? receivedDtmf.digit
+          : null}
         busy={busy || !snapshot?.callId}
         testAudio={sessionAudio === "testTone"}
         {audioUnknown}
@@ -482,32 +585,36 @@
             else selectView("start");
           }}
         />{/if}
+    {:else if view === "contacts"}
+      <ContactsPanel
+        focusId={contactFocusId}
+        onhistory={showContactHistory}
+        canDial={nativeAvailable &&
+          !audioUnknown &&
+          registered &&
+          callIdle &&
+          !busy}
+        callHint={!nativeAvailable
+          ? "Telefonieren ist in diesem Build nicht verfügbar."
+          : audioUnknown
+            ? "Audioquelle unbekannt · App neu starten"
+            : !callIdle
+              ? "Beende das laufende Gespräch, um einen Kontakt anzurufen."
+              : !registered
+                ? "Verbinde dein SIP-Konto, um Kontakte anzurufen."
+                : "Die Telefonie ist gerade beschäftigt."}
+        oncall={(target) => {
+          void placeContactCall(target);
+        }}
+      />
     {:else}
-      <section class="collection-view" aria-labelledby="collection-heading">
-        <div class="view-heading">
-          <h1 id="collection-heading">
-            {view === "contacts" ? "Kontakte" : "Verlauf"}
-          </h1>
-        </div>
-        <div class="empty-state">
-          <Icon name={view === "contacts" ? "contacts" : "history"} size={22} />
-          <h2>
-            {view === "contacts"
-              ? "Kontakte noch nicht verbunden"
-              : "Verlauf noch nicht verfügbar"}
-          </h2>
-          <p>
-            {view === "contacts"
-              ? "Hier sollen deine Kontakte zum schnellen Anrufen erscheinen. Die Adressbuch-Anbindung fehlt noch; du kannst Nummern bereits direkt wählen."
-              : "Hier sollen vergangene und verpasste Anrufe erscheinen. Diese Version speichert noch keinen Verlauf. Wähle direkt über die Tastatur."}
-          </p>
-          <button
-            class="secondary-button"
-            type="button"
-            onclick={() => selectView("dialer")}>Zur Tastatur</button
-          >
-        </div>
-      </section>
+      <HistoryPanel
+        canDial={nativeAvailable && !audioUnknown && callIdle && !busy}
+        oncallback={(id, number) => void returnCall(id, number)}
+        oncontact={showHistoryContact}
+        contactScope={historyScope}
+        onclearscope={clearHistoryScope}
+      />
     {/if}
   </main>
 

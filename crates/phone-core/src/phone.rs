@@ -119,6 +119,26 @@ pub enum ErrorCode {
     CredentialCleanupPending,
     /// Native initialization, queueing or execution failed.
     NativeFailure,
+    /// The peer returned a redirect; the application does not follow it automatically.
+    SipRedirect,
+    /// The final SIP response rejected authentication.
+    SipAuthenticationFailed,
+    /// The peer explicitly forbids this operation.
+    SipForbidden,
+    /// The destination does not exist or is no longer available at this address.
+    SipNotFound,
+    /// The peer or upstream server timed out.
+    SipTimeout,
+    /// The destination or service is temporarily unavailable.
+    SipUnavailable,
+    /// The remote destination is busy (distinct from the local Busy precondition).
+    SipBusy,
+    /// The peer cannot accept the offered session/media parameters.
+    SipNotAcceptable,
+    /// The remote destination declined the call.
+    SipRejected,
+    /// Another final SIP failure, with its numeric status preserved.
+    SipFailure,
 }
 
 /// Safe application error. Native protocol text and credentials are not included.
@@ -128,6 +148,9 @@ pub struct PhoneError {
     pub code: ErrorCode,
     /// Safe explanatory message.
     pub message: String,
+    /// Actual final SIP response, or null for local validation, native and storage errors.
+    #[serde(rename = "sipStatus")]
+    pub sip_status: Option<u16>,
 }
 
 impl PhoneError {
@@ -136,7 +159,51 @@ impl PhoneError {
         Self {
             code,
             message: message.into(),
+            sip_status: None,
         }
+    }
+
+    /// Classify an actual final SIP response without exposing peer reason text.
+    /// Returns None for success, provisional/invalid codes and normal 487 cancellation.
+    /// Never pass OS/native error numbers to this method.
+    pub fn from_sip_status(status: u16) -> Option<Self> {
+        let (code, message) = match status {
+            300..=399 => (
+                ErrorCode::SipRedirect,
+                "The destination redirected this call; automatic redirection is disabled.",
+            ),
+            401 | 407 => (
+                ErrorCode::SipAuthenticationFailed,
+                "SIP authentication failed.",
+            ),
+            403 => (
+                ErrorCode::SipForbidden,
+                "The SIP server forbids this operation.",
+            ),
+            404 | 410 => (ErrorCode::SipNotFound, "The SIP destination was not found."),
+            408 | 504 => (ErrorCode::SipTimeout, "The SIP request timed out."),
+            480 | 500 | 502 | 503 => (
+                ErrorCode::SipUnavailable,
+                "The SIP destination or service is temporarily unavailable.",
+            ),
+            486 | 600 => (ErrorCode::SipBusy, "The remote destination is busy."),
+            488 | 606 => (
+                ErrorCode::SipNotAcceptable,
+                "The peer cannot accept the offered media/session parameters.",
+            ),
+            603 => (
+                ErrorCode::SipRejected,
+                "The remote destination declined the call.",
+            ),
+            487 => return None,
+            400..=699 => (ErrorCode::SipFailure, "The SIP request failed."),
+            _ => return None,
+        };
+        Some(Self {
+            code,
+            message: message.into(),
+            sip_status: Some(status),
+        })
     }
 }
 
@@ -173,12 +240,55 @@ pub enum CallState {
     Calling,
     /// The remote endpoint reports ringing.
     Ringing,
+    /// The peer supplied provisional SDP; the call is not established yet.
+    EarlyMedia,
     /// An incoming call awaits a user decision.
     Incoming,
     /// An answer is queued or sent; the remote ACK is still pending.
     Answering,
     /// The call is established; media requires separate verification.
     Active,
+    /// An established call is held by the remote peer; it still occupies the call slot.
+    Held,
+}
+
+/// Significant native call signals retained independently of snapshot polling.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum CallEventKind {
+    /// Provisional SDP/early media was received.
+    Progress,
+    /// The peer put the call on hold.
+    Held,
+    /// The peer resumed the call.
+    Resumed,
+    /// A validated RTP-event or SIP INFO DTMF digit began.
+    DtmfStart {
+        /// One ASCII character from 0–9, *, # or A–D.
+        digit: String,
+    },
+    /// The current incoming DTMF signal ended.
+    DtmfEnd,
+    /// A transfer failed or was refused under the unsupported-transfer policy.
+    TransferFailed,
+    /// The peer returned a 3xx redirect; its target is not dialed automatically.
+    Redirected {
+        /// Actual 300–399 SIP response code. No remote URI is exposed.
+        #[serde(rename = "sipStatus")]
+        sip_status: u16,
+    },
+}
+
+/// One owned call event; memory-only and never part of persisted call history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CallEvent {
+    /// Increasing sequence within this call, wrapping modulo 2^32.
+    pub sequence: u32,
+    /// Opaque native call token; use together with sequence to deduplicate snapshots.
+    pub call_id: String,
+    /// Typed native signal without raw SIP headers, addresses or reason text.
+    pub event: CallEventKind,
 }
 
 /// Password-free description of one SIP account in this application session.
@@ -201,16 +311,47 @@ pub struct AccountSnapshot {
     pub removing: bool,
 }
 
+/// Sanitized, display-only SIP From identity of the current incoming call.
+/// This unverified peer input is never an authentication or authorization identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CallerIdentity {
+    /// Peer display name, or null; at most 128 UTF-8 bytes, without controls or bidi formatting.
+    pub name: Option<String>,
+    /// SIP From number or SIP user, or null when unavailable/withheld; at most 80 UTF-8 bytes.
+    /// Never contains a URI scheme, host, password or URI parameters.
+    pub number: Option<String>,
+}
+
 /// Password-free current state, suitable for repeated reads from the frontend.
 #[derive(Debug, Clone, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSnapshot {
+    /// Process-monotonic read revision; ignore older IPC/event deliveries. Zero before native startup.
+    #[ts(type = "number")]
+    pub revision: u64,
     /// Registration of the selected outgoing account (compatibility projection).
     pub registration: RegistrationState,
     /// Occupancy of the only call slot.
     pub call: CallState,
     /// Opaque current-call token for guarded actions; null before native allocation or while idle.
     pub call_id: Option<String>,
+    /// Native observation of initial SIP establishment, in Unix milliseconds; null before ACK/while idle.
+    /// Preserved through remote hold/resume and window reloads.
+    #[ts(type = "number | null")]
+    pub call_connected_at_ms: Option<u64>,
+    /// Last 64 significant events for the most recent call, oldest first; reset on a new call.
+    /// Retained after termination so fast start/end signals survive snapshot polling.
+    pub call_events: Vec<CallEvent>,
+    /// Number of oldest events evicted from this call's buffer, saturating at u32::MAX.
+    pub call_events_dropped: u32,
+    /// Incoming caller, available atomically with Incoming and retained through Answering/Active.
+    /// Null while idle or for outgoing calls; nested fields are null when unavailable/withheld.
+    pub caller: Option<CallerIdentity>,
+    /// Current authorized address-book match for this incoming number; null if missing/ambiguous.
+    pub caller_contact: Option<crate::ContactReference>,
+    /// A history persistence failure, separate from call/registration errors.
+    pub history_error: Option<PhoneError>,
     /// Last safe error, or null.
     pub last_error: Option<PhoneError>,
     /// All configured accounts, in creation order; never contains passwords.
@@ -335,6 +476,11 @@ impl EngineSnapshot {
         }
         self.call_account_id = self.selected_account_id;
         self.call = CallState::Calling;
+        self.caller = None;
+        self.caller_contact = None;
+        self.call_connected_at_ms = None;
+        self.call_events.clear();
+        self.call_events_dropped = 0;
         self.last_error = None;
         Ok(())
     }

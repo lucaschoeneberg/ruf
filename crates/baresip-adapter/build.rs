@@ -1,7 +1,33 @@
-//! Compile the private C bridge only for an explicitly requested native build.
+//! Compile platform contacts independently of the opt-in native SIP engine.
+
+fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rerun-if-changed=native/contacts.m");
+        println!("cargo:rerun-if-changed=native/contacts.h");
+        cc::Build::new()
+            .env("MACOSX_DEPLOYMENT_TARGET", "14.0")
+            .file("native/contacts.m")
+            .flag("-fobjc-arc")
+            .flag("-fblocks")
+            .compile("sip_contacts");
+        println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=Contacts");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+        println!("cargo:rerun-if-changed=native/call_notifications.m");
+        println!("cargo:rerun-if-changed=native/call_notifications.h");
+        cc::Build::new()
+            .env("MACOSX_DEPLOYMENT_TARGET", "14.0")
+            .file("native/call_notifications.m")
+            .flag("-fobjc-arc")
+            .flag("-fblocks")
+            .compile("sip_call_notifications");
+        println!("cargo:rustc-link-lib=framework=UserNotifications");
+    }
+    build_telephony();
+}
 
 #[cfg(feature = "native")]
-fn main() {
+fn build_telephony() {
     use std::{env, fs, path::PathBuf};
     let target = env::var("TARGET").expect("Cargo target");
     let prefix = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -14,6 +40,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/network_roam.h");
     println!("cargo:rerun-if-changed=../../native/sources.json");
     println!("cargo:rerun-if-changed=../../native/patches/re-sip-nat.patch");
+    println!("cargo:rerun-if-changed=../../native/patches/baresip-refer-policy.patch");
     println!(
         "cargo:rerun-if-changed={}",
         prefix.join("sdk.json").display()
@@ -31,6 +58,13 @@ fn main() {
         manifest["target"].as_str(),
         Some(target.as_str()),
         "SDK architecture mismatch"
+    );
+    assert_eq!(
+        manifest["patches"]["baresipReferPolicy"].as_str(),
+        Some(include_str!(
+            "../../native/patches/baresip-refer-policy.patch"
+        )),
+        "Native REFER policy changed; run bun run native:build"
     );
     assert_eq!(
         manifest["patches"]["reSipNat"].as_str(),
@@ -93,4 +127,4 @@ fn main() {
 }
 
 #[cfg(not(feature = "native"))]
-fn main() {}
+fn build_telephony() {}

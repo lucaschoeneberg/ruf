@@ -21,6 +21,7 @@ pub(crate) struct PhoneSession {
     // Journaled secrets owned by saves currently waiting outside the session lock.
     credential_save: Option<String>,
     stopped: bool,
+    call_observer: Option<baresip_adapter::CallObserver>,
 }
 
 impl Default for PhoneSession {
@@ -35,11 +36,20 @@ impl Default for PhoneSession {
             credentials: Arc::new(store::SystemCredentials),
             credential_save: None,
             stopped: false,
+            call_observer: None,
         }
     }
 }
 
 impl PhoneSession {
+    /// Attach the nonblocking history sink before restoring accounts or registering.
+    pub(crate) fn set_call_observer(&mut self, observer: Option<baresip_adapter::CallObserver>) {
+        self.call_observer = observer.clone();
+        if let Some(engine) = self.engine.as_mut() {
+            engine.set_call_observer(observer);
+        }
+    }
+
     pub fn desktop_preferences(&self) -> crate::store::DesktopPreferences {
         self.settings.desktop.clone()
     }
@@ -115,6 +125,7 @@ impl PhoneSession {
             None
         };
         let mut engine = Engine::start(mode, recording)?;
+        engine.set_call_observer(self.call_observer.clone());
         engine.restore_sound_settings(sound)?;
         Ok(engine)
     }

@@ -1,4 +1,4 @@
-# SIP
+# Ruf
 
 Schlankes SIP-Softphone für macOS und Windows mit Rust, Tauri 2 und Svelte.
 Eigener Code steht unter der [MIT-Lizenz](LICENSE).

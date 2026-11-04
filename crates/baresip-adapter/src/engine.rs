@@ -2,21 +2,30 @@ use phone_core::{
     AccountConfig, AccountSnapshot, AudioMode, CallState, EngineSnapshot, ErrorCode, PhoneError,
     RegistrationState, SoundSettings,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
 
+// Shared across engine recreation; a delayed delivery can never appear newer than a replacement engine.
+static NEXT_SNAPSHOT_REVISION: AtomicU64 = AtomicU64::new(1);
+
 #[derive(Default)]
 pub(crate) struct EngineState {
     pub(crate) snapshot: EngineSnapshot,
     pub(crate) call_generation: u64,
+    pub(crate) call_journal: crate::call_journal::CallJournal,
     next_account_id: u32,
     pub(crate) pending_accounts: BTreeMap<u32, Option<AccountSnapshot>>,
     pub(crate) account_results: BTreeMap<u32, Result<(), PhoneError>>,
     pub(crate) stopped: bool,
     pub(crate) sound_result: Option<Result<(), PhoneError>>,
+    #[cfg(feature = "native")]
+    pub(crate) remote_hold: bool,
+    #[cfg(feature = "native")]
+    pub(crate) local_ending: bool,
 }
 
 /// One owned native engine, up to eight simultaneous SIP accounts and one call slot.
@@ -60,8 +69,22 @@ impl Engine {
     pub fn snapshot(&self) -> Result<EngineSnapshot, PhoneError> {
         self.snapshot
             .lock()
-            .map(|s| s.snapshot.clone())
+            .map(|s| {
+                let mut snapshot = s.snapshot.clone();
+                snapshot.revision = NEXT_SNAPSHOT_REVISION.fetch_add(1, Ordering::Relaxed);
+                snapshot
+            })
             .map_err(|_| state_error())
+    }
+
+    /// Attach a nonblocking observer for ordered native call lifecycle events.
+    /// The sink runs synchronously on the native event thread while state is locked;
+    /// only enqueue work, without engine access, disk writes or UI operations.
+    /// Passing `None` detaches the sink; prior observations are not replayed.
+    pub fn set_call_observer(&mut self, observer: Option<crate::CallObserver>) {
+        if let Ok(mut state) = self.snapshot.lock() {
+            state.call_journal.observer = observer;
+        }
     }
 
     /// Validate and apply device routing for subsequent calls while idle.
@@ -378,13 +401,29 @@ impl Engine {
         let mut state = self.snapshot.lock().map_err(|_| state_error())?;
         let previous = state.snapshot.clone();
         state.snapshot.reserve_dial(destination)?;
+        // Reserve the native token before returning: an immediate hangup must
+        // target this queued attempt even before its first native callback.
+        #[cfg(feature = "native")]
+        let generation = match self.native.reserve_call_generation() {
+            Ok(generation) => generation,
+            Err(error) => {
+                state.snapshot = previous;
+                return Err(error);
+            }
+        };
+        #[cfg(not(feature = "native"))]
+        let generation = state.call_generation;
+        let previous_generation = state.call_generation;
+        state.call_generation = generation;
+        state.snapshot.call_id = Some(generation.to_string());
         if let Err(error) = self.request(
             2,
             state.snapshot.selected_account_id.unwrap_or(0),
             None,
             Some(destination),
-            0,
+            generation,
         ) {
+            state.call_generation = previous_generation;
             state.snapshot = previous;
             return Err(error);
         }
@@ -428,6 +467,21 @@ impl Engine {
     /// Returns InvalidState if the token is stale or the slot is idle.
     pub fn hangup_call(&mut self, call_id: &str) -> Result<(), PhoneError> {
         self.hangup_current(Some(call_id))
+    }
+
+    /// Reject only an unanswered incoming call matching the opaque snapshot token.
+    /// Returns InvalidState for stale tokens, idle, outgoing, answering or active calls.
+    /// The native queue repeats this guard before executing, so a late reject cannot end a call.
+    pub fn reject_call(&mut self, call_id: &str) -> Result<(), PhoneError> {
+        let state = self.snapshot.lock().map_err(|_| state_error())?;
+        validate_call_token(&state.snapshot, Some(call_id))?;
+        if state.snapshot.call != CallState::Incoming {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidState,
+                "No unanswered incoming call to reject.",
+            ));
+        }
+        self.request(11, 0, None, None, state.call_generation)
     }
 
     fn hangup_current(&self, call_id: Option<&str>) -> Result<(), PhoneError> {
@@ -515,7 +569,91 @@ mod interop_tests {
 
     #[test]
     #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
+    fn history_records_native_connected_and_failed_calls_without_polling() {
+        let _guard = crate::NATIVE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        use phone_core::{CallDirection, CallOutcome, ObservedCallKind};
+        let mut engine = Engine::start(
+            AudioMode::TestTone,
+            Some(std::env::temp_dir().join("sip-history-observations.wav")),
+        )
+        .unwrap();
+        let (sender, events) = std::sync::mpsc::channel();
+        engine.set_call_observer(Some(Arc::new(move |event| {
+            let _ = sender.send(event);
+        })));
+        engine
+            .configure_account(&AccountConfig {
+                registrar: "127.0.0.1:5070".into(),
+                username: "1001".into(),
+                password: std::env::var("SIP_TEST_PASSWORD").expect("synthetic lab password"),
+                audio_mode: AudioMode::TestTone,
+            })
+            .unwrap();
+        wait(&engine, |state| {
+            state.registration == RegistrationState::Registered
+        });
+        // Deliberately consume lifecycle messages without reading call snapshots.
+        for (destination, expected) in [
+            ("601", CallOutcome::Completed),
+            ("999999", CallOutcome::Failed),
+        ] {
+            engine.dial(destination).unwrap();
+            let started = events.recv_timeout(Duration::from_secs(10)).unwrap();
+            assert!(
+                matches!(&started.kind, ObservedCallKind::Started { direction: CallDirection::Outgoing, number: Some(number), account: Some(account), .. } if number == destination && account.username == "1001")
+            );
+            let next = events.recv_timeout(Duration::from_secs(10)).unwrap();
+            let finished = if matches!(next.kind, ObservedCallKind::Connected) {
+                assert_eq!(expected, CallOutcome::Completed);
+                assert_eq!(next.observation_id, started.observation_id);
+                events.recv_timeout(Duration::from_secs(10)).unwrap()
+            } else {
+                next
+            };
+            assert_eq!(finished.observation_id, started.observation_id);
+            match finished.kind {
+                ObservedCallKind::Finished {
+                    outcome,
+                    duration_ms,
+                    sip_status,
+                } => {
+                    assert_eq!(outcome, expected);
+                    assert_eq!(duration_ms.is_some(), expected == CallOutcome::Completed);
+                    if expected == CallOutcome::Failed {
+                        assert_eq!(sip_status, Some(404));
+                    }
+                }
+                _ => panic!("Missing native end observation"),
+            }
+            // The callback sends while holding engine state; acquiring it waits
+            // until its corresponding snapshot projection has completed.
+            assert_eq!(engine.snapshot().unwrap().call, CallState::Idle);
+        }
+        // Queue a cancellation immediately, before waiting for a start snapshot.
+        engine.dial("600").unwrap();
+        engine.hangup().unwrap();
+        loop {
+            let event = events.recv_timeout(Duration::from_secs(10)).unwrap();
+            if let ObservedCallKind::Finished { outcome, .. } = event.kind {
+                assert!(matches!(
+                    outcome,
+                    CallOutcome::Cancelled | CallOutcome::Completed
+                ));
+                break;
+            }
+        }
+        assert!(engine.snapshot().unwrap().last_error.is_none());
+        engine.shutdown().unwrap();
+    }
+
+    #[test]
+    #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
     fn nat_remote_hangup_without_server_contact_rewriting() {
+        let _guard = crate::NATIVE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut engine = Engine::start(
             AudioMode::TestTone,
             Some(std::env::temp_dir().join("sip-nat-hangup.wav")),
@@ -567,6 +705,9 @@ mod interop_tests {
     #[test]
     #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
     fn remote_hangup_releases_outgoing_and_incoming_calls() {
+        let _guard = crate::NATIVE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut engine = Engine::start(
             AudioMode::TestTone,
             Some(std::env::temp_dir().join("sip-remote-hangup.wav")),
@@ -628,6 +769,9 @@ mod interop_tests {
     #[test]
     #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
     fn multiple_accounts_register_switch_call_and_remove_independently() {
+        let _guard = crate::NATIVE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut engine = Engine::start(
             AudioMode::TestTone,
             Some(std::env::temp_dir().join("sip-multiple-accounts.wav")),
@@ -747,6 +891,9 @@ mod interop_tests {
     #[test]
     #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
     fn stale_call_actions_preserve_a_replacement_call() {
+        let _guard = crate::NATIVE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let account = AccountConfig {
             registrar: "127.0.0.1:5070".into(),
             username: "1000".into(),

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-04T18:17:26.693111+00:00",
-  "title": "Design System: SIP Desktop",
+  "generatedAt": "2026-11-04T22:32:53.709411+00:00",
+  "title": "Design System: Ruf Desktop",
   "extensions": {
     "colorMeta": {
       "surface": {
@@ -489,7 +489,7 @@
   ],
   "narrative": {
     "northStar": "The compact Zed workspace",
-    "overview": "A compact native telephone with Zed’s dark workspace character across the whole application. The inspected local Zed settings use GitHub Dark Tritanopia: near-black panels, slate controls, fine dividers and blue actions. Phone, onboarding, calls, empty states, account settings and sound settings share this palette and the bundled IBM Plex Sans interface face.\n\nDensity serves operation: short horizontal navigation, flat keypad cells and restrained setting rows leave the current identity, real runtime state and available action easy to scan. Native window controls remain native. Settings open in their own window, with a persistent searchable sidebar and a scrolling document.",
+    "overview": "A compact native telephone with Zed’s dark workspace character across the whole application. The inspected local Zed settings use GitHub Dark Tritanopia: near-black panels, slate controls, fine dividers and blue actions. Phone, onboarding, calls, empty states, account settings and sound settings share this palette and the bundled IBM Plex Sans interface face.\n\nDensity serves operation: short horizontal navigation, flat keypad cells and restrained setting rows leave the current identity, real runtime state and available action easy to scan. Native window controls remain native. Settings open in their own window, with a persistent searchable sidebar and a scrolling document.\n\nThe Ruf brand mark combines a lowercase r with a handset shoulder. App, Dock and notification icons use the existing blue accent on a dark rounded tile with transparent outer margins. The 32px native status mark omits the tile: macOS uses a monochrome template, Windows the same blue silhouette. Small and large badges describe readiness and non-idle calls; tooltip text supplies the explicit state.",
     "keyCharacteristics": [
       "One shared palette and font across phone and settings.",
       "Compact 340 × 500px phone with a flat keypad and horizontal navigation.",

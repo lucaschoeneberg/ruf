@@ -4,21 +4,25 @@
   let {
     state,
     peer,
+    number = null,
     elapsed,
     busy,
     compact,
     testAudio = false,
     audioUnknown = false,
+    receivedDtmf = null,
     onanswer,
     onhangup,
   }: {
     state: CallState;
     peer: string;
+    number?: string | null;
     elapsed: string;
     busy: boolean;
     compact: boolean;
     testAudio?: boolean;
     audioUnknown?: boolean;
+    receivedDtmf?: string | null;
     onanswer: () => void;
     onhangup: () => void;
   } = $props();
@@ -26,9 +30,11 @@
     idle: "Kein Gespräch",
     calling: "Verbindung wird aufgebaut …",
     ringing: "Es klingelt …",
+    earlyMedia: "Frühe Medienverbindung",
     incoming: "Eingehender Anruf",
     answering: "Wird angenommen …",
     active: "Gespräch läuft",
+    held: "Gespräch gehalten",
   };
 </script>
 
@@ -43,9 +49,16 @@
     </div>
     <p class="call-state">{labels[state]}</p>
     <h1 class="call-peer">{peer}</h1>
+    {#if number && number !== peer}<p class="call-number">{number}</p>{/if}
   </div>
-  {#if state === "active"}<p class="call-timer" aria-label="Gesprächsdauer">
+  {#if state === "active" || state === "held"}<p
+      class="call-timer"
+      aria-label="Gesprächsdauer"
+    >
       {elapsed}
+    </p>{/if}
+  {#if receivedDtmf}<p class="call-test-note">
+      Empfangener Tastenton: {receivedDtmf}
     </p>{/if}
   {#if audioUnknown}<p class="call-test-note">
       Audioquelle unbekannt. Es kann ein Testton mit Aufzeichnung aktiv sein.

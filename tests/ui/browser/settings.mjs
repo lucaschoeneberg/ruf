@@ -22,9 +22,16 @@ export default async function settingsRegressions(
       removing: false,
     };
     const snapshot = {
+      revision: 1,
+      callConnectedAtMs: null,
+      callEvents: [],
+      callEventsDropped: 0,
       registration: "registered",
       call: "idle",
       callId: null,
+      caller: null,
+      callerContact: null,
+      historyError: null,
       lastError: null,
       accounts: [saved],
       selectedAccountId: 1,
@@ -91,8 +98,17 @@ export default async function settingsRegressions(
           return {
             autostartEnabled: false,
             autostartAvailable: true,
-            notificationsEnabled: false,
-            notificationsGranted: null,
+            notificationsEnabled: scenario === "notification-permission",
+            notificationsGranted:
+              scenario === "notification-permission" ? false : null,
+          };
+        }
+        if (command === "request_notification_permission") {
+          return {
+            autostartEnabled: false,
+            autostartAvailable: true,
+            notificationsEnabled: true,
+            notificationsGranted: true,
           };
         }
         if (command === "get_audio_devices") {
@@ -225,6 +241,54 @@ export default async function settingsRegressions(
         throw Error("Removed account draft was lost");
     },
   );
+  await check(
+    "notification permission preserves preference drafts",
+    "notification-permission",
+    async () => {
+      await page
+        .getByRole("button", { name: "Allgemein", exact: true })
+        .click();
+      await page
+        .getByLabel("Bei der Anmeldung starten", { exact: true })
+        .check();
+      await page
+        .getByRole("button", { name: "Mitteilungen erlauben", exact: true })
+        .click();
+      await page
+        .getByText("Mitteilungen sind erlaubt.", { exact: false })
+        .waitFor();
+      if (
+        !(await page
+          .getByLabel("Bei der Anmeldung starten", { exact: true })
+          .isChecked())
+      )
+        throw Error(
+          "Permission result overwrote unsaved login-start preference",
+        );
+      if (
+        await page
+          .getByRole("button", { name: "Allgemein speichern", exact: true })
+          .isDisabled()
+      )
+        throw Error("Permission result discarded dirty preference baseline");
+      if (
+        await page
+          .getByRole("button", { name: "Mitteilungen erlauben", exact: true })
+          .count()
+      )
+        throw Error("Granted permission still shown as unavailable");
+      const calls = await page.evaluate(
+        () =>
+          window.__settingsTest.commands.filter(
+            (c) => c.command === "request_notification_permission",
+          ).length,
+      );
+      if (calls !== 1)
+        throw Error(
+          "Permission was requested without an explicit single action",
+        );
+    },
+  );
   await check("window close protects an account draft", "", async () => {
     await page.getByLabel("Name", { exact: true }).fill("Nicht verlieren");
     await page.evaluate(() =>
@@ -278,7 +342,7 @@ export default async function settingsRegressions(
     await page
       .getByRole("button", { name: "Hörprobe stoppen", exact: true })
       .waitFor();
-    await page.getByRole("button", { name: "Über SIP", exact: true }).click();
+    await page.getByRole("button", { name: "Über Ruf", exact: true }).click();
     await page.waitForFunction(
       () =>
         window.__settingsTest.commands.some(

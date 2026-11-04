@@ -34,6 +34,10 @@ const natPatch = readFileSync(
   join(root, "native/patches/re-sip-nat.patch"),
   "utf8",
 );
+const referPatch = readFileSync(
+  join(root, "native/patches/baresip-refer-policy.patch"),
+  "utf8",
+);
 const stageFile = (source, destination) => {
   if (resolve(source) === resolve(destination)) return;
   rmSync(destination, { force: true });
@@ -79,6 +83,17 @@ run(
   patchedRe,
 );
 run("git", ["apply", join(root, "native/patches/re-sip-nat.patch")], patchedRe);
+
+const patchedBaresip = join(build, "baresip-patched");
+rmSync(patchedBaresip, { recursive: true, force: true });
+cpSync(join(sources, "baresip"), patchedBaresip, {
+  recursive: true,
+  filter: (path) => !path.split(/[\\/]/).includes(".git"),
+});
+run("git", ["init", "--quiet"], patchedBaresip);
+const referPatchPath = join(root, "native/patches/baresip-refer-policy.patch");
+run("git", ["apply", "--check", referPatchPath], patchedBaresip);
+run("git", ["apply", referPatchPath], patchedBaresip);
 
 let openssl = process.env.OPENSSL_ROOT_DIR;
 if (!openssl && process.platform === "darwin")
@@ -160,11 +175,11 @@ run(
 const modules = ["g711", "auconv", "auresamp", "ausine", "aufile"];
 if (process.platform === "darwin") modules.push("coreaudio");
 if (windows) modules.push("wasapi");
-const bareBuild = join(build, "baresip");
+const bareBuild = join(build, "baresip-policy");
 const reLibrary = join(prefix, "lib", windows ? "re-static.lib" : "libre.a");
 run("cmake", [
   "-S",
-  join(sources, "baresip"),
+  patchedBaresip,
   "-B",
   bareBuild,
   ...common,
@@ -241,7 +256,7 @@ writeFileSync(
     {
       target,
       sources: pins,
-      patches: { reSipNat: natPatch },
+      patches: { reSipNat: natPatch, baresipReferPolicy: referPatch },
       modules,
       openssl: { prefix: openssl ?? "system", version: resolved.version },
       licenseInventoryComplete: false,

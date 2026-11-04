@@ -113,7 +113,7 @@ export default async function layoutRegressions(page) {
   ]) {
     await target.setViewportSize({ width, height });
     await target.goto(`${origin}/?window=settings&section=general`);
-    for (const section of ["Allgemein", "SIP-Konten", "Ton", "Über SIP"]) {
+    for (const section of ["Allgemein", "SIP-Konten", "Ton", "Über Ruf"]) {
       await target
         .getByRole("button", { name: new RegExp(`^${section}(?:\\s+\\d+)?$`) })
         .click();

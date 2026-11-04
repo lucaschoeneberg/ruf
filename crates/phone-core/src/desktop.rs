@@ -12,7 +12,7 @@ pub struct DesktopSettings {
     pub autostart_available: bool,
     /// User preference for a single system notification per incoming call.
     pub notifications_enabled: bool,
-    /// Actual OS permission when queryable; null on desktop where the plugin cannot query it.
+    /// Actual native OS permission; null when unavailable in this launch context.
     /// An unknown or denied permission never prevents native ringing or answering.
     pub notifications_granted: Option<bool>,
 }

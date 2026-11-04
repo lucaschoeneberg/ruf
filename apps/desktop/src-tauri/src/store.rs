@@ -2,6 +2,12 @@
 use phone_core::{AudioMode, ErrorCode, PhoneError, SoundSettings};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
+use tauri::Manager;
+
+/// Use this bundle's own application-data directory without importing old SIP data.
+pub(crate) fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, PhoneError> {
+    app.path().app_data_dir().map_err(|_| storage_error())
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -160,7 +166,7 @@ fn credential_operation<T>(
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn entry(key: &str) -> Result<keyring::Entry, PhoneError> {
-    keyring::Entry::new("org.sipsoftphone.desktop", key).map_err(|_| storage_error())
+    keyring::Entry::new("org.rufapp.desktop", key).map_err(|_| storage_error())
 }
 fn read_password(key: &str) -> Result<String, PhoneError> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -210,6 +216,7 @@ pub(crate) fn storage_error() -> PhoneError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn noninteractive_credential_access_defers_during_authorization() {
         use std::{sync::mpsc, time::Duration};

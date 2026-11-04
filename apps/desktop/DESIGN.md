@@ -1,5 +1,5 @@
 ---
-name: SIP Desktop
+name: Ruf Desktop
 description: Compact native softphone in the shared Zed GitHub Dark Tritanopia visual world.
 colors:
   surface: "#0d1117"
@@ -184,7 +184,7 @@ components:
     padding: "9px 10px"
 ---
 
-# Design System: SIP Desktop
+# Design System: Ruf Desktop
 
 ## Overview
 
@@ -193,6 +193,8 @@ components:
 A compact native telephone with Zed’s dark workspace character across the whole application. The inspected local Zed settings use GitHub Dark Tritanopia: near-black panels, slate controls, fine dividers and blue actions. Phone, onboarding, calls, empty states, account settings and sound settings share this palette and the bundled IBM Plex Sans interface face.
 
 Density serves operation: short horizontal navigation, flat keypad cells and restrained setting rows leave the current identity, real runtime state and available action easy to scan. Native window controls remain native. Settings open in their own window, with a persistent searchable sidebar and a scrolling document.
+
+The Ruf brand mark combines a lowercase r with a handset shoulder. App, Dock and notification icons use the existing blue accent on a dark rounded tile with transparent outer margins. The 32px native status mark omits the tile: macOS uses a monochrome template, Windows the same blue silhouette. Small and large badges describe readiness and non-idle calls; tooltip text supplies the explicit state.
 
 **Key Characteristics:**
 

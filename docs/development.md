@@ -46,7 +46,7 @@ hardware; microphone/speaker and Windows runtime require separate platform tests
 macOS bundles require both `NSMicrophoneUsageDescription` in `Info.plist` and
 the `com.apple.security.device.audio-input` hardened-runtime entitlement in
 `Entitlements.plist`. Tauri applies the entitlement when signing the bundle.
-After building, run `bun run test:macos-audio target/release/bundle/macos/SIP.app`.
+After building, run `bun run test:macos-audio target/release/bundle/macos/Ruf.app`.
 Desktop CI runs this check against the signed bundle before uploading the
 installer (including tag releases). It verifies the signature, entitlement and
 purpose string; it never opens a microphone. A user must still grant microphone
@@ -56,11 +56,22 @@ bundles can have different permission identities; test the actual `.app`.
 See [Apple's audio-input entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.device.audio-input)
 and [Tauri macOS entitlements](https://v2.tauri.app/distribute/macos-application-bundle/#entitlements).
 
+macOS Contacts also needs `NSContactsUsageDescription` and the signed
+`com.apple.security.personal-information.addressbook` resource entitlement when
+using Hardened Runtime. Run `bun run test:macos-contacts target/release/bundle/macos/Ruf.app`
+after building; desktop CI verifies the shipped signature before artifact upload.
+The check never requests access or reads any contact. In Ruf open Settings →
+Kontakte to see the OS permission and explicitly request access. After denial,
+the app opens System Settings → Privacy & Security → Contacts instead of trying
+to prompt again. Only the user changes the system permission; never reset TCC
+automatically. See [Apple's Address Book entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.personal-information.addressbook)
+and the [contact IPC contracts](api/contacts.md).
+
 For remote hangup diagnosis, quit the existing app after ending calls, then
 launch the **built native bundle** from a terminal with the restricted trace:
 
 ```sh
-SIP_DIAGNOSTICS=1 target/release/bundle/macos/SIP.app/Contents/MacOS/sip-desktop 2>&1 | rg '^sip\.diag '
+SIP_DIAGNOSTICS=1 target/release/bundle/macos/Ruf.app/Contents/MacOS/sip-desktop 2>&1 | rg '^sip\.diag '
 ```
 
 Do not launch a second process with the same SIP account while another instance
@@ -224,8 +235,9 @@ Quit confirms occupied calls and performs native shutdown before exit.
 Login start is automatically configured only once after successful registration
 in an installed release build, never from `native/build` or debug binaries.
 Use General settings to change it. OS policy can independently suppress login
-items or notifications; the plugin cannot query real desktop notification
-authorization, represented honestly as null. macOS startup keychain operations
+items or notifications. Native notification authorization is queried from the OS;
+unsupported launch contexts report null. Permission is requested only by explicit
+foreground settings actions. macOS startup keychain operations
 suppress UI; repair failed accounts interactively in settings.
 
 Run `bun run test:network-roam` after building the native SDK. The standalone
@@ -259,3 +271,56 @@ Chromium caches are detected; `SIP_UI_BROWSER_EXECUTABLE` can select another
 installed Chromium executable explicitly. The scenario modules under
 `tests/ui/browser/` are also usable through the CLI's `run-code --filename` after
 wrapping their default function. UI unit tests remain `bun run test:ui`.
+
+## Ruf icon assets
+
+The approved blue r/handset concept is redrawn as a crisp SVG in
+`apps/desktop/public/ruf.svg` with transparent space outside the dark tile.
+`apps/desktop/src-tauri/icons/tray.svg` is the matching 32px monochrome template.
+The existing Tauri CLI generates the PNG, ICNS and ICO assets, without a new
+runtime dependency. Native notifications inherit the release bundle's identity
+and icon. The native bridge rejects unbundled macOS delivery instead of attributing
+notices to Terminal; temporary Windows builds do not register COM activation.
+Verify installed release notifications separately from browser fixtures.
+
+To regenerate, invoke the CLI through its JS entry point (as the desktop build
+script does) to avoid Bun resolving the `tauri` package script recursively:
+
+```sh
+cd apps/desktop
+bun -e 'const {run}=require("@tauri-apps/cli"); await run(["icon", "public/ruf.svg", "--output", "../../native/build/ruf-icons"], "bun");'
+bun -e 'const {run}=require("@tauri-apps/cli"); await run(["icon", "src-tauri/icons/tray.svg", "--output", "../../native/build/ruf-tray", "--png", "32"], "bun");'
+```
+
+Copy the five configured desktop assets plus `icon.png` from `ruf-icons` into
+`src-tauri/icons`, and `ruf-tray/32x32.png` to `src-tauri/icons/tray.png`.
+Mobile and Appx output is unused. See [desktop identity](api/README.md#ruf-desktop-identity)
+for storage compatibility and OS consent/login behavior after the ID change.
+
+## Actionable call notification test
+
+`bun run test:macos-call-notifications` builds an isolated accessory app with a
+separate bundle identity. It checks actual OS delivery, silent notifications,
+Annehmen/Ablehnen categories, synthetic response callbacks, and removal from
+Notification Center. To request permission for that test identity explicitly, add
+`--request-permission`. It uses only public fake caller data and does not start
+SIP or read saved accounts, keychain entries or contacts. Real notification clicks
+and Windows COM activation remain installed-platform acceptance checks.
+
+Notification delivery runs on its own worker, coalesces the latest phone state,
+and never blocks the phone observer. A separate delivery mutex orders native
+show/withdraw/reset calls; it is never held together with the phone-session lock.
+See [verification evidence](verification/2026-11-04-call-notifications.md).
+
+## Contacts and observed call history
+
+The native adapter emits ordered call facts to a synchronous nonblocking observer.
+The desktop observer only queues to one SQLite worker; no I/O occurs under native
+call state locks. Shutdown joins SIP before draining history writes. SQLite
+`history.sqlite3` lives in the existing application-data directory. It stores
+password-free SIP/account facts, never resolved address-book names or IDs.
+`callerContact` and history `contact` are projections of the authorized in-memory
+contact cache. Native Contacts revision notifications and independent permission
+checks invalidate that cache without a new consent prompt. See
+[contacts API](api/contacts.md) and [history API](api/history.md) for validation,
+permission scope, error behavior and recovery.

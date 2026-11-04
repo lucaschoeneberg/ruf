@@ -9,7 +9,7 @@ web
 ## Product Purpose
 
 A compact SIP softphone for macOS and Windows, implemented with Rust, Tauri 2
-and Svelte. The working name is SIP. Original application code is MIT licensed.
+and Svelte. The application is named Ruf. Original application code is MIT licensed.
 
 ## Operating Context
 
@@ -22,9 +22,11 @@ answer and hangup. Native audio stays in baresip. Bun owns JavaScript tooling.
 - Reuse existing Tauri IPC commands and generated Rust/TypeScript DTOs.
 - No credentials or private contact/call data in Git; passwords are stored only in the operating-system credential store.
 - Browser preview cannot register or place calls and must say so.
-- Contacts and history have navigation and honest empty states in this UI phase;
-  their data backends/connectors and persistence are not implemented.
-- Do not imply that mute, hold, transfer, DTMF or contact sync
+- Contacts read the native macOS address book after explicit system permission,
+  with name/company/number search, multiple numbers, local favorite IDs and calls
+  through the selected SIP account. Windows and other sources remain deferred.
+- History records observed native calls locally with outcomes, duration, original account, search/filter/pagination, contact links, safe callback and deletion. Startup marks unfinished records interrupted without invented duration.
+- Do not imply that mute, hold, transfer, DTMF or immediate contact push sync
   exist when no corresponding native API exists.
 - Native Windows runtime and hardware audio still require platform tests.
 

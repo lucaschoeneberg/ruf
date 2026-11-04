@@ -74,7 +74,7 @@ password: string,
  */
 audioMode: AudioMode, };
 
-export type ErrorCode = "invalidInput" | "notRegistered" | "busy" | "invalidState" | "engineUnavailable" | "storageFailure" | "credentialCleanupPending" | "nativeFailure";
+export type ErrorCode = "invalidInput" | "notRegistered" | "busy" | "invalidState" | "engineUnavailable" | "storageFailure" | "credentialCleanupPending" | "nativeFailure" | "sipRedirect" | "sipAuthenticationFailed" | "sipForbidden" | "sipNotFound" | "sipTimeout" | "sipUnavailable" | "sipBusy" | "sipNotAcceptable" | "sipRejected" | "sipFailure";
 
 export type PhoneError = {
 /**
@@ -84,11 +84,50 @@ code: ErrorCode,
 /**
  * Safe explanatory message.
  */
-message: string, };
+message: string,
+/**
+ * Actual final SIP response, or null for local validation, native and storage errors.
+ */
+sipStatus: number | null, };
 
 export type RegistrationState = "unconfigured" | "registering" | "registered" | "failed";
 
-export type CallState = "idle" | "calling" | "ringing" | "incoming" | "answering" | "active";
+export type CallState = "idle" | "calling" | "ringing" | "earlyMedia" | "incoming" | "answering" | "active" | "held";
+
+export type CallEventKind = { "kind": "progress" } | { "kind": "held" } | { "kind": "resumed" } | { "kind": "dtmfStart",
+/**
+ * One ASCII character from 0–9, *, # or A–D.
+ */
+digit: string, } | { "kind": "dtmfEnd" } | { "kind": "transferFailed" } | { "kind": "redirected",
+/**
+ * Actual 300–399 SIP response code. No remote URI is exposed.
+ */
+sipStatus: number, };
+
+export type CallEvent = {
+/**
+ * Increasing sequence within this call, wrapping modulo 2^32.
+ */
+sequence: number,
+/**
+ * Opaque native call token; use together with sequence to deduplicate snapshots.
+ */
+callId: string,
+/**
+ * Typed native signal without raw SIP headers, addresses or reason text.
+ */
+event: CallEventKind, };
+
+export type CallerIdentity = {
+/**
+ * Peer display name, or null; at most 128 UTF-8 bytes, without controls or bidi formatting.
+ */
+name: string | null,
+/**
+ * SIP From number or SIP user, or null when unavailable/withheld; at most 80 UTF-8 bytes.
+ * Never contains a URI scheme, host, password or URI parameters.
+ */
+number: string | null, };
 
 export type AccountSnapshot = {
 /**
@@ -122,6 +161,10 @@ removing: boolean, };
 
 export type EngineSnapshot = {
 /**
+ * Process-monotonic read revision; ignore older IPC/event deliveries. Zero before native startup.
+ */
+revision: number,
+/**
  * Registration of the selected outgoing account (compatibility projection).
  */
 registration: RegistrationState,
@@ -133,6 +176,33 @@ call: CallState,
  * Opaque current-call token for guarded actions; null before native allocation or while idle.
  */
 callId: string | null,
+/**
+ * Native observation of initial SIP establishment, in Unix milliseconds; null before ACK/while idle.
+ * Preserved through remote hold/resume and window reloads.
+ */
+callConnectedAtMs: number | null,
+/**
+ * Last 64 significant events for the most recent call, oldest first; reset on a new call.
+ * Retained after termination so fast start/end signals survive snapshot polling.
+ */
+callEvents: Array<CallEvent>,
+/**
+ * Number of oldest events evicted from this call's buffer, saturating at u32::MAX.
+ */
+callEventsDropped: number,
+/**
+ * Incoming caller, available atomically with Incoming and retained through Answering/Active.
+ * Null while idle or for outgoing calls; nested fields are null when unavailable/withheld.
+ */
+caller: CallerIdentity | null,
+/**
+ * Current authorized address-book match for this incoming number; null if missing/ambiguous.
+ */
+callerContact: ContactReference | null,
+/**
+ * A history persistence failure, separate from call/registration errors.
+ */
+historyError: PhoneError | null,
 /**
  * Last safe error, or null.
  */
@@ -176,7 +246,183 @@ autostartAvailable: boolean,
  */
 notificationsEnabled: boolean,
 /**
- * Actual OS permission when queryable; null on desktop where the plugin cannot query it.
+ * Actual native OS permission; null when unavailable in this launch context.
  * An unknown or denied permission never prevents native ringing or answering.
  */
 notificationsGranted: boolean | null, };
+
+export type ContactSource = "macos";
+
+export type ContactsPermission = "unsupported" | "notDetermined" | "restricted" | "denied" | "authorized";
+
+export type ContactPhone = {
+/**
+ * Localized source label, such as Mobil or Arbeit; never a unique identifier.
+ */
+label: string,
+/**
+ * Unmodified source spelling for display and search.
+ */
+number: string,
+/**
+ * Existing dial-command syntax, or null for ambiguous/unsupported numbers.
+ */
+destination: string | null, };
+
+export type Contact = {
+/**
+ * Opaque source identifier, stable until the underlying source replaces the record.
+ */
+id: string,
+/**
+ * Provider used to interpret the identifier.
+ */
+source: ContactSource,
+/**
+ * Native formatted name, falling back to company, number or Ohne Namen.
+ */
+name: string,
+/**
+ * Company/organization, empty when absent.
+ */
+organization: string,
+/**
+ * All phone numbers, including numbers unsupported by the current dial API.
+ */
+phones: Array<ContactPhone>,
+/**
+ * App-local favorite; never writes back to the system address book.
+ */
+favorite: boolean, };
+
+export type ContactsSnapshot = {
+/**
+ * Current access decision; no entries are returned without access.
+ */
+permission: ContactsPermission,
+/**
+ * Source contacts; empty on unsupported, undecided, restricted or denied access.
+ */
+contacts: Array<Contact>, };
+
+export type ContactReference = {
+/**
+ * Native source identifier.
+ */
+id: string,
+/**
+ * Contact source namespace.
+ */
+source: ContactSource,
+/**
+ * Current contact name, not a historical cached name.
+ */
+name: string, };
+
+export type CallDirection = "incoming" | "outgoing";
+
+export type CallOutcome = "inProgress" | "completed" | "missed" | "rejected" | "busy" | "cancelled" | "failed" | "interrupted";
+
+export type HistoryEntry = {
+/**
+ * Stable opaque record ID, independent of ephemeral SIP call tokens.
+ */
+id: string,
+/**
+ * Originating account name at call start.
+ */
+accountName: string,
+/**
+ * Original registrar, null if unavailable; used with username for safe account matching.
+ */
+accountRegistrar: string | null,
+/**
+ * Original nonsecret username, null if unavailable. Never a password.
+ */
+accountUsername: string | null,
+/**
+ * Initiating side.
+ */
+direction: CallDirection,
+/**
+ * Original selected target or sanitized peer number; null for unavailable/withheld numbers.
+ */
+number: string | null,
+/**
+ * Sanitized SIP name at the time of the call; null when unavailable.
+ */
+remoteName: string | null,
+/**
+ * UTC start milliseconds since Unix epoch.
+ */
+startedAtMs: number,
+/**
+ * UTC connected timestamp, null before connection.
+ */
+answeredAtMs: number | null,
+/**
+ * Observed UTC end timestamp; null while open or after an unknown crash end.
+ */
+endedAtMs: number | null,
+/**
+ * Observed monotonic connected duration, null when unknown/not connected.
+ */
+durationMs: number | null,
+/**
+ * Current or terminal result.
+ */
+outcome: CallOutcome,
+/**
+ * Real SIP status only, null when unknown.
+ */
+sipStatus: number | null,
+/**
+ * Current authorized address-book projection. Never persisted to the history database.
+ */
+contact: ContactReference | null,
+/**
+ * Currently registered matching account ID for callback, or null. Never persisted.
+ */
+callbackAccountId: number | null, };
+
+export type HistoryFilter = "all" | "missed" | "incoming" | "outgoing";
+
+export type HistoryQuery = {
+/**
+ * Search name/number/account text, default empty; at most 200 Unicode characters.
+ */
+search: string,
+/**
+ * Direction/result filter, default all.
+ */
+filter: HistoryFilter,
+/**
+ * Zero-based offset, default zero.
+ */
+offset: number,
+/**
+ * Page size 1–100; null/missing means 50.
+ */
+limit: number | null,
+/**
+ * Original numbers to restrict to one contact, default empty; at most 100 numbers.
+ */
+contactNumbers: Array<string>, };
+
+export type HistoryPage = {
+/**
+ * Newest-first matching records.
+ */
+entries: Array<HistoryEntry>,
+/**
+ * Total number matching this query.
+ */
+total: number,
+/**
+ * Another page exists after these records.
+ */
+hasMore: boolean,
+/**
+ * A prior write failed; null when recording is healthy.
+ */
+recordingError: PhoneError | null, };

@@ -14,6 +14,7 @@
     previewRingtone,
     stopRingtonePreview,
     getDesktopSettings,
+    requestNotificationPermission,
     saveDesktopSettings,
     quitApp,
     settingsReady,
@@ -30,6 +31,7 @@
   } from "./lib/generated/AppInfo";
   import AccountSetup from "./lib/components/AccountSetup.svelte";
   import SoundPanel from "./lib/components/SoundPanel.svelte";
+  import ContactsSettings from "./lib/components/ContactsSettings.svelte";
   import Icon from "./lib/components/Icon.svelte";
 
   type Section = SettingsSection;
@@ -42,6 +44,7 @@
   let browser = $state(false);
   let error = $state<string | null>(null);
   let feedback = $state("");
+  let permissionFeedback = $state("");
   let editedId = $state<number | null>(null);
   let name = $state("");
   let account = $state<AccountConfig>({
@@ -142,8 +145,15 @@
         "audio ton mikrofon lautsprecher klingelton hörprobe testton aufzeichnung",
     },
     {
+      id: "contacts",
+      label: "Kontakte",
+      icon: "contacts",
+      terms:
+        "adressbuch kontakte freigabe datenschutz berechtigung zugriff macos",
+    },
+    {
       id: "about",
-      label: "Über SIP",
+      label: "Über Ruf",
       icon: "info",
       terms: "version speicherung schlüsselbund protokoll asterisk testanlage",
     },
@@ -305,7 +315,7 @@
   }
   onMount(() => {
     mounted = true;
-    document.title = "SIP · Einstellungen";
+    document.title = "Ruf · Einstellungen";
     browser = !isTauri();
     const requested = new URLSearchParams(window.location.search).get(
       "section",
@@ -427,6 +437,25 @@
       if (!mounted) return;
       resetDesktop(result);
       feedback = "Allgemeine Einstellungen gespeichert.";
+    } catch (reason) {
+      if (mounted) error = errorMessage(reason);
+    } finally {
+      if (mounted) busy = false;
+    }
+  }
+  async function allowNotifications() {
+    if (busy || loading || browser || !desktopSettings) return;
+    busy = true;
+    error = null;
+    permissionFeedback = "";
+    try {
+      const result = await requestNotificationPermission();
+      if (!mounted) return;
+      // Permission is OS state; preserve unsaved preference edits and their baseline.
+      desktopSettings = result;
+      permissionFeedback = result.notificationsGranted
+        ? "Mitteilungen sind erlaubt. Speichere gegebenenfalls deine Änderungen."
+        : "Erlaube Mitteilungen für Ruf in den Systemeinstellungen. Der Klingelton funktioniert unabhängig davon.";
     } catch (reason) {
       if (mounted) error = errorMessage(reason);
     } finally {
@@ -615,7 +644,7 @@
         Keine Treffer für „{query}“. Ändere die Suche oder leere das Suchfeld.
       </p>{/if}
     <div class="settings-sidebar-footer">
-      <span>SIP</span><span>{info ? `v${info.version}` : "Einstellungen"}</span>
+      <span>Ruf</span><span>{info ? `v${info.version}` : "Einstellungen"}</span>
     </div>
   </aside>
   <main class="settings-main">
@@ -695,12 +724,12 @@
             <div class="setting-description">
               <label for="autostart-enabled">Bei der Anmeldung starten</label>
               <p id="autostart-help">
-                SIP startet im Hintergrund und bleibt für Anrufe erreichbar.
+                Ruf startet im Hintergrund und bleibt für Anrufe erreichbar.
               </p>
               {#if !desktopSettings?.autostartAvailable}<p
                   id="autostart-unavailable"
                 >
-                  Installiere SIP an einem festen Ort. In Entwicklungs-Builds
+                  Installiere Ruf an einem festen Ort. In Entwicklungs-Builds
                   ist der automatische Start nicht verfügbar.
                 </p>{/if}
             </div>
@@ -720,8 +749,8 @@
             <div class="setting-description">
               <h3>Beim Schließen erreichbar bleiben</h3>
               <p>
-                Schließt du das Telefonfenster, läuft SIP weiter. Über das
-                SIP-Symbol öffnest du es wieder. „SIP beenden“ beendet auch die
+                Schließt du das Telefonfenster, läuft Ruf weiter. Über das
+                Ruf-Symbol öffnest du es wieder. „Ruf beenden“ beendet auch die
                 Telefonie.
               </p>
             </div>
@@ -733,21 +762,22 @@
                 >Eingehende Anrufe anzeigen</label
               >
               <p id="notifications-help">
-                Eine Systemmitteilung weist auf Anrufe hin, während das
-                Telefonfenster im Hintergrund ist. Beim Aktivieren kann das
+                Zeigt Name oder Rufnummer mit „Annehmen“ und „Ablehnen“, auch
+                wenn das Telefonfenster verborgen ist. Beim Aktivieren kann das
                 Betriebssystem nach deiner Erlaubnis fragen.
               </p>
               {#if desktopSettings?.notificationsEnabled && desktopSettings.notificationsGranted === false}<p
                   id="notifications-denied"
                 >
-                  Mitteilungen sind im Betriebssystem nicht erlaubt. Erlaube sie
-                  in den Systemeinstellungen für SIP. Anrufe bleiben im
-                  Telefonfenster sichtbar.
+                  Mitteilungen brauchen deine Freigabe. Wurde sie bereits
+                  abgelehnt, erlaube Mitteilungen in den Systemeinstellungen für
+                  Ruf. Anrufe bleiben im Telefonfenster sichtbar.
                 </p>{:else if desktopSettings?.notificationsGranted === null}<p
                   id="notifications-permission"
                 >
-                  Die Systemeinstellungen entscheiden, ob Mitteilungen für SIP
-                  erscheinen.
+                  Systemmitteilungen sind in diesem Startmodus nicht verfügbar.
+                  Nutze dafür die installierte App. Der Klingelton bleibt
+                  verfügbar.
                 </p>{/if}
             </div>
             <div class="setting-control sound-toggle">
@@ -761,11 +791,28 @@
               >
             </div>
           </div>
+          {#if notificationsEnabled && desktopSettings?.notificationsGranted === false}
+            <div class="settings-form-actions">
+              <p>
+                Die Freigabe gilt für Systemmitteilungen auf diesem Computer.
+              </p>
+              <button
+                type="button"
+                class="secondary-button"
+                onclick={() => void allowNotifications()}
+              >
+                Mitteilungen erlauben
+              </button>
+            </div>
+          {/if}
+          {#if permissionFeedback}<p class="settings-feedback" role="status">
+              {permissionFeedback}
+            </p>{/if}
           <div class="settings-form-actions">
             <p>
               {desktopDirty
                 ? "Deine Änderungen sind noch nicht gespeichert."
-                : "Gilt für diese SIP-App auf deinem Computer."}
+                : "Gilt für Ruf auf deinem Computer."}
             </p>
             <button
               class="primary-button"
@@ -781,6 +828,8 @@
             >
           </div>
         </fieldset>
+      {:else if section === "contacts"}
+        <ContactsSettings />
       {:else if section === "accounts"}
         {#if removedDraft}<div class="settings-feedback error" role="alert">
             <p>
@@ -871,7 +920,8 @@
       {:else}
         <div class="settings-title">
           <div>
-            <h1>Über SIP</h1>
+            <img src="/ruf.svg" alt="" width="48" height="48" />
+            <h1>Über Ruf</h1>
             <p>Ein kompaktes Telefon für deinen Desktop.</p>
           </div>
         </div>
@@ -899,7 +949,8 @@
             <p>
               Derzeit SIP/UDP ohne Verschlüsselung und G.711. Nutze diese
               Entwicklungsversion nur im isolierten Testnetz. Ein Gespräch
-              gleichzeitig; Kontakte und Verlauf sind noch nicht angebunden.
+              gleichzeitig. macOS-Kontakte lassen sich nach deiner Freigabe
+              durchsuchen und anrufen; der Verlauf ist noch nicht angebunden.
             </p>
           </div>
         </div>

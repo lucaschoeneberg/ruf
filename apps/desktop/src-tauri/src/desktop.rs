@@ -4,7 +4,6 @@ use phone_core::{DesktopSettings, ErrorCode, PhoneError};
 use std::path::Path;
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
-use tauri_plugin_notification::NotificationExt;
 
 static PREFERENCES_UPDATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -12,10 +11,7 @@ pub(crate) fn with_session<T>(
     app: &tauri::AppHandle,
     operation: impl FnOnce(&mut PhoneSession) -> Result<T, PhoneError>,
 ) -> Result<T, PhoneError> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| store::storage_error())?;
+    let directory = store::data_directory(app)?;
     let cache = app
         .path()
         .app_cache_dir()
@@ -31,12 +27,12 @@ pub(crate) fn installed_path(executable: &Path, installation_roots: &[std::path:
         executable.strip_prefix(root).is_ok_and(|relative| {
             #[cfg(target_os = "macos")]
             {
-                relative == Path::new("SIP.app/Contents/MacOS/sip-desktop")
+                relative == Path::new("Ruf.app/Contents/MacOS/sip-desktop")
             }
             #[cfg(not(target_os = "macos"))]
             {
-                relative == Path::new("SIP/sip-desktop.exe")
-                    || relative == Path::new("Programs/SIP/sip-desktop.exe")
+                relative == Path::new("Ruf/sip-desktop.exe")
+                    || relative == Path::new("Programs/Ruf/sip-desktop.exe")
             }
         })
     })
@@ -79,9 +75,7 @@ pub(crate) fn settings(app: &tauri::AppHandle) -> Result<DesktopSettings, PhoneE
             && app.autolaunch().is_enabled().map_err(|_| desktop_error())?,
         autostart_available: available,
         notifications_enabled: preferences.notifications_enabled,
-        // Tauri's desktop implementation unconditionally returns Granted, which
-        // is not an OS authorization query. Do not report that as real permission.
-        notifications_granted: None,
+        notifications_granted: crate::call_notifications::permission(false)?,
     })
 }
 
@@ -99,17 +93,16 @@ pub(crate) fn save_settings(
         ));
     }
     let mut preferences = with_session(app, |session| Ok(session.desktop_preferences()))?;
+    // Authorization can fail or wait for a user decision. Do it before changing
+    // login-start state, and without holding the phone-session mutex.
+    if notifications && !preferences.notifications_enabled {
+        crate::call_notifications::permission(true)?;
+        crate::call_notifications::refresh_authorization(app);
+    }
     let previous = available && app.autolaunch().is_enabled().map_err(|_| desktop_error())?;
     if available {
         set_autostart(app, autostart)?;
         preferences.autostart_configured = true;
-    }
-    // Only called from the settings window. Never request permission from the
-    // background observer. Desktop plugins currently defer authorization to OS UI.
-    if notifications && !preferences.notifications_enabled {
-        app.notification()
-            .request_permission()
-            .map_err(|_| desktop_error())?;
     }
     preferences.notifications_enabled = notifications;
     if let Err(error) = with_session(app, |session| session.save_desktop_preferences(preferences)) {
@@ -163,9 +156,9 @@ mod tests {
     fn login_start_excludes_temporary_or_development_bundles() {
         let root = std::path::PathBuf::from("/installed");
         #[cfg(target_os = "macos")]
-        let suffix = "SIP.app/Contents/MacOS/sip-desktop";
+        let suffix = "Ruf.app/Contents/MacOS/sip-desktop";
         #[cfg(not(target_os = "macos"))]
-        let suffix = "SIP/sip-desktop.exe";
+        let suffix = "Ruf/sip-desktop.exe";
         assert!(installed_path(
             &root.join(suffix),
             std::slice::from_ref(&root)

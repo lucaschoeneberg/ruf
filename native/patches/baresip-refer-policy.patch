@@ -1,0 +1,20 @@
+diff --git a/src/ua.c b/src/ua.c
+--- a/src/ua.c
++++ b/src/ua.c
+@@ -1104,6 +1104,16 @@ bool ua_handle_refer(struct ua *ua, const struct sip_msg *msg)
+ 	bool sub = true;
+ 	int err;
+ 
++	/* Enforce the account's transfer policy for out-of-dialog REFER too. */
++	if (!ua->acc->refer) {
++		(void)sip_treplyf(NULL, NULL, uag_sip(), msg, false,
++				 405, "Method Not Allowed",
++				 "Allow: %H\r\n"
++				 "Content-Length: 0\r\n\r\n",
++				 ua_print_allowed, ua);
++		return true;
++	}
++
+ 	debug("ua: incoming REFER message from %r (%J)\n",
+ 	      &msg->from.auri, &msg->src);
+ 

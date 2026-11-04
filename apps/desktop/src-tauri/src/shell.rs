@@ -1,14 +1,16 @@
 //! Native menus, background lifecycle and state delivery. No SIP/audio implementation.
 use crate::{desktop, phone::PhoneState, shell_policy};
 use phone_core::{CallState, EngineSnapshot, RegistrationState};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use tauri::{
     Emitter, Manager,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-use tauri_plugin_notification::NotificationExt;
 
 const TRAY_ID: &str = "phone";
 const OPEN: &str = "open-phone";
@@ -24,15 +26,17 @@ pub(crate) struct ShellState {
     allow_exit: AtomicBool,
     quit_prompt: AtomicBool,
     settings_guard_ready: AtomicBool,
+    pending_snapshot: Mutex<shell_policy::PendingSnapshot>,
 }
 
 pub(crate) fn setup(app: &mut tauri::App) -> tauri::Result<()> {
+    crate::call_notifications::setup(app.handle());
     let handle = app.handle();
     let initial = EngineSnapshot::default();
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(status_icon(initial.call, false))
         .icon_as_template(cfg!(target_os = "macos"))
-        .tooltip("SIP · Telefonie wird geladen")
+        .tooltip("Ruf · Telefonie wird geladen")
         .menu(&tray_menu(handle, &initial)?)
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_tray_icon_event(|tray, event| {
@@ -145,7 +149,7 @@ fn request_quit(app: &tauri::AppHandle) {
                 .is_err()
         {
             app.dialog().message("Die Einstellungen konnten nicht erreicht werden. Öffne sie erneut, um deine Änderungen vor dem Beenden zu prüfen.")
-                .title("SIP beenden").show(|_| {});
+                .title("Ruf beenden").show(|_| {});
         }
         return;
     }
@@ -180,8 +184,8 @@ fn confirm_quit(app: &tauri::AppHandle, active: bool) {
     if active {
         let handle = app.clone();
         app.dialog()
-            .message("Ein Gespräch läuft oder wird aufgebaut. Gespräch beenden und SIP schließen?")
-            .title("SIP beenden")
+            .message("Ein Gespräch läuft oder wird aufgebaut. Gespräch beenden und Ruf schließen?")
+            .title("Ruf beenden")
             .buttons(MessageDialogButtons::OkCancelCustom(
                 "Gespräch beenden und schließen".into(),
                 "Zurück".into(),
@@ -209,6 +213,7 @@ fn finish_quit(app: tauri::AppHandle) {
         return;
     }
     tauri::async_runtime::spawn_blocking(move || {
+        crate::call_notifications::shutdown(&app);
         if app.state::<PhoneState>().shutdown().is_err() {
             eprintln!("Native phone shutdown failed");
         }
@@ -314,10 +319,12 @@ fn call_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Su
 }
 fn status_text(state: &EngineSnapshot) -> String {
     match state.call {
-        CallState::Incoming => "SIP · Eingehender Anruf".into(),
-        CallState::Answering => "SIP · Wird angenommen …".into(),
-        CallState::Active => "SIP · Gespräch läuft".into(),
-        CallState::Calling | CallState::Ringing => "SIP · Verbindungsaufbau".into(),
+        CallState::Incoming => "Ruf · Eingehender Anruf".into(),
+        CallState::Answering => "Ruf · Wird angenommen …".into(),
+        CallState::Active => "Ruf · Gespräch läuft".into(),
+        CallState::Held => "Ruf · Gespräch gehalten".into(),
+        CallState::EarlyMedia => "Ruf · Frühe Medien".into(),
+        CallState::Calling | CallState::Ringing => "Ruf · Verbindungsaufbau".into(),
         CallState::Idle => {
             let ready = state
                 .accounts
@@ -325,11 +332,11 @@ fn status_text(state: &EngineSnapshot) -> String {
                 .filter(|a| a.registration == RegistrationState::Registered && !a.removing)
                 .count();
             if state.last_error.is_some() {
-                "SIP · Verbindung oder Einstellungen prüfen".into()
+                "Ruf · Verbindung oder Einstellungen prüfen".into()
             } else if state.accounts.is_empty() {
-                "SIP · Kein Konto eingerichtet".into()
+                "Ruf · Kein Konto eingerichtet".into()
             } else {
-                format!("SIP · {ready}/{} Konten verbunden", state.accounts.len())
+                format!("Ruf · {ready}/{} Konten verbunden", state.accounts.len())
             }
         }
     }
@@ -339,7 +346,7 @@ fn tray_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Me
         app,
         &[
             &item(app, "status", &status_text(state), false, None)?,
-            &item(app, OPEN, "Telefon öffnen", true, None)?,
+            &item(app, OPEN, "Ruf öffnen", true, None)?,
             &PredefinedMenuItem::separator(app)?,
             &call_menu(app, state)?,
             &account_menu(app, state)?,
@@ -348,7 +355,7 @@ fn tray_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Me
             &item(app, "settings:audio", "Ton …", true, None)?,
             &item(app, "settings:general", "Einstellungen …", true, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, QUIT, "SIP beenden", true, None)?,
+            &item(app, QUIT, "Ruf beenden", true, None)?,
         ],
     )
 }
@@ -359,13 +366,13 @@ pub(crate) fn app_menu(
     let application = Submenu::new(
         app,
         if cfg!(target_os = "macos") {
-            "SIP"
+            "Ruf"
         } else {
             "Datei"
         },
         true,
     )?;
-    application.append(&item(app, "settings:about", "Über SIP …", true, None)?)?;
+    application.append(&item(app, "settings:about", "Über Ruf …", true, None)?)?;
     application.append(&item(
         app,
         "settings:general",
@@ -382,7 +389,7 @@ pub(crate) fn app_menu(
         application.append(&PredefinedMenuItem::show_all(app, None)?)?;
     }
     application.append(&PredefinedMenuItem::separator(app)?)?;
-    application.append(&item(app, QUIT, "SIP beenden", true, Some("CmdOrCtrl+Q"))?)?;
+    application.append(&item(app, QUIT, "Ruf beenden", true, Some("CmdOrCtrl+Q"))?)?;
     let edit = Submenu::with_items(
         app,
         "Bearbeiten",
@@ -424,8 +431,8 @@ fn start_observer(app: tauri::AppHandle) {
         .name("phone-observer".into())
         .spawn(move || {
             let mut previous = String::new();
-            let mut notified = None;
             let mut login_attempted = false;
+            let mut observed = shell_policy::ObservedState::default();
             while !app.state::<ShellState>().stopping.load(Ordering::Acquire) {
                 let result = desktop::with_session(&app, |session| {
                     Ok((
@@ -433,16 +440,8 @@ fn start_observer(app: tauri::AppHandle) {
                         session.desktop_preferences().notifications_enabled,
                     ))
                 });
-                let (snapshot, notifications) = match result {
-                    Ok(value) => value,
-                    Err(error) => (
-                        EngineSnapshot {
-                            last_error: Some(error),
-                            ..Default::default()
-                        },
-                        false,
-                    ),
-                };
+                // A failed read is not evidence that calls or accounts vanished.
+                let (mut snapshot, notifications) = observed.update(result);
                 if !login_attempted
                     && snapshot
                         .accounts
@@ -454,50 +453,11 @@ fn start_observer(app: tauri::AppHandle) {
                         eprintln!("Login start could not be configured; check desktop settings");
                     }
                 }
-                if snapshot.call == CallState::Incoming
-                    && snapshot.call_id.is_some()
-                    && snapshot.call_id != notified
-                {
-                    notified = snapshot.call_id.clone();
-                    if notifications {
-                        let account = snapshot
-                            .accounts
-                            .iter()
-                            .find(|a| Some(a.id) == snapshot.call_account_id)
-                            .map_or("SIP", |a| a.name.as_str());
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("Eingehender Anruf")
-                            .body(format!(
-                                "{account} · Über das SIP-Statussymbol annehmen oder ablehnen."
-                            ))
-                            .silent()
-                            .show();
-                    }
-                }
-                let signature = serde_json::to_string(&snapshot).unwrap_or_default();
-                if signature != previous {
+                crate::contacts::enrich_snapshot(&app, &mut snapshot);
+                crate::call_notifications::sync(&app, &snapshot, notifications);
+                let signature = snapshot_signature(&snapshot);
+                if signature != previous && queue_snapshot(&app, snapshot).is_ok() {
                     previous = signature;
-                    let handle = app.clone();
-                    let _ = app.run_on_main_thread(move || {
-                        if let Some(tray) = handle.tray_by_id(TRAY_ID) {
-                            let _ = tray.set_tooltip(Some(status_text(&snapshot)));
-                            let ready = snapshot
-                                .accounts
-                                .iter()
-                                .any(|a| a.registration == RegistrationState::Registered);
-                            let _ = tray.set_icon(Some(status_icon(snapshot.call, ready)));
-                            if let Ok(menu) = tray_menu(&handle, &snapshot) {
-                                let _ = tray.set_menu(Some(menu));
-                            }
-                        }
-                        if let Ok(menu) = app_menu(&handle, &snapshot) {
-                            let _ = handle.set_menu(menu);
-                        }
-                        let _ = handle.emit_to("main", "phone-state-changed", &snapshot);
-                        let _ = handle.emit_to("settings", "phone-state-changed", &snapshot);
-                    });
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
@@ -505,31 +465,139 @@ fn start_observer(app: tauri::AppHandle) {
         .expect("Failed to start phone state observer");
 }
 
+fn snapshot_signature(snapshot: &EngineSnapshot) -> String {
+    let mut state = snapshot.clone();
+    // Reads have their own ordering revision; publish only actual state changes.
+    state.revision = 0;
+    serde_json::to_string(&state).unwrap_or_default()
+}
+
+fn queue_snapshot(app: &tauri::AppHandle, snapshot: EngineSnapshot) -> tauri::Result<()> {
+    let needs_delivery = app
+        .state::<ShellState>()
+        .pending_snapshot
+        .lock()
+        .map(|mut pending| pending.replace(snapshot))
+        .unwrap_or(false);
+    if !needs_delivery {
+        return Ok(());
+    }
+    let handle = app.clone();
+    let result = app.run_on_main_thread(move || {
+        let snapshot = handle
+            .state::<ShellState>()
+            .pending_snapshot
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.take());
+        let Some(snapshot) = snapshot else {
+            return;
+        };
+        if let Some(tray) = handle.tray_by_id(TRAY_ID) {
+            let _ = tray.set_tooltip(Some(status_text(&snapshot)));
+            let ready = snapshot
+                .accounts
+                .iter()
+                .any(|a| a.registration == RegistrationState::Registered);
+            // Replacing an image with set_icon clears macOS template tint.
+            // Keep the template flag on every state update, without flicker.
+            let _ = tray.set_icon_with_as_template(
+                Some(status_icon(snapshot.call, ready)),
+                cfg!(target_os = "macos"),
+            );
+            if let Ok(menu) = tray_menu(&handle, &snapshot) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        }
+        if let Ok(menu) = app_menu(&handle, &snapshot) {
+            let _ = handle.set_menu(menu);
+        }
+        let _ = handle.emit_to("main", "phone-state-changed", &snapshot);
+        let _ = handle.emit_to("settings", "phone-state-changed", &snapshot);
+    });
+    if result.is_err()
+        && let Ok(mut pending) = app.state::<ShellState>().pending_snapshot.lock()
+    {
+        pending.take();
+    }
+    result
+}
+
 fn status_icon(call: CallState, ready: bool) -> tauri::image::Image<'static> {
-    // A small monochrome handset drawn directly as RGBA; macOS applies template tint.
-    let size = 32usize;
-    let mut rgba = vec![0; size * size * 4];
-    for y in 0..size {
-        for x in 0..size {
-            let xf = x as f64;
-            let yf = y as f64;
-            let arc = ((xf - 17.0).powi(2) + (yf - 13.0).powi(2)).sqrt();
-            let handset = (9.0..=13.0).contains(&arc) && yf > 9.0 && xf < 25.0;
-            let ends = ((5.0..=10.0).contains(&xf) && (7.0..=15.0).contains(&yf))
-                || ((20.0..=28.0).contains(&xf) && (20.0..=25.0).contains(&yf));
-            let dot = (xf - 26.0).powi(2) + (yf - 6.0).powi(2)
-                <= if call != CallState::Idle {
-                    16.0
-                } else if ready {
-                    7.0
-                } else {
-                    0.0
-                };
-            if handset || ends || dot {
-                let c = if cfg!(target_os = "macos") { 0 } else { 230 };
-                rgba[(y * size + x) * 4..(y * size + x) * 4 + 4].copy_from_slice(&[c, c, c, 255]);
+    // The same r/handset mark as the app icon, without its dark tile. macOS
+    // tints the alpha mask for light/dark menu bars; Windows keeps the brand blue.
+    const MARK: tauri::image::Image<'_> = tauri::include_image!("icons/tray.png");
+    let size = MARK.width() as usize;
+    let mut rgba = MARK.rgba().to_vec();
+    let color = if cfg!(target_os = "macos") {
+        [0, 0, 0]
+    } else {
+        [88, 166, 255]
+    };
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        pixel[..3].copy_from_slice(&color);
+    }
+    let radius: i32 = if call != CallState::Idle { 3 } else { 2 };
+    if ready || call != CallState::Idle {
+        for y in 0..size {
+            for x in 0..size {
+                if (x as i32 - 26).pow(2) + (y as i32 - 6).pow(2) <= radius.pow(2) {
+                    let pixel = &mut rgba[(y * size + x) * 4..][..4];
+                    pixel[..3].copy_from_slice(&color);
+                    pixel[3] = 255;
+                }
             }
         }
     }
-    tauri::image::Image::new_owned(rgba, size as u32, size as u32)
+    tauri::image::Image::new_owned(rgba, MARK.width(), MARK.height())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_revisions_do_not_trigger_state_publication_by_themselves() {
+        let mut snapshot = EngineSnapshot {
+            revision: 17,
+            ..Default::default()
+        };
+        let before = snapshot_signature(&snapshot);
+        snapshot.revision = 18;
+        assert_eq!(snapshot_signature(&snapshot), before);
+        snapshot.call = CallState::Incoming;
+        assert_ne!(snapshot_signature(&snapshot), before);
+    }
+
+    #[test]
+    fn tray_mark_has_no_badge_without_a_ready_account_or_call() {
+        let idle = status_icon(CallState::Idle, false);
+        let ready = status_icon(CallState::Idle, true);
+        let active = status_icon(CallState::Active, true);
+        let badge = (6 * 32 + 26) * 4 + 3;
+        assert_eq!(idle.rgba()[badge], 0);
+        assert!(ready.rgba()[badge] > 0);
+        assert!(active.rgba()[badge] > 0);
+        let coverage = |image: &tauri::image::Image<'_>| {
+            image
+                .rgba()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| u32::from(p[3]))
+                .sum::<u32>()
+        };
+        assert!(coverage(&idle) < coverage(&ready));
+        assert!(coverage(&ready) < coverage(&active));
+    }
+
+    #[test]
+    fn status_identifies_ruf_and_the_current_call() {
+        let mut snapshot = EngineSnapshot::default();
+        assert_eq!(status_text(&snapshot), "Ruf · Kein Konto eingerichtet");
+        snapshot.call = CallState::Incoming;
+        assert_eq!(status_text(&snapshot), "Ruf · Eingehender Anruf");
+        snapshot.call = CallState::Active;
+        assert_eq!(status_text(&snapshot), "Ruf · Gespräch läuft");
+    }
 }

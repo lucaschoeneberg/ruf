@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-copy-phone-number"
+description = "Enables the copy_phone_number command without any pre-configured scope."
+commands.allow = ["copy_phone_number"]
+
+[[permission]]
+identifier = "deny-copy-phone-number"
+description = "Denies the copy_phone_number command without any pre-configured scope."
+commands.deny = ["copy_phone_number"]

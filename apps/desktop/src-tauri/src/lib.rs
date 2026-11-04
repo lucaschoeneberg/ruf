@@ -1,7 +1,10 @@
 //! Desktop lifecycle and IPC composition; application logic lives in phone-core.
 
+mod call_notifications;
 mod commands;
+mod contacts;
 mod desktop;
+mod history;
 mod phone;
 mod shell;
 mod shell_policy;
@@ -23,18 +26,33 @@ pub fn run() {
             }
         }))
         .plugin(autostart.build())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(phone::PhoneState::default())
+        .manage(contacts::ContactsState::default())
         .manage(shell::ShellState::default())
         .menu(|app| shell::app_menu(app, &phone_core::EngineSnapshot::default()))
         .setup(|app| {
+            contacts::setup(app.handle());
+            history::setup(app.handle());
             shell::setup(app)?;
             Ok(())
         })
         .on_window_event(shell::window_event)
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
+            contacts::get_contacts,
+            contacts::refresh_contacts,
+            contacts::copy_phone_number,
+            contacts::open_contacts_app,
+            history::get_history,
+            history::delete_history_entry,
+            history::clear_history,
+            history::callback_history,
+            contacts::request_contacts_access,
+            contacts::get_contacts_permission,
+            contacts::request_contacts_permission,
+            contacts::open_contacts_settings,
+            contacts::set_contact_favorite,
             commands::configure_account,
             commands::get_engine_snapshot,
             commands::dial,
@@ -48,13 +66,14 @@ pub fn run() {
             commands::preview_ringtone,
             commands::stop_ringtone_preview,
             commands::get_desktop_settings,
+            commands::request_notification_permission,
             commands::settings_ready,
             commands::quit_app,
             commands::save_desktop_settings,
             commands::hangup
         ])
         .build(tauri::generate_context!())
-        .expect("Failed to build the SIP desktop application");
+        .expect("Failed to build the Ruf desktop application");
     app.run(|app, event| {
         if let tauri::RunEvent::ExitRequested { api, .. } = &event {
             shell::exit_requested(app, api);
@@ -63,10 +82,12 @@ pub fn run() {
         if let tauri::RunEvent::Reopen { .. } = &event {
             let _ = shell::show_phone(app);
         }
-        if matches!(event, tauri::RunEvent::Exit)
-            && let Err(error) = app.state::<phone::PhoneState>().shutdown()
-        {
-            eprintln!("Engine shutdown: {error}");
+        if matches!(event, tauri::RunEvent::Exit) {
+            contacts::shutdown(app);
+            if let Err(error) = app.state::<phone::PhoneState>().shutdown() {
+                eprintln!("Engine shutdown: {error}");
+            }
+            history::shutdown(app);
         }
     });
 }

@@ -9,13 +9,27 @@ publish = false
 
 [features]
 default = []
-native = ["dep:cc", "dep:serde_json"]
+native = ["dep:serde_json"]
 
 [dependencies]
 phone-core.workspace = true
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-core = "0.62.2"
+windows = { version = "0.62.2", features = [
+  "Data_Xml_Dom",
+  "Foundation",
+  "UI_Notifications",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_Registry",
+  "Win32_System_WinRT",
+  "Win32_UI_Notifications",
+] }
+
 [build-dependencies]
-cc = { version = "1", optional = true }
+cc = { version = "1" }
 serde_json = { version = "1", optional = true }
 
 [lints]

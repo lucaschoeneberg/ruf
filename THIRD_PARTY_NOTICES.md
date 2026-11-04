@@ -78,8 +78,19 @@ which is MIT licensed. Its [upstream notice](native/licenses/github-zed-theme-LI
 is bundled with the existing native license resources.
 
 Native background integration uses official Tauri plugins under their MIT option:
-`tauri-plugin-autostart` 2.7.0, `tauri-plugin-notification` 2.8.0,
+`tauri-plugin-autostart` 2.7.0,
 `tauri-plugin-single-instance` 2.5.5 and `tauri-plugin-dialog` 2.8.4. The
 macOS startup keychain UI guard reuses `security-framework` 3.7.0 under MIT.
 Their unmodified MIT texts are staged in `native/licenses/` and included in bundles.
 The tray handset is drawn by our application code; no additional icon asset is copied.
+
+Actionable call notifications use our native UserNotifications.framework bridge
+on macOS and the Microsoft `windows`/`windows-core` 0.62.2 crates on Windows.
+Opaque offer tokens use `getrandom` 0.4.3. These Rust crates are used under their
+MIT license option; their unmodified notices are staged in `native/licenses/`.
+The operating-system frameworks are platform components, not copied source.
+
+Local call history uses rusqlite 0.41.1 and libsqlite3-sys 0.39.1 under MIT.
+Their unmodified upstream notices are bundled in `native/licenses/`. The bundled
+SQLite engine is dedicated to the public domain by its authors; see the notice
+in the bundled sqlite3 source and [SQLite copyright](https://sqlite.org/copyright.html).
