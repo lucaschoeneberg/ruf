@@ -1,0 +1,15 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": ["apps/desktop/src/app.css"],
+        "createdAt": "2026-11-04T15:19:15.085Z",
+        "reason": "Agent review: .notice is used for SIP transport warnings and runtime/error paragraphs in App.svelte, not decorative cards; the semantic warning marker predates this milestone (5638e41)."
+      }
+    ]
+  }
+}
