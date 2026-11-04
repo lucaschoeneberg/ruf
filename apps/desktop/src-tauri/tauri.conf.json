@@ -14,10 +14,11 @@
       {
         "label": "main",
         "title": "SIP",
-        "width": 960,
-        "height": 680,
-        "minWidth": 400,
-        "minHeight": 400
+        "width": 360,
+        "height": 560,
+        "minWidth": 320,
+        "minHeight": 500,
+        "theme": "Dark"
       }
     ],
     "security": {

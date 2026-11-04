@@ -17,3 +17,5 @@ Thumbs.db
 /artifacts/
 /native/build/
 /native/install/
+
+/.impeccable/review/

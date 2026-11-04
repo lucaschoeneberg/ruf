@@ -39,6 +39,7 @@ jobs:
       - name: Verify generated contracts are current
         run: git diff --exit-code -- apps/desktop/src/lib/generated
       - run: bun run format:check
+      - run: bun run test:ui
       - run: bun run check
       - run: bun run build
       - run: cargo clippy --locked --workspace --all-targets --features sip-desktop/native -- -D warnings

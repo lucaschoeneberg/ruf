@@ -25,6 +25,7 @@
     "dev:native": "bun run --cwd apps/desktop tauri dev --features native",
     "lab:up": "docker compose -f tests/interop/asterisk/compose.yml up -d --wait",
     "lab:down": "docker compose -f tests/interop/asterisk/compose.yml down",
-    "test:asterisk": "bun scripts/asterisk-smoke.mjs"
+    "test:asterisk": "bun scripts/asterisk-smoke.mjs",
+    "test:ui": "bun test tests/ui"
   }
 }
