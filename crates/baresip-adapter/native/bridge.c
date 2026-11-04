@@ -22,14 +22,15 @@ typedef pthread_mutex_t queue_lock;
 #define LOCK_CLOSE(p) (void)pthread_mutex_destroy(p)
 #endif
 
-typedef void (*event_callback)(int kind, int code, void *arg);
+typedef void (*event_callback)(int kind, int code, uint64_t call_generation, void *arg);
 enum { EV_READY=1, EV_REGISTERING, EV_REGISTERED, EV_REG_FAILED,
-       EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED };
+       EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE };
 enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP };
 
 struct request {
     struct request *next;
     int operation;
+    uint64_t call_generation;
     char *registrar, *username, *password, *destination;
 };
 struct engine {
@@ -41,6 +42,7 @@ struct engine {
     struct request *pending;
     struct ua *ua;
     struct call *call;
+    uint64_t call_generation;
     char registrar[256];
     char recording[128];
     int audio_mode;
@@ -48,7 +50,7 @@ struct engine {
     void *callback_arg;
 };
 
-static void emit(struct engine *e, int kind, int code) { e->callback(kind, code, e->callback_arg); }
+static void emit(struct engine *e, int kind, int code) { e->callback(kind, code, e->call_generation, e->callback_arg); }
 static char *copy_string(const char *s) {
     size_t size = strlen(s ? s : "") + 1;
     char *copy = malloc(size);
@@ -90,8 +92,9 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
     case BEVENT_REGISTER_FAIL: emit(e, EV_REG_FAILED, 0); break;
     case BEVENT_CALL_INCOMING:
         if (e->call && e->call != call) { ua_hangup(e->ua, call, 486, "Busy Here"); break; }
+        if (e->call != call) ++e->call_generation;
         e->call = call; emit(e, EV_INCOMING, 0); break;
-    case BEVENT_CALL_OUTGOING: e->call = call; emit(e, EV_CALLING, 0); break;
+    case BEVENT_CALL_OUTGOING: ++e->call_generation; e->call = call; emit(e, EV_CALLING, 0); break;
     case BEVENT_CALL_RINGING: emit(e, EV_RINGING, 0); break;
     case BEVENT_CALL_ESTABLISHED: emit(e, EV_ACTIVE, 0); break;
     case BEVENT_CALL_CLOSED:
@@ -108,6 +111,12 @@ static void queue_handler(int id, void *data, void *arg) {
     char uri[512];
     (void)id;
     LOCK(&e->lock); remove_pending(e, r); UNLOCK(&e->lock);
+    if ((r->operation == OP_ANSWER || r->operation == OP_HANGUP)
+        && r->call_generation != e->call_generation) {
+        emit(e, EV_STALE, 0);
+        free_request(r);
+        return;
+    }
     switch (r->operation) {
     case OP_ACCOUNT: {
         struct ua *previous = e->ua;
@@ -237,7 +246,7 @@ int sip_engine_run(void *handle) {
     return error;
 }
 
-int sip_engine_request(void *handle, int operation, const char *registrar,
+int sip_engine_request(void *handle, int operation, uint64_t call_generation, const char *registrar,
                        const char *username, const char *password, const char *destination) {
     struct engine *e = handle;
     struct request *r;
@@ -250,6 +259,7 @@ int sip_engine_request(void *handle, int operation, const char *registrar,
     r = calloc(1, sizeof(*r));
     if (!r) return ENOMEM;
     r->operation = operation;
+    r->call_generation = call_generation;
     r->registrar = copy_string(registrar); r->username = copy_string(username);
     r->password = copy_string(password); r->destination = copy_string(destination);
     if (!r->registrar || !r->username || !r->password || !r->destination) { free_request(r); return ENOMEM; }

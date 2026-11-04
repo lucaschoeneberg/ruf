@@ -32,7 +32,9 @@ extension 600, rejects a second outgoing call/account replacement while active,
 waits four seconds, hangs up and joins the engine thread. It then parses a newly
 created WAV and requires mono PCM16 at 8 kHz, duration >=3 seconds, RMS >500 and
 returned frequency between 420 and 460 Hz. Stale files, silence and a successful
-SIP response without media fail the test. Output recordings stay in ignored
+SIP response without media fail the test. A second native regression test creates
+two successive real calls, replays stale hangup/answer actions from the first,
+and requires the second call to remain active with an `invalidState` error. Output recordings stay in ignored
 `native/build`. The lab is left up for interactive development; the CI job always
 stops its own Compose project afterward.
 

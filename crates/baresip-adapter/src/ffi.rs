@@ -1,8 +1,7 @@
 //! Private unsafe boundary: callback ownership outlives the joined C event loop.
 
-use phone_core::{
-    AccountConfig, AudioMode, CallState, EngineSnapshot, ErrorCode, PhoneError, RegistrationState,
-};
+use crate::engine::EngineState;
+use phone_core::{AccountConfig, AudioMode, CallState, ErrorCode, PhoneError, RegistrationState};
 use std::{
     ffi::{CString, c_void},
     panic::{AssertUnwindSafe, catch_unwind},
@@ -20,7 +19,7 @@ static ENGINE_LEASE: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "C" {
     fn sip_engine_create(
-        callback: extern "C" fn(i32, i32, *mut c_void),
+        callback: extern "C" fn(i32, i32, u64, *mut c_void),
         arg: *mut c_void,
         audio_mode: i32,
         recording: *const std::ffi::c_char,
@@ -29,6 +28,7 @@ unsafe extern "C" {
     fn sip_engine_request(
         handle: *mut c_void,
         operation: i32,
+        call_generation: u64,
         registrar: *const std::ffi::c_char,
         username: *const std::ffi::c_char,
         password: *const std::ffi::c_char,
@@ -49,11 +49,11 @@ impl Handle {
 }
 
 struct CallbackContext {
-    snapshot: Arc<Mutex<EngineSnapshot>>,
+    snapshot: Arc<Mutex<EngineState>>,
     ready: mpsc::Sender<Result<(), PhoneError>>,
 }
 
-extern "C" fn callback(kind: i32, code: i32, arg: *mut c_void) {
+extern "C" fn callback(kind: i32, code: i32, call_generation: u64, arg: *mut c_void) {
     // arg points to the owned box held until the engine thread has joined.
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let context = unsafe { &*arg.cast::<CallbackContext>() };
@@ -65,7 +65,9 @@ extern "C" fn callback(kind: i32, code: i32, arg: *mut c_void) {
             });
             return;
         }
-        if let Ok(mut state) = context.snapshot.lock() {
+        if let Ok(mut engine) = context.snapshot.lock() {
+            engine.call_generation = call_generation;
+            let state = &mut engine.snapshot;
             match kind {
                 2 => state.registration = RegistrationState::Registering,
                 3 => {
@@ -97,6 +99,12 @@ extern "C" fn callback(kind: i32, code: i32, arg: *mut c_void) {
                         state.last_error = Some(native_error(code));
                     }
                 }
+                12 => {
+                    state.last_error = Some(PhoneError::new(
+                        ErrorCode::InvalidState,
+                        "The call changed before this action executed.",
+                    ))
+                }
                 _ => {}
             }
         }
@@ -114,7 +122,7 @@ unsafe impl Send for NativeEngine {}
 
 impl NativeEngine {
     pub(crate) fn start(
-        snapshot: Arc<Mutex<EngineSnapshot>>,
+        snapshot: Arc<Mutex<EngineState>>,
         audio: AudioMode,
         recording: Option<PathBuf>,
     ) -> Result<Self, PhoneError> {
@@ -179,6 +187,7 @@ impl NativeEngine {
         operation: i32,
         account: Option<&AccountConfig>,
         destination: Option<&str>,
+        call_generation: u64,
     ) -> Result<(), PhoneError> {
         let handle = self
             .handle
@@ -191,6 +200,7 @@ impl NativeEngine {
             sip_engine_request(
                 handle.0.as_ptr(),
                 operation,
+                call_generation,
                 registrar.as_ptr(),
                 username.as_ptr(),
                 password.as_ptr(),
@@ -208,7 +218,7 @@ impl NativeEngine {
         if self.handle.is_none() {
             return Ok(());
         }
-        let request_result = self.request(5, None, None);
+        let request_result = self.request(5, None, None, 0);
         let result = self
             .thread
             .take()

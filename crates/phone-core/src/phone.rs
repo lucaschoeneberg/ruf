@@ -153,7 +153,9 @@ impl AccountConfig {
         if !valid_host
             || self.registrar.len() > 255
             || parts.next().is_some()
-            || port.is_some_and(|p| p.parse::<u16>().map_or(true, |n| n == 0))
+            || port.is_some_and(|p| {
+                !p.bytes().all(|b| b.is_ascii_digit()) || p.parse::<u16>().map_or(true, |n| n == 0)
+            })
         {
             return Err(invalid());
         }

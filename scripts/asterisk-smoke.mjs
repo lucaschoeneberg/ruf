@@ -79,6 +79,24 @@ assert.ok(
 console.log(
   `AUDIO_OK duration=${duration.toFixed(2)}s RMS=${rms.toFixed(0)} frequency=${frequency.toFixed(1)}Hz`,
 );
+run(
+  "cargo",
+  [
+    "test",
+    "--locked",
+    "-p",
+    "baresip-adapter",
+    "--features",
+    "native",
+    "--lib",
+    "stale_call_actions",
+    "--",
+    "--ignored",
+  ],
+  {
+    env: { ...process.env, SIP_TEST_PASSWORD: "sip-lab-only-not-a-secret" },
+  },
+);
 console.log(
   `Recording: ${recording}\nLab remains available; stop with npm run lab:down.`,
 );

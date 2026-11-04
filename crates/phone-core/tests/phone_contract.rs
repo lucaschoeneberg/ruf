@@ -84,3 +84,10 @@ fn registrar_with_port_must_fit_without_truncation() {
     input.registrar = format!("{host}:65535");
     assert_eq!(input.validate().unwrap_err().code, ErrorCode::InvalidInput);
 }
+
+#[test]
+fn registrar_port_accepts_only_ascii_digits() {
+    let mut input = account();
+    input.registrar = "127.0.0.1:+5070".into();
+    assert_eq!(input.validate().unwrap_err().code, ErrorCode::InvalidInput);
+}

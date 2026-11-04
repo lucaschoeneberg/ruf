@@ -11,8 +11,9 @@ context. One dedicated thread runs libre; all UA operations execute there via
 its message queue. Queue creation/destruction, pending-request ownership and
 shutdown signaling are protected by the C mutex. The bounded pending list keeps
 overload explicit. Shutdown sets a flag checked every 50ms, so pipe saturation
-or allocation failure cannot prevent requesting exit. C callbacks copy only
-numeric owned state/error information into a synchronized Rust snapshot.
+or allocation failure cannot prevent requesting exit. Answer/hangup requests also carry the call generation captured under the Rust
+state lock; the native thread rejects stale generations before touching a call.
+C callbacks copy only numeric owned state/error information into a synchronized Rust snapshot.
 
 The native singleton prevents conflicting process-global upstream state. Rust
 joins the native thread before destroying the handle and callback context.

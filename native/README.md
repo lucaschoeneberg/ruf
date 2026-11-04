@@ -65,7 +65,9 @@ OpenSSL is linked as an upstream dependency; this does not enable encrypted call
 
 The bridge uses a dedicated libre thread and message queue. A bounded pending
 queue rejects overload, and a timer observes an allocation-free shutdown flag.
-Rust joins the thread before freeing callbacks or C state. See
+Answer/hangup are bound to an internal call generation, so delayed actions
+cannot target a replacement call. Rust joins the thread before freeing callbacks
+or C state. See
 [the C boundary](../crates/baresip-adapter/native/README.md).
 
 ## Licenses and references

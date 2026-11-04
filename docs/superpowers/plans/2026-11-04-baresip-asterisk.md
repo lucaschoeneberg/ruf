@@ -1,6 +1,6 @@
 # Native baresip and Asterisk Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Link real baresip into the desktop application, prepare macOS/Windows SDK builds, and prove an authenticated SIP call with echoed RTP audio against an isolated local Asterisk.
 
@@ -35,9 +35,9 @@
 
 **Interfaces:** SDK at native/install/<Rust target>/ with include/re, include/baresip.h, lib and license resources. Baresip source commit 9cfab81550acc4bd38d6580d79b45cc6eea65cd6; libre commit 65555dad439de9d6a81b3ee6092b9c096585249b. Configure static builds with only G.711, format/resampling, platform audio and deterministic tone/file audio modules. Windows OpenSSL uses an explicitly baselined vcpkg manifest; macOS uses the explicitly resolved local OpenSSL prefix and records it.
 
-- [ ] Implement a cross-platform Node build recipe that fetches exact source revisions into ignored native/build, configures CMake and stages only required development files/static libraries/notices. Abort on command or source identity mismatch.
-- [ ] Build the SDK locally; preserve a build manifest with versions, target and selected modules. Prepare Windows MSVC x64 paths without claiming that they ran locally.
-- [ ] Add a separately named Docker Compose Asterisk lab, pinned image digest, loopback-only published ports and synthetic local-only credentials. Add an authenticated extension and Echo dialplan. Do not stop or alter unrelated containers.
+- [x] Implement a cross-platform Node build recipe that fetches exact source revisions into ignored native/build, configures CMake and stages only required development files/static libraries/notices. Abort on command or source identity mismatch.
+- [x] Build the SDK locally; preserve a build manifest with versions, target and selected modules. Prepare Windows MSVC x64 paths without claiming that they ran locally.
+- [x] Add a separately named Docker Compose Asterisk lab, pinned image digest, loopback-only published ports and synthetic local-only credentials. Add an authenticated extension and Echo dialplan. Do not stop or alter unrelated containers.
 
 ## Task 2: Safe engine and observable state
 
@@ -45,11 +45,11 @@
 
 **Interfaces:** AccountConfig input with registrar, username, password and audio mode; password-free EngineSnapshot with registration/call states and safe error information. Engine::start, configure_account, dial, answer, hangup, snapshot and shutdown. Only one native engine instance per process. C ABI has explicit create/run/request/destroy ownership and numeric owned events.
 
-- [ ] Write failing tests for invalid input/injection rejection, credential redaction, call-state preconditions and unavailable-feature behavior. Implement only the required behavior, then run the suite.
-- [ ] Add cc build integration and a small C adapter against actual headers. Initialize in-memory config, static modules and libre's queue on the engine thread; use account_set_auth_user/pass and explicit registration.
-- [ ] Implement safe event/state mapping, singleton lifetime and teardown. Add real feature-gated lifecycle tests; exercise repeated startup/shutdown and failure cleanup.
-- [ ] Add an example that reads the synthetic test password from environment, registers, dials the echo extension, waits for connection, records incoming tone audio, hangs up and exits with failure on timeout or native error. Never print the password.
-- [ ] Run the real example against Asterisk and verify the resulting WAV duration/amplitude/frequency; distinguish this from hardware audio verification.
+- [x] Write failing tests for invalid input/injection rejection, credential redaction, call-state preconditions and unavailable-feature behavior. Implement only the required behavior, then run the suite.
+- [x] Add cc build integration and a small C adapter against actual headers. Initialize in-memory config, static modules and libre's queue on the engine thread; use account_set_auth_user/pass and explicit registration.
+- [x] Implement safe event/state mapping, singleton lifetime and teardown. Add real feature-gated lifecycle tests; exercise repeated startup/shutdown and failure cleanup.
+- [x] Add an example that reads the synthetic test password from environment, registers, dials the echo extension, waits for connection, records incoming tone audio, hangs up and exits with failure on timeout or native error. Never print the password.
+- [x] Run the real example against Asterisk and verify the resulting WAV duration/amplitude/frequency; distinguish this from hardware audio verification.
 
 ## Task 3: Desktop API and native CI builds
 
@@ -57,9 +57,9 @@
 
 **Interfaces:** get_app_info retains its existing contract with an added linked state. New commands configure_account, get_engine_snapshot, dial, answer and hangup use generated Rust DTOs. The main-window capability explicitly permits only these commands. Errors return stable safe codes/messages; no HTTP status codes are invented.
 
-- [ ] Wire a managed engine into Tauri, keeping blocking native operations off the UI thread. Release the engine on process exit.
-- [ ] Add simple ephemeral account, number, answer/hangup and real status controls. Show the limited UDP/test-network scope and explicit unavailable states in browser/portable builds.
-- [ ] Build native SDK before macOS/Windows workspace checks and packaging; turn on native feature for those jobs. Preserve the separate portable Linux checks. Stage native notices into bundles and document signing/microphone permissions.
-- [ ] Update API contracts, generated TypeScript, lab instructions, actual compatibility evidence and scope limitations.
-- [ ] Run formatting, generated-contract drift check, types/build, portable/native Rust tests, Clippy, workflow validation, native app packaging and the Asterisk media test.
-- [ ] Request independent whole-change review, fix material findings with regression evidence, commit locally and report unverified platforms/hardware honestly.
+- [x] Wire a managed engine into Tauri, keeping blocking native operations off the UI thread. Release the engine on process exit.
+- [x] Add simple ephemeral account, number, answer/hangup and real status controls. Show the limited UDP/test-network scope and explicit unavailable states in browser/portable builds.
+- [x] Build native SDK before macOS/Windows workspace checks and packaging; turn on native feature for those jobs. Preserve the separate portable Linux checks. Stage native notices into bundles and document signing/microphone permissions.
+- [x] Update API contracts, generated TypeScript, lab instructions, actual compatibility evidence and scope limitations.
+- [x] Run formatting, generated-contract drift check, types/build, portable/native Rust tests, Clippy, workflow validation, native app packaging and the Asterisk media test.
+- [x] Request independent whole-change review, fix material findings with regression evidence, commit locally and report unverified platforms/hardware honestly.

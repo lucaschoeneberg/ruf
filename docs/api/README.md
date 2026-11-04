@@ -24,12 +24,12 @@ deserialization. Success means queued; poll state for actual native completion.
 
 ## AccountConfig (input only)
 
-| Field       | Required/default   | Validation and meaning                                                                                                                                                                                                   |
-| ----------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `registrar` | required string    | DNS hostname or IPv4 spelling, optionally `:port`; total <=255 bytes, host <=253, labels 1–63 ASCII alphanumeric/hyphen, no leading/trailing hyphen. Port is a nonzero u16. No URI, userinfo, parameters or IPv6 syntax. |
-| `username`  | required string    | 1–80 ASCII letters/digits or `_ . + -`. Also used for authentication.                                                                                                                                                    |
-| `password`  | required string    | 1–1024 UTF-8 bytes, no NUL. Punctuation is preserved through the dedicated native setter. Not returned, serialized, logged or stored in configuration. Debug output redacts it.                                          |
-| `audioMode` | optional, `system` | `system`: platform microphone/speaker; `testTone`: send 440 Hz and record incoming audio in app cache `received.wav`. Choose before first registration; switching the backend currently requires application restart.    |
+| Field       | Required/default   | Validation and meaning                                                                                                                                                                                                                                  |
+| ----------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registrar` | required string    | DNS hostname or IPv4 spelling, optionally `:port`; total <=255 bytes, host <=253, labels 1–63 ASCII alphanumeric/hyphen, no leading/trailing hyphen. Port contains ASCII digits only and is a nonzero u16. No URI, userinfo, parameters or IPv6 syntax. |
+| `username`  | required string    | 1–80 ASCII letters/digits or `_ . + -`. Also used for authentication.                                                                                                                                                                                   |
+| `password`  | required string    | 1–1024 UTF-8 bytes, no NUL. Punctuation is preserved through the dedicated native setter. Not returned, serialized, logged or stored in configuration. Debug output redacts it.                                                                         |
+| `audioMode` | optional, `system` | `system`: platform microphone/speaker; `testTone`: send 440 Hz and record incoming audio in app cache `received.wav`. Choose before first registration; switching the backend currently requires application restart.                                   |
 
 Only SIP/UDP is enabled for this local development milestone. No silent fallback
 from an encrypted transport is offered. Desktop test recordings overwrite the
@@ -52,7 +52,10 @@ All fields are required. `lastError` is explicitly nullable, never omitted.
 `active` means the SIP call is established; it does not prove media. The
 [echo test](../../tests/interop/asterisk/README.md) verifies the RTP/audio path.
 Dial destinations are 1–64 ASCII digits or `+ * #`; arbitrary SIP URIs are not
-accepted yet. Only one account/one call is supported. Shutdown is tied to app exit;
+accepted yet. Only one account/one call is supported. Answer/hangup capture an internal call generation together with their state check.
+If another call replaces it before native execution, the stale action is rejected
+as `invalidState` without affecting the replacement call. This identifier remains
+internal and does not change the public DTO. Shutdown is tied to app exit;
 there is no public IPC filesystem, shell or raw native command interface.
 
 ## PhoneError
@@ -62,7 +65,7 @@ there is no public IPC filesystem, shell or raw native command interface.
 | `invalidInput`      | Invalid/unsupported field, recording path or backend change.                                                |
 | `notRegistered`     | No successful registration before dialing.                                                                  |
 | `busy`              | A call occupies the slot or another native engine owns the singleton.                                       |
-| `invalidState`      | No configured engine, incoming call or call to end.                                                         |
+| `invalidState`      | No configured engine, incoming call or call to end; or the intended call changed before native execution.   |
 | `engineUnavailable` | Native SDK feature was not compiled in, or engine stopped.                                                  |
 | `nativeFailure`     | Initialization, bounded-queue rejection, native operation, registration, internal state or teardown failed. |
 
