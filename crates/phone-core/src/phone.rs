@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use ts_rs::TS;
 
-/// Audio path selected for the initial local test account.
+/// Shared audio path for the native engine and all its SIP accounts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum AudioMode {
@@ -13,15 +13,75 @@ pub enum AudioMode {
     TestTone,
 }
 
-/// Ephemeral SIP/UDP account input. Never serialize this credential-bearing type.
+/// Persistent, nonsecret audio routing preferences. Empty device IDs follow the OS default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SoundSettings {
+    /// Input device ID, or empty for the system default microphone.
+    pub input_device: String,
+    /// Call output device ID, or empty for the system default speaker.
+    pub output_device: String,
+    /// Independent ringtone output ID, or empty for the system default output.
+    pub ring_device: String,
+    /// Play the built-in ringtone for incoming calls (lab test-tone mode stays silent).
+    pub ringtone_enabled: bool,
+}
+impl Default for SoundSettings {
+    fn default() -> Self {
+        Self {
+            input_device: String::new(),
+            output_device: String::new(),
+            ring_device: String::new(),
+            ringtone_enabled: true,
+        }
+    }
+}
+impl SoundSettings {
+    /// Respect the native 128-byte device fields without truncation or control bytes.
+    pub fn validate(&self) -> Result<(), PhoneError> {
+        for id in [&self.input_device, &self.output_device, &self.ring_device] {
+            if id.len() > 127 || id.chars().any(char::is_control) {
+                return Err(PhoneError::new(
+                    ErrorCode::InvalidInput,
+                    "Audio device IDs must fit 127 UTF-8 bytes without control characters.",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One currently available native audio endpoint; IDs must be treated as opaque.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDevice {
+    /// Backend identifier accepted unchanged in SoundSettings.
+    pub id: String,
+    /// Human-readable platform device name.
+    pub name: String,
+    /// False when the backend cannot distinguish identically named endpoints.
+    pub selectable: bool,
+}
+
+/// Current supported input/output endpoints; the system default is an explicit empty-ID choice in the UI.
+#[derive(Debug, Clone, Default, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDevices {
+    /// Input endpoints.
+    pub inputs: Vec<AudioDevice>,
+    /// Output endpoints, usable for calls and ringtone independently.
+    pub outputs: Vec<AudioDevice>,
+}
+
+/// SIP/UDP account input. Never serialize this credential-bearing type.
 #[derive(Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AccountConfig {
     /// DNS name or IPv4 registrar, optionally with a nonzero port.
     pub registrar: String,
-    /// SIP and authentication username for this first account.
+    /// SIP and authentication username.
     pub username: String,
-    /// In-memory password; never returned through IPC or written to configuration.
+    /// Secret input; never returned through IPC or written to metadata.
     pub password: String,
     /// Audio backend choice; microphone/speaker by default.
     #[serde(default)]
@@ -53,6 +113,10 @@ pub enum ErrorCode {
     InvalidState,
     /// The build does not contain native support.
     EngineUnavailable,
+    /// Account metadata or the operating-system credential store is unavailable.
+    StorageFailure,
+    /// Saved changes succeeded but obsolete credential deletion needs retrying.
+    CredentialCleanupPending,
     /// Native initialization, queueing or execution failed.
     NativeFailure,
 }
@@ -111,20 +175,56 @@ pub enum CallState {
     Ringing,
     /// An incoming call awaits a user decision.
     Incoming,
+    /// An answer is queued or sent; the remote ACK is still pending.
+    Answering,
     /// The call is established; media requires separate verification.
     Active,
+}
+
+/// Password-free description of one SIP account in this application session.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSnapshot {
+    /// Stable, nonzero identity within this engine session.
+    pub id: u32,
+    /// User-visible account name, 1–64 Unicode characters.
+    pub name: String,
+    /// SIP registrar; validated using AccountConfig rules.
+    pub registrar: String,
+    /// SIP authentication username, without the password.
+    pub username: String,
+    /// This account's independent registration state.
+    pub registration: RegistrationState,
+    /// Safe registration error, or null.
+    pub last_error: Option<PhoneError>,
+    /// A queued deletion is awaiting the native event loop.
+    pub removing: bool,
 }
 
 /// Password-free current state, suitable for repeated reads from the frontend.
 #[derive(Debug, Clone, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSnapshot {
-    /// Account registration state.
+    /// Registration of the selected outgoing account (compatibility projection).
     pub registration: RegistrationState,
     /// Occupancy of the only call slot.
     pub call: CallState,
+    /// Opaque current-call token for guarded actions; null before native allocation or while idle.
+    pub call_id: Option<String>,
     /// Last safe error, or null.
     pub last_error: Option<PhoneError>,
+    /// All configured accounts, in creation order; never contains passwords.
+    pub accounts: Vec<AccountSnapshot>,
+    /// Account used for the next outgoing call, or null before configuration.
+    pub selected_account_id: Option<u32>,
+    /// Account owning the current call, independent of outgoing selection.
+    pub call_account_id: Option<u32>,
+    /// Actual engine-wide audio backend, null before engine initialization.
+    pub audio_mode: Option<AudioMode>,
+    /// Audio routing preferences actually applied, or saved defaults before engine startup.
+    pub sound_settings: SoundSettings,
+    /// A preview or incoming-call ringtone is currently playing through baresip.
+    pub ringtone_playing: bool,
 }
 
 impl AccountConfig {
@@ -179,6 +279,35 @@ impl AccountConfig {
 }
 
 impl EngineSnapshot {
+    /// Select an existing outgoing account while idle, without changing registration.
+    pub fn select_account(&mut self, id: u32) -> Result<(), PhoneError> {
+        if self.call != CallState::Idle {
+            return Err(PhoneError::new(
+                ErrorCode::Busy,
+                "End the current call before switching accounts.",
+            ));
+        }
+        let account = self
+            .accounts
+            .iter()
+            .find(|a| a.id == id && !a.removing)
+            .ok_or_else(|| {
+                PhoneError::new(ErrorCode::InvalidInput, "Unknown or removing account.")
+            })?;
+        self.selected_account_id = Some(account.id);
+        self.sync_selected_registration();
+        Ok(())
+    }
+
+    /// Refresh the legacy registration projection from authoritative per-account state.
+    pub fn sync_selected_registration(&mut self) {
+        self.registration = self
+            .accounts
+            .iter()
+            .find(|a| Some(a.id) == self.selected_account_id && !a.removing)
+            .map_or(RegistrationState::Unconfigured, |a| a.registration);
+    }
+
     /// Reserve the single outgoing-call slot, rejecting malformed targets first.
     pub fn reserve_dial(&mut self, destination: &str) -> Result<(), PhoneError> {
         if destination.is_empty()
@@ -204,6 +333,7 @@ impl EngineSnapshot {
                 "A call already occupies the call slot.",
             ));
         }
+        self.call_account_id = self.selected_account_id;
         self.call = CallState::Calling;
         self.last_error = None;
         Ok(())

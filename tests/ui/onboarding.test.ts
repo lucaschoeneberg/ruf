@@ -112,3 +112,17 @@ describe("SIP account onboarding", () => {
     );
   });
 });
+
+test("editing a saved account may keep an empty password, creation may not", () => {
+  const input = {
+    registrar: "pbx.test",
+    username: "1000",
+    password: "",
+    audioMode: "system" as const,
+  };
+  expect(validateAccount(input).password).toBeDefined();
+  expect(validateAccount(input, true).password).toBeUndefined();
+  expect(
+    validateAccount({ ...input, password: "bad\0value" }, true).password,
+  ).toBeDefined();
+});

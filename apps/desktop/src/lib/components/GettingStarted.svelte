@@ -18,7 +18,7 @@
 </script>
 
 <section class="getting-started" aria-labelledby="start-title">
-  <div class="start-symbol"><Icon name="phone" size={28} /></div>
+  <div class="start-symbol"><Icon name="phone" size={22} /></div>
   <h1 id="start-title">
     {runtime === "browser"
       ? "Lerne dein Telefon kennen"
@@ -43,7 +43,7 @@
             ? "Die Telefonie läuft bereits. Beende ein laufendes Gespräch und starte die App neu, damit du die Audioquelle vor dem nächsten Anruf sicher wählen kannst."
             : ready
               ? "Wähle eine Nummer oder Nebenstelle. Mit Anrufen oder der Eingabetaste startest du dein Gespräch."
-              : "Mit den Zugangsdaten deiner Telefonanlage kannst du anschließend Nummern und Nebenstellen anrufen."}
+              : "Verbinde deine Telefonanlage, um Nummern und Nebenstellen anzurufen."}
   </p>
   {#if runtime === "desktop" && !ready && !audioUnknown}
     <p class="start-requirements">

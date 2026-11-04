@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-sound-settings"
+description = "Enables the save_sound_settings command without any pre-configured scope."
+commands.allow = ["save_sound_settings"]
+
+[[permission]]
+identifier = "deny-save-sound-settings"
+description = "Denies the save_sound_settings command without any pre-configured scope."
+commands.deny = ["save_sound_settings"]

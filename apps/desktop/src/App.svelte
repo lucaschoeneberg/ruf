@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import {
     answer,
-    configureAccount,
+    openSettings,
+    selectAccount,
     dial,
     errorMessage,
     getAppInfo,
@@ -11,8 +13,6 @@
     hangup,
   } from "./lib/api";
   import type {
-    AccountConfig,
-    AudioMode,
     AppInfo,
     EngineSnapshot,
     RegistrationState,
@@ -20,13 +20,11 @@
   import Icon from "./lib/components/Icon.svelte";
   import Dialpad from "./lib/components/Dialpad.svelte";
   import CallPanel from "./lib/components/CallPanel.svelte";
-  import AccountSetup from "./lib/components/AccountSetup.svelte";
   import GettingStarted from "./lib/components/GettingStarted.svelte";
   import { hasSeenIntroduction, rememberIntroduction } from "./lib/onboarding";
 
-  type View = "dialer" | "contacts" | "history" | "settings" | "start";
+  type View = "dialer" | "contacts" | "history" | "start";
   let view = $state<View>("dialer");
-  let previousView: Exclude<View, "settings"> = "dialer";
   let info = $state<AppInfo | null>(null);
   let snapshot = $state<EngineSnapshot | null>(null);
   let browser = $state(false);
@@ -35,24 +33,21 @@
   let error = $state<string | null>(null);
   let lastNativeError: string | null = null;
   let operationEpoch = 0;
+  let snapshotRevision = 0;
   let mounted = false;
-  let account = $state<AccountConfig>({
-    registrar: "",
-    username: "",
-    password: "",
-    audioMode: "system",
-  });
   let introductionSeen = true;
   let introductionStorage: Storage | null = null;
   let initialSnapshotReceived = false;
   let navigated = false;
-  let pendingRegistration = false;
-  let pendingName = "";
-  let audioLocked = $state(false);
-  let sessionAudio = $state<AudioMode | null>(null);
-  const audioUnknown = $derived(audioLocked && sessionAudio === null);
   let firstCallHint = $state(false);
-  let accountName = $state("");
+  const sessionAudio = $derived(snapshot?.audioMode ?? null);
+  const selectedAccount = $derived(
+    snapshot?.accounts.find((a) => a.id === snapshot?.selectedAccountId),
+  );
+  const callAccount = $derived(
+    snapshot?.accounts.find((a) => a.id === snapshot?.callAccountId),
+  );
+  const accountName = $derived((callAccount ?? selectedAccount)?.name ?? "SIP");
   let destination = $state("");
   let lastDialed = $state("");
   let incoming = $state(false);
@@ -60,6 +55,10 @@
   let now = $state(Date.now());
   const nativeAvailable = $derived(info?.telephony === "linked");
   const registration = $derived(snapshot?.registration ?? "unconfigured");
+  const audioUnknown = $derived(
+    registration !== "unconfigured" && sessionAudio === null,
+  );
+
   const callState = $derived(snapshot?.call ?? "idle");
   const callIdle = $derived(callState === "idle");
   const registered = $derived(registration === "registered");
@@ -135,14 +134,16 @@
     if (introductionStorage) rememberIntroduction(introductionStorage);
   }
   function selectView(next: View) {
-    account.password = "";
     navigated = true;
     if (view === "start" && next !== "start") markIntroduction();
-    if (next === "settings" && view !== "settings") previousView = view;
     view = next;
   }
   function applySnapshot(next: EngineSnapshot) {
-    if (next.call === "incoming") incoming = true;
+    const becameRegistered =
+      next.registration === "registered" &&
+      (snapshot?.registration !== "registered" ||
+        snapshot?.selectedAccountId !== next.selectedAccountId);
+    if (next.call === "incoming" || next.call === "answering") incoming = true;
     if (next.call === "calling") incoming = false;
     if (next.call === "active" && snapshot?.call !== "active")
       connectedAt = Date.now();
@@ -170,32 +171,31 @@
       )
         view = "start";
     }
-    if (next.registration !== "unconfigured") audioLocked = true;
+    if (next.accounts.length) markIntroduction();
     if (next.registration === "registered") {
-      markIntroduction();
-      if (pendingRegistration) {
-        pendingRegistration = false;
-        accountName = pendingName;
-        firstCallHint = true;
-        if (view === "settings" || view === "start") selectView("dialer");
-      }
-    } else if (next.registration === "failed") {
-      pendingRegistration = false;
-      firstCallHint = false;
-    }
+      if (becameRegistered) firstCallHint = true;
+      if (view === "start") selectView("dialer");
+    } else if (next.registration === "failed") firstCallHint = false;
   }
   async function refreshNativeState() {
     if (browser) return;
     loading = true;
     error = null;
     const epoch = operationEpoch;
+    const revision = snapshotRevision;
     try {
       const result = await getAppInfo();
       if (!mounted || epoch !== operationEpoch) return;
       info = result;
       if (result.telephony === "linked") {
         const state = await getEngineSnapshot();
-        if (mounted && epoch === operationEpoch && !busy) applySnapshot(state);
+        if (
+          mounted &&
+          epoch === operationEpoch &&
+          revision === snapshotRevision &&
+          !busy
+        )
+          applySnapshot(state);
       } else if (!introductionSeen && !navigated) view = "start";
     } catch (reason: unknown) {
       if (mounted && epoch === operationEpoch) {
@@ -221,14 +221,43 @@
     if (browser) {
       loading = false;
       if (!introductionSeen) view = "start";
-    } else void refreshNativeState();
-    const timer = setInterval(() => {
-      if (!mounted || loading || polling || busy || !nativeAvailable) return;
+    }
+    let unlistenState: UnlistenFn | undefined;
+    if (!browser)
+      void listen<EngineSnapshot>("phone-state-changed", ({ payload }) => {
+        if (!mounted) return;
+        snapshotRevision++;
+        applySnapshot(payload);
+      })
+        .then((unlisten) => {
+          if (!mounted) return unlisten();
+          unlistenState = unlisten;
+          void refreshNativeState();
+        })
+        .catch(() => {
+          if (mounted) void refreshNativeState();
+        });
+    const poll = () => {
+      if (
+        !mounted ||
+        document.visibilityState === "hidden" ||
+        loading ||
+        polling ||
+        busy ||
+        !nativeAvailable
+      )
+        return;
       polling = true;
       const epoch = operationEpoch;
+      const revision = snapshotRevision;
       void getEngineSnapshot()
         .then((result) => {
-          if (mounted && epoch === operationEpoch && !busy)
+          if (
+            mounted &&
+            epoch === operationEpoch &&
+            revision === snapshotRevision &&
+            !busy
+          )
             applySnapshot(result);
         })
         .catch((reason: unknown) => {
@@ -237,11 +266,18 @@
         .finally(() => {
           polling = false;
         });
-    }, 500);
+    };
+    const timer = setInterval(poll, 2000);
+    const clock = setInterval(() => {
+      now = Date.now();
+    }, 1000);
+    document.addEventListener("visibilitychange", poll);
     return () => {
       mounted = false;
       clearInterval(timer);
-      account.password = "";
+      clearInterval(clock);
+      unlistenState?.();
+      document.removeEventListener("visibilitychange", poll);
     };
   });
 
@@ -252,10 +288,11 @@
     operationEpoch++;
     busy = true;
     error = null;
+    const revision = snapshotRevision;
     try {
       const result = await operation();
       if (!mounted) return false;
-      applySnapshot(result);
+      if (revision === snapshotRevision) applySnapshot(result);
       return true;
     } catch (reason: unknown) {
       if (mounted) error = errorMessage(reason);
@@ -264,20 +301,19 @@
       if (mounted) busy = false;
     }
   }
-  async function register(submitted: AccountConfig) {
-    if (!nativeAvailable || loading || audioUnknown || !callIdle || busy)
-      return;
-    const previousAudio = sessionAudio;
-    sessionAudio = submitted.audioMode;
-    account = { ...submitted, password: "" };
-    pendingRegistration = true;
-    pendingName = submitted.username;
-    markIntroduction();
-    const queued = await perform(() => configureAccount(submitted));
-    if (queued) audioLocked = true;
-    else {
-      pendingRegistration = false;
-      sessionAudio = previousAudio;
+  let openingSettings = $state(false);
+  async function showSettings() {
+    if (openingSettings) return;
+    openingSettings = true;
+    try {
+      if (browser)
+        window.open("?window=settings", "sip-settings", "width=900,height=660");
+      else await openSettings();
+      markIntroduction();
+    } catch (reason) {
+      error = errorMessage(reason);
+    } finally {
+      openingSettings = false;
     }
   }
   async function placeCall() {
@@ -289,9 +325,13 @@
     }
   }
   function onEscape(event: KeyboardEvent) {
-    if (event.key === "Escape" && (view === "settings" || view === "start")) {
+    if (browser && (event.metaKey || event.ctrlKey) && event.key === ",") {
       event.preventDefault();
-      selectView(view === "start" ? "dialer" : previousView);
+      void showSettings();
+    }
+    if (event.key === "Escape" && view === "start") {
+      event.preventDefault();
+      selectView("dialer");
     }
   }
 </script>
@@ -301,7 +341,24 @@
 <div class="softphone" aria-label="SIP Softphone">
   <header class="app-header">
     <div class="identity">
-      <span class="app-name">{accountName || "SIP"}</span><span
+      {#if (snapshot?.accounts.length ?? 0) > 1}<label
+          class="sr-only"
+          for="outgoing-account">Konto für ausgehende Anrufe</label
+        ><select
+          class="account-picker"
+          id="outgoing-account"
+          value={snapshot?.selectedAccountId ?? ""}
+          disabled={busy || !callIdle}
+          onchange={(event) => {
+            void perform(() =>
+              selectAccount(Number(event.currentTarget.value)),
+            );
+          }}
+          >{#each snapshot?.accounts ?? [] as item}<option
+              value={item.id}
+              disabled={item.removing}>{item.name}</option
+            >{/each}</select
+        >{:else}<span class="app-name">{accountName}</span>{/if}<span
         class="availability"
         class:available={registered}
         class:failed={registration === "failed"}
@@ -316,25 +373,17 @@
         title="Starthilfe"
         aria-pressed={view === "start"}
         onclick={() => selectView(view === "start" ? "dialer" : "start")}
-        ><Icon name="info" size={19} /></button
+        ><Icon name="info" size={16} /></button
       >
       <button
         class="icon-button settings-button"
-        class:selected={view === "settings"}
         type="button"
-        aria-label={view === "settings"
-          ? "Einstellungen schließen"
-          : "Kontoeinstellungen"}
-        title={view === "settings"
-          ? "Einstellungen schließen"
-          : "Kontoeinstellungen"}
-        aria-pressed={view === "settings"}
-        onclick={() =>
-          selectView(view === "settings" ? previousView : "settings")}
-        ><Icon
-          name={view === "settings" ? "close" : "settings"}
-          size={20}
-        /></button
+        aria-label="Einstellungen öffnen"
+        title="Einstellungen (⌘/Ctrl+,)"
+        disabled={openingSettings}
+        onclick={() => {
+          void showSettings();
+        }}><Icon name="settings" size={16} /></button
       >
     </div>
   </header>
@@ -349,10 +398,12 @@
             onclick={() => {
               void refreshNativeState();
             }}>Status erneut laden</button
-          >{:else if registration === "failed" && view !== "settings"}<button
+          >{:else if registration === "failed"}<button
             class="text-button"
             type="button"
-            onclick={() => selectView("settings")}>Verbindung prüfen</button
+            onclick={() => {
+              void showSettings();
+            }}>Verbindung prüfen</button
           >{/if}
       </div>
       <button
@@ -367,17 +418,21 @@
     {#if !callIdle}
       <CallPanel
         state={callState}
-        peer={incoming ? "Unbekannte Nummer" : lastDialed || "Aktueller Anruf"}
+        peer={incoming
+          ? `Anruf für ${callAccount?.name ?? "SIP"}`
+          : lastDialed || "Aktueller Anruf"}
         elapsed={elapsedLabel}
-        {busy}
+        busy={busy || !snapshot?.callId}
         testAudio={sessionAudio === "testTone"}
         {audioUnknown}
         compact={view !== "dialer"}
         onanswer={() => {
-          if (!audioUnknown) void perform(answer);
+          const callId = snapshot?.callId;
+          if (!audioUnknown && callId) void perform(() => answer(callId));
         }}
         onhangup={() => {
-          void perform(hangup);
+          const callId = snapshot?.callId;
+          if (callId) void perform(() => hangup(callId));
         }}
       />
     {/if}
@@ -387,7 +442,9 @@
         runtime={introRuntime}
         {registration}
         {audioUnknown}
-        onsetup={() => selectView("settings")}
+        onsetup={() => {
+          void showSettings();
+        }}
         onexplore={() => selectView("dialer")}
       />
     {:else if view === "dialer"}
@@ -402,22 +459,11 @@
           oncall={() => {
             void placeCall();
           }}
-          onsetup={() => selectView(nativeAvailable ? "settings" : "start")}
+          onsetup={() => {
+            if (nativeAvailable) void showSettings();
+            else selectView("start");
+          }}
         />{/if}
-    {:else if view === "settings"}
-      <AccountSetup
-        bind:account
-        {nativeAvailable}
-        {browser}
-        {busy}
-        {callIdle}
-        {registration}
-        {audioLocked}
-        {audioUnknown}
-        initializing={loading}
-        onconfigure={register}
-        onback={() => selectView(previousView)}
-      />
     {:else}
       <section class="collection-view" aria-labelledby="collection-heading">
         <div class="view-heading">
@@ -426,7 +472,7 @@
           </h1>
         </div>
         <div class="empty-state">
-          <Icon name={view === "contacts" ? "contacts" : "history"} size={32} />
+          <Icon name={view === "contacts" ? "contacts" : "history"} size={22} />
           <h2>
             {view === "contacts"
               ? "Kontakte noch nicht verbunden"
@@ -453,7 +499,7 @@
         class:active={view === tab.id}
         aria-current={view === tab.id ? "page" : undefined}
         onclick={() => selectView(tab.id)}
-        ><Icon name={tab.icon} size={20} /><span>{tab.label}</span></button
+        ><Icon name={tab.icon} size={16} /><span>{tab.label}</span></button
       >{/each}
   </nav>
 </div>

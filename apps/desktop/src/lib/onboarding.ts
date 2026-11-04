@@ -14,7 +14,10 @@ export function normalizeAccount(account: AccountConfig): AccountConfig {
 }
 
 /** Early field feedback; native validation remains authoritative. */
-export function validateAccount(account: AccountConfig): AccountErrors {
+export function validateAccount(
+  account: AccountConfig,
+  keepSavedPassword = false,
+): AccountErrors {
   const errors: AccountErrors = {};
   const [host = "", port, ...extra] = account.registrar.split(":");
   const validHost =
@@ -45,7 +48,7 @@ export function validateAccount(account: AccountConfig): AccountErrors {
       "Nutze den SIP-Benutzernamen aus deinen Zugangsdaten (max. 80 Zeichen), keine E-Mail-Adresse.";
   }
   if (
-    !account.password ||
+    (!account.password && !keepSavedPassword) ||
     new TextEncoder().encode(account.password).length > 1024 ||
     account.password.includes("\0")
   ) {

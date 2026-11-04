@@ -54,3 +54,31 @@ docker compose -f tests/interop/asterisk/compose.yml logs --tail 50
 Evidence and limits are recorded in [native verification](../../../docs/verification/2026-11-04-native.md).
 Configuration follows the official
 [Asterisk NAT guidance](https://docs.asterisk.org/Configuration/Channel-Drivers/SIP/Configuring-res_pjsip/Configuring-res_pjsip-to-work-through-NAT/).
+
+The fixture also defines synthetic accounts 1001 and 1002 with the same public
+lab password for the multi-account regression. The smoke runner executes native
+interop tests serially because the native engine is a process singleton. They
+cover simultaneous registrations, outgoing account selection, an incoming call
+to the other account, manual answer/hangup, independent removal and native call
+guards. These accounts are local test identities, never production credentials.
+
+Extension `601` answers, waits one second and hangs up from the PBX. The remote
+hangup test uses reserved lab account `1001`: two successive outgoing calls and
+one answered incoming call must return to `idle`, clear `callAccountId`, stop
+ringing and leave no error, without invoking local `hangup`. The second outgoing
+call also verifies that the native call slot was released. A further outgoing
+call proves slot reuse after the incoming remote hangup too. The smoke runner
+reloads the bind-mounted dialplan when reusing an existing lab. These tests use
+synthetic audio; they do not prove microphone permission or microphone capture.
+
+Synthetic account `1003` deliberately sets `rewrite_contact=no`, with the same
+public lab password. Docker translates the host client's UDP source on the way
+to Asterisk. The NAT regression requires the client to learn that mapping,
+re-register, accept outgoing and incoming remote hangup, clear the call account,
+and place a subsequent call without any local hangup. This test failed before
+the client fix with the call stuck active for 15 seconds. The fixture does not
+provide a SIP proxy or repair the Contact on the client's behalf. Its AOR allows
+four bindings so it does not conceal stale Contacts by forcibly replacing them.
+The native SDK's controlled-registrar test separately verifies old Contact
+removal and port-only rebinding. The smoke runner reloads PJSIP and the dialplan
+only in this isolated lab.

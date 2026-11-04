@@ -35,6 +35,7 @@ jobs:
       - name: Build pinned native SDK
         run: bun run native:build
       - run: bun run check:versions
+      - run: bun run test:network-roam
       - run: bun run types:generate
       - name: Verify generated contracts are current
         run: git diff --exit-code -- apps/desktop/src/lib/generated
@@ -46,6 +47,9 @@ jobs:
       - run: cargo test --locked --workspace --features sip-desktop/native
       - name: Build the installer
         run: bun run desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} --features native
+      - name: Verify signed microphone permissions
+        if: runner.os == 'macOS'
+        run: bun run test:macos-audio target/${{ matrix.target }}/release/bundle/macos/SIP.app
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: desktop-${{ matrix.target }}
@@ -67,6 +71,8 @@ jobs:
       - run: bun run native:build
       - run: cargo test --locked -p baresip-adapter --features native
       - run: bun run test:asterisk
+      - run: bun run test:network-roam
+      - run: bun run test:sip-diagnostics
       - name: Lab diagnostics
         if: failure()
         run: docker compose -f tests/interop/asterisk/compose.yml logs --tail 100

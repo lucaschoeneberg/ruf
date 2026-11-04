@@ -14,15 +14,16 @@
       {
         "label": "main",
         "title": "SIP",
-        "width": 360,
-        "height": 560,
+        "width": 340,
+        "height": 500,
         "minWidth": 320,
-        "minHeight": 500,
-        "theme": "Dark"
+        "minHeight": 440,
+        "theme": "Dark",
+        "visible": false
       }
     ],
     "security": {
-      "capabilities": ["main"],
+      "capabilities": ["main", "settings"],
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-src 'none'",
       "devCsp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost; object-src 'none'; base-uri 'self'; frame-src 'none'"
     }
@@ -46,6 +47,7 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "signingIdentity": "-",
+      "entitlements": "Entitlements.plist",
       "infoPlist": "Info.plist"
     }
   }

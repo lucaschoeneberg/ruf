@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <inttypes.h>
+#include "audio_devices.h"
+#include "network_roam.h"
 #include <re.h>
 #include <rem.h>
 #include <baresip.h>
@@ -22,16 +26,22 @@ typedef pthread_mutex_t queue_lock;
 #define LOCK_CLOSE(p) (void)pthread_mutex_destroy(p)
 #endif
 
-typedef void (*event_callback)(int kind, int code, uint64_t call_generation, void *arg);
+typedef void (*event_callback)(int kind, int code, uint32_t account_id, uint64_t call_generation, void *arg);
 enum { EV_READY=1, EV_REGISTERING, EV_REGISTERED, EV_REG_FAILED,
-       EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE };
-enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP };
+       EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE, EV_REMOVED, EV_REMOVE_FAILED, EV_ACCOUNT_APPLIED, EV_ACCOUNT_REJECTED, EV_AUDIO_APPLIED, EV_AUDIO_FAILED, EV_RING_STARTED, EV_RING_STOPPED, EV_ANSWER_FAILED };
+enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE };
 
 struct request {
     struct request *next;
     int operation;
+    uint32_t account_id;
     uint64_t call_generation;
     char *registrar, *username, *password, *destination;
+};
+struct sip_account {
+    uint32_t id;
+    struct ua *ua;
+    char registrar[256];
 };
 struct engine {
     struct mqueue *queue;
@@ -39,18 +49,200 @@ struct engine {
     bool running;
     bool stop_requested;
     struct tmr shutdown_timer;
+    struct tmr network_timer;
     struct request *pending;
-    struct ua *ua;
+    struct sip_account accounts[8];
     struct call *call;
+    struct ua *call_ua;
+    uint32_t call_account_id;
     uint64_t call_generation;
-    char registrar[256];
     char recording[128];
     int audio_mode;
+    bool ringtone_enabled;
+    bool preview;
+    bool platform_audio_loaded;
+    bool diagnostics;
+    uint64_t diagnostic_started;
+    char input_device[128], output_device[128], ring_device[128];
+    struct play *ring;
     event_callback callback;
     void *callback_arg;
 };
 
-static void emit(struct engine *e, int kind, int code) { e->callback(kind, code, e->call_generation, e->callback_arg); }
+/* The Rust lease permits one native event loop; libre's trace callback uses
+ * the upstream UA argument, so keep this thread-owned diagnostic context here. */
+static struct engine *diagnostic_engine;
+
+static const char *diagnostic_scope(const struct sa *address) {
+    if (!address || !sa_isset(address, SA_ADDR)) return "unknown";
+    if (sa_is_loopback(address)) return "loopback";
+    if (sa_af(address) == AF_INET6) return "ipv6";
+    if (sa_af(address) != AF_INET) return "unknown";
+    uint32_t ip = sa_in(address);
+    /* RFC 1918 and RFC 6598, reported as categories, never actual addresses. */
+    if ((ip & 0xff000000u) == 0x0a000000u ||
+        (ip & 0xfff00000u) == 0xac100000u ||
+        (ip & 0xffff0000u) == 0xc0a80000u) return "private";
+    if ((ip & 0xffc00000u) == 0x64400000u) return "shared";
+    return "other-ipv4";
+}
+
+static const char *diagnostic_method(const struct pl *method) {
+    const char *names[] = { "INVITE", "ACK", "BYE", "CANCEL", "REGISTER", "OPTIONS", "UPDATE", "PRACK" };
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
+        if (!pl_strcmp(method, names[i])) return names[i];
+    return "other";
+}
+
+static void diagnostic_packet(struct engine *e, bool tx, const struct sa *src, const struct sa *dst,
+                              const uint8_t *packet, size_t length) {
+    struct sip_msg *message = NULL;
+    struct mbuf *buffer;
+    const char *local = "unknown", *contact_scope = "none", *contact_match = "unknown";
+    /* Only SIP/UDP is enabled. Bound the diagnostic copy to one datagram. */
+    if (length > 65535) return;
+    buffer = mbuf_alloc(length);
+    if (!buffer) return;
+    int error = mbuf_write_mem(buffer, packet, length);
+    buffer->pos = 0;
+    if (!error) error = sip_msg_decode(&message, buffer);
+    if (error) { mem_deref(buffer); return; }
+    const char *method = diagnostic_method(message->req ? &message->met : &message->cseq.met);
+#ifdef __APPLE__
+    const struct sa *own = tx ? src : dst;
+    char interface_name[256];
+    if (!net_if_getname(interface_name, sizeof(interface_name), sa_af(own), own))
+        local = !strncmp(interface_name, "utun", 4) ? "tunnel" : "other";
+#endif
+    /* INVITE Contact denotes the sender's target, including on a 2xx response.
+       A different target is legal SIP; this comparison is evidence, not a fix. */
+    if (!strcmp(method, "INVITE")) {
+        const struct sip_hdr *header = sip_msg_hdr(message, SIP_HDR_CONTACT);
+        if (header) {
+            struct sip_addr contact;
+            struct sa address;
+            contact_scope = "unknown";
+            if (!sip_addr_decode(&contact, &header->val) &&
+                !pl_strcasecmp(&contact.uri.scheme, "sip") &&
+                !sa_set(&address, &contact.uri.host, sip_transp_port(SIP_TRANSP_UDP, contact.uri.port))) {
+                contact_scope = diagnostic_scope(&address);
+                contact_match = sa_cmp(&address, src, SA_ALL) ? "yes" : "no";
+            }
+        }
+    }
+    unsigned status = message->scode >= 100 && message->scode <= 699 ? message->scode : 0;
+    fprintf(stderr, "sip.diag packet=%s status=%u method=%s local=%s peer=%s contact=%s contact-match=%s ms=%" PRIu64 " call=%" PRIu64 "\n",
+            tx ? "tx" : "rx", status, method, local, diagnostic_scope(tx ? dst : src), contact_scope, contact_match, tmr_jiffies() - e->diagnostic_started, e->call_generation);
+    mem_deref(message);
+    mem_deref(buffer);
+}
+
+/* Opt-in, allowlisted markers only. Never print packet bytes, URIs or addresses. */
+static void diagnostic_trace(bool tx, enum sip_transp tp, const struct sa *src,
+                             const struct sa *dst, const uint8_t *packet,
+                             size_t length, void *arg) {
+    const char *name = NULL;
+    (void)tp; (void)arg;
+    struct engine *e = diagnostic_engine;
+    if (!e) return;
+    if (length >= 4 && !memcmp(packet, "BYE ", 4)) name = "BYE";
+    else if (length >= 7 && !memcmp(packet, "CANCEL ", 7)) name = "CANCEL";
+    else if (length >= 4 && !memcmp(packet, "ACK ", 4)) name = "ACK";
+    else if (length >= 7 && !memcmp(packet, "INVITE ", 7)) name = "INVITE";
+    else if (length >= 8 && !memcmp(packet, "SIP/2.0 ", 8)) name = "response";
+    if (name) {
+        fprintf(stderr, "sip.diag %s=%s ms=%" PRIu64 " call=%" PRIu64 "\n", tx ? "tx" : "rx", name, tmr_jiffies() - e->diagnostic_started, e->call_generation);
+        diagnostic_packet(e, tx, src, dst, packet, length);
+    }
+}
+
+static void emit_account(struct engine *e, int kind, int code, uint32_t account_id) {
+    if (e->diagnostics) {
+        const char *name = kind == EV_ACTIVE ? "active" : kind == EV_CLOSED ? "closed" : NULL;
+        if (name) fprintf(stderr, "sip.diag event=%s ms=%" PRIu64 " call=%" PRIu64 "\n", name, tmr_jiffies() - e->diagnostic_started, e->call_generation);
+    }
+    e->callback(kind, code, account_id, e->call_generation, e->callback_arg);
+}
+static void emit(struct engine *e, int kind, int code) { emit_account(e, kind, code, e->call_account_id); }
+static struct sip_account *find_account(struct engine *e, uint32_t id) {
+    for (size_t i = 0; i < 8; ++i) if (e->accounts[i].id == id && id) return &e->accounts[i];
+    return NULL;
+}
+static const char *platform_audio(void) {
+#ifdef __APPLE__
+    return "coreaudio";
+#elif defined(WIN32)
+    return "wasapi";
+#else
+    return NULL;
+#endif
+}
+static int ensure_platform_audio(struct engine *e) {
+    if (e->platform_audio_loaded) return 0;
+    const char *module = platform_audio();
+    if (!module) return ENOTSUP;
+    int error = module_load("", module);
+    if (!error) e->platform_audio_loaded = true;
+    return error;
+}
+static void ring_finished(struct play *play, void *arg) {
+    struct engine *e = arg;
+    (void)play;
+    e->preview = false;
+    emit(e, EV_RING_STOPPED, 0);
+}
+static void stop_ring(struct engine *e) {
+    if (e->ring) e->ring = mem_deref(e->ring);
+    e->preview = false;
+}
+static int start_ring(struct engine *e, const char *device, bool preview) {
+    int error = sip_audio_device_available(device, 0);
+    if (!error) error = ensure_platform_audio(e);
+    if (error) return error;
+    stop_ring(e);
+    /* Original two-pulse PCM ringtone; no file path, download or second audio pipeline. */
+    const uint32_t rate = 48000, samples = rate * 2;
+    struct mbuf *tone = mbuf_alloc(samples * sizeof(int16_t));
+    if (!tone) return ENOMEM;
+    for (uint32_t i = 0; i < samples; ++i) {
+        double seconds = (double)i / rate;
+        double local = fmod(seconds, 0.6);
+        bool on = seconds < 1.0 && local < 0.4;
+        double fade = fmin(1.0, fmin(local / 0.01, (0.4 - local) / 0.01));
+        int16_t sample = on ? (int16_t)(2200.0 * fade * (sin(2.0 * 3.141592653589793 * 440 * seconds) + sin(2.0 * 3.141592653589793 * 480 * seconds))) : 0;
+        (void)mbuf_write_mem(tone, (const uint8_t *)&sample, sizeof(sample));
+    }
+    tone->pos = 0;
+    error = play_tone(&e->ring, baresip_player(), tone, rate, 1, preview ? 1 : -1, platform_audio(), *device ? device : "default");
+    mem_deref(tone);
+    if (!error) {
+        e->preview = preview;
+        play_set_finish_handler(e->ring, ring_finished, e);
+        emit(e, EV_RING_STARTED, 0);
+    }
+    return error;
+}
+static int apply_sound(struct engine *e, const struct request *r) {
+    if (e->call) return EBUSY;
+    if (strlen(r->registrar) > 127 || strlen(r->username) > 127 || strlen(r->password) > 127) return EINVAL;
+    if (r->operation != OP_SOUND_RESTORE) {
+        int error = sip_audio_device_available(r->registrar, 1);
+        if (!error) error = sip_audio_device_available(r->username, 0);
+        if (!error) error = sip_audio_device_available(r->password, 0);
+        if (error) return error;
+    }
+    stop_ring(e);
+    str_ncpy(e->input_device, r->registrar, sizeof(e->input_device));
+    str_ncpy(e->output_device, r->username, sizeof(e->output_device));
+    str_ncpy(e->ring_device, r->password, sizeof(e->ring_device));
+    e->ringtone_enabled = !strcmp(r->destination, "1");
+    if (!e->audio_mode) {
+        struct config_audio *audio = &conf_config()->audio;
+        str_ncpy(audio->src_dev, *e->input_device ? e->input_device : "default", sizeof(audio->src_dev));
+        str_ncpy(audio->play_dev, *e->output_device ? e->output_device : "default", sizeof(audio->play_dev));
+    }
+    return 0;
+}
 static char *copy_string(const char *s) {
     size_t size = strlen(s ? s : "") + 1;
     char *copy = malloc(size);
@@ -77,29 +269,50 @@ static void shutdown_tick(void *arg) {
     struct engine *e = arg;
     bool stop;
     LOCK(&e->lock); stop = e->stop_requested; UNLOCK(&e->lock);
-    if (stop) { ua_stop_all(true); re_cancel(); }
+    if (stop) { stop_ring(e); ua_stop_all(true); re_cancel(); }
     else tmr_start(&e->shutdown_timer, 50, shutdown_tick, e);
+}
+
+static void network_tick(void *arg) {
+    struct engine *e = arg;
+    (void)sip_network_poll(e->call != NULL);
+    tmr_start(&e->network_timer, 5000, network_tick, e);
 }
 
 static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) {
     struct engine *e = arg;
     struct call *call = bevent_get_call(event);
     struct ua *ua = bevent_get_ua(event);
-    if (ua && ua != e->ua) return;
+    struct sip_account *account = NULL;
+    for (size_t i = 0; i < 8; ++i) if (ua && e->accounts[i].ua == ua) { account = &e->accounts[i]; break; }
+    if (!account) return;
     switch (kind) {
-    case BEVENT_REGISTERING: emit(e, EV_REGISTERING, 0); break;
-    case BEVENT_REGISTER_OK: emit(e, EV_REGISTERED, 0); break;
-    case BEVENT_REGISTER_FAIL: emit(e, EV_REG_FAILED, 0); break;
+    case BEVENT_REGISTERING: emit_account(e, EV_REGISTERING, 0, account->id); break;
+    case BEVENT_REGISTER_OK: emit_account(e, EV_REGISTERED, 0, account->id); break;
+    case BEVENT_REGISTER_FAIL: emit_account(e, EV_REG_FAILED, 0, account->id); break;
     case BEVENT_CALL_INCOMING:
-        if (e->call && e->call != call) { ua_hangup(e->ua, call, 486, "Busy Here"); break; }
+        if (e->call && e->call != call) { ua_hangup(ua, call, 486, "Busy Here"); break; }
         if (e->call != call) ++e->call_generation;
-        e->call = call; emit(e, EV_INCOMING, 0); break;
-    case BEVENT_CALL_OUTGOING: ++e->call_generation; e->call = call; emit(e, EV_CALLING, 0); break;
-    case BEVENT_CALL_RINGING: emit(e, EV_RINGING, 0); break;
-    case BEVENT_CALL_ESTABLISHED: emit(e, EV_ACTIVE, 0); break;
-    case BEVENT_CALL_CLOSED:
-        if (e->call == call) { e->call = NULL; emit(e, EV_CLOSED, call_scode(call)); }
+        e->call = call; e->call_ua = ua; e->call_account_id = account->id;
+        emit(e, EV_INCOMING, 0);
+        stop_ring(e);
+        if (!e->audio_mode && e->ringtone_enabled) {
+            int error = start_ring(e, e->ring_device, false);
+            if (error) emit(e, EV_ERROR, error);
+        }
         break;
+    case BEVENT_CALL_OUTGOING:
+        stop_ring(e);
+        ++e->call_generation; e->call = call; e->call_ua = ua; e->call_account_id = account->id;
+        emit(e, EV_CALLING, 0); break;
+    case BEVENT_CALL_RINGING: if (e->call == call) emit(e, EV_RINGING, 0); break;
+    case BEVENT_CALL_ESTABLISHED: if (e->call == call) { stop_ring(e); emit(e, EV_ACTIVE, 0); } break;
+    case BEVENT_CALL_CLOSED:
+        if (e->call == call) { stop_ring(e); e->call = NULL; e->call_ua = NULL; emit(e, EV_CLOSED, call_scode(call)); e->call_account_id = 0; }
+        break;
+    case BEVENT_AUDIO_ERROR:
+        if (e->diagnostics) fprintf(stderr, "sip.diag event=audio-error ms=%" PRIu64 " call=%" PRIu64 "\n", tmr_jiffies() - e->diagnostic_started, e->call_generation);
+        emit(e, EV_ERROR, EIO); break;
     default: break;
     }
 }
@@ -109,6 +322,7 @@ static void queue_handler(int id, void *data, void *arg) {
     struct request *r = data;
     int error = 0;
     char uri[512];
+    struct sip_account *account = find_account(e, r->account_id);
     (void)id;
     LOCK(&e->lock); remove_pending(e, r); UNLOCK(&e->lock);
     if ((r->operation == OP_ANSWER || r->operation == OP_HANGUP)
@@ -119,44 +333,101 @@ static void queue_handler(int id, void *data, void *arg) {
     }
     switch (r->operation) {
     case OP_ACCOUNT: {
-        struct ua *previous = e->ua;
-        if (e->call) {
-            emit(e, e->ua && ua_isregistered(e->ua) ? EV_REGISTERED : EV_REG_FAILED, 0);
-            error = EBUSY; break;
+        struct ua *replacement = NULL;
+        if (e->call) { error = EBUSY; break; }
+        if (!account) {
+            for (size_t i = 0; i < 8; ++i) if (!e->accounts[i].id) { account = &e->accounts[i]; break; }
         }
-        e->ua = NULL;
-        mem_deref(previous);
+        if (!account) { error = ENOSPC; break; }
         (void)snprintf(uri, sizeof(uri), "<sip:%s@%s>;regint=60;audio_codecs=PCMU/8000/1,PCMA/8000/1", r->username, r->registrar);
-        error = ua_alloc(&e->ua, uri);
-        if (!error) error = account_set_auth_user(ua_account(e->ua), r->username);
-        if (!error) error = account_set_auth_pass(ua_account(e->ua), r->password);
-        if (!error) error = ua_register(e->ua);
-        if (!error) str_ncpy(e->registrar, r->registrar, sizeof(e->registrar));
-        if (error) emit(e, EV_REG_FAILED, error);
+        error = ua_alloc(&replacement, uri);
+        if (!error) error = account_set_auth_user(ua_account(replacement), r->username);
+        if (!error) error = account_set_auth_pass(ua_account(replacement), r->password);
+        if (error) { mem_deref(replacement); break; }
+        struct ua *previous = account->ua;
+        account->ua = NULL;
+        if (previous) ua_unregister(previous);
+        char previous_registrar[256];
+        str_ncpy(previous_registrar, account->registrar, sizeof(previous_registrar));
+        account->id = r->account_id;
+        account->ua = replacement;
+        str_ncpy(account->registrar, r->registrar, sizeof(account->registrar));
+        error = ua_register(replacement);
+        if (error) {
+            account->ua = previous;
+            str_ncpy(account->registrar, previous_registrar, sizeof(account->registrar));
+            mem_deref(replacement);
+            if (previous) (void)ua_register(previous);
+            else memset(account, 0, sizeof(*account));
+        } else {
+            mem_deref(previous);
+            emit_account(e, EV_ACCOUNT_APPLIED, 0, r->account_id);
+        }
         break;
     }
+    case OP_REMOVE:
+        if (e->call) { emit_account(e, EV_REMOVE_FAILED, EBUSY, r->account_id); break; }
+        if (account) {
+            struct ua *previous = account->ua;
+            memset(account, 0, sizeof(*account));
+            if (previous) { ua_unregister(previous); mem_deref(previous); }
+        }
+        emit_account(e, EV_REMOVED, 0, r->account_id);
+        break;
     case OP_DIAL:
-        if (!e->ua || !ua_isregistered(e->ua)) { error = ENOTCONN; break; }
+        if (!e->audio_mode) {
+            error = sip_audio_device_available(e->input_device, 1);
+            if (!error) error = sip_audio_device_available(e->output_device, 0);
+            if (error) break;
+        }
+        if (!account || !account->ua || !ua_isregistered(account->ua)) { error = ENOTCONN; break; }
         if (e->call) { error = EBUSY; break; }
-        (void)snprintf(uri, sizeof(uri), "sip:%s@%s", r->destination, e->registrar);
-        error = ua_connect(e->ua, &e->call, NULL, uri, VIDMODE_OFF);
+        (void)snprintf(uri, sizeof(uri), "sip:%s@%s", r->destination, account->registrar);
+        error = ua_connect(account->ua, &e->call, NULL, uri, VIDMODE_OFF);
         if (error) { e->call = NULL; emit(e, EV_CLOSED, error); }
         break;
     case OP_ANSWER:
-        error = e->call ? ua_answer(e->ua, e->call, VIDMODE_OFF) : EINVAL;
+        if (!e->audio_mode) {
+            error = sip_audio_device_available(e->input_device, 1);
+            if (!error) error = sip_audio_device_available(e->output_device, 0);
+            if (error) break;
+        }
+        stop_ring(e);
+        error = e->call ? ua_answer(e->call_ua, e->call, VIDMODE_OFF) : EINVAL;
         break;
     case OP_HANGUP:
-        if (e->call) ua_hangup(e->ua, e->call, 0, NULL);
+        stop_ring(e);
+        if (e->call) ua_hangup(e->call_ua, e->call, 0, NULL);
         else error = EINVAL;
         break;
+    case OP_SOUND:
+    case OP_SOUND_RESTORE:
+        error = apply_sound(e, r);
+        emit(e, error ? EV_AUDIO_FAILED : EV_AUDIO_APPLIED, error);
+        break;
+    case OP_PREVIEW:
+        if (e->call) error = EBUSY;
+        else if (strlen(r->registrar) > 127) error = EINVAL;
+        else {
+            error = sip_audio_device_available(r->registrar, 0);
+            if (!error) error = start_ring(e, r->registrar, true);
+        }
+        emit(e, error ? EV_AUDIO_FAILED : EV_AUDIO_APPLIED, error);
+        break;
+    case OP_PREVIEW_STOP:
+        if (e->preview) stop_ring(e);
+        emit(e, EV_AUDIO_APPLIED, 0);
+        break;
     case OP_STOP:
+        stop_ring(e);
         ua_stop_all(true);
         re_cancel();
         break;
     default: error = EINVAL;
     }
+    if (error && r->operation == OP_ACCOUNT) emit_account(e, EV_ACCOUNT_REJECTED, error, r->account_id);
     if (error && r->operation == OP_DIAL && !e->call) emit(e, EV_CLOSED, error);
-    if (error) emit(e, EV_ERROR, error);
+    if (error) emit(e, r->operation == OP_ANSWER ? EV_ANSWER_FAILED : EV_ERROR, error);
     free_request(r);
 }
 
@@ -164,14 +435,26 @@ void *sip_engine_create(event_callback callback, void *arg, int audio_mode, cons
     struct engine *e = calloc(1, sizeof(*e));
     if (!e || !callback) { free(e); return NULL; }
     LOCK_INIT(&e->lock);
-    e->callback = callback; e->callback_arg = arg; e->audio_mode = audio_mode;
+    e->callback = callback; e->callback_arg = arg; e->audio_mode = audio_mode; e->ringtone_enabled = true;
+    const char *diagnostics = getenv("SIP_DIAGNOSTICS");
+    e->diagnostics = diagnostics && !strcmp(diagnostics, "1");
     str_ncpy(e->recording, recording ? recording : "", sizeof(e->recording));
     return e;
 }
 
 int sip_engine_run(void *handle) {
     struct engine *e = handle;
-    const char config[] = "sip_listen 0.0.0.0:0\nsip_transports udp\ncall_max_calls 1\nrtp_ports 40000-40100\n";
+    /* Create incoming call objects without the upstream menu module. This does
+       not answer them: the account defaults to manual answer mode. */
+    const char config[] =
+        "sip_listen 0.0.0.0:0\n"
+        "sip_transports udp\n"
+        "call_max_calls 1\n"
+        "call_accept yes\n"
+        "rtp_ports 40000-40100\n"
+        /* Two 20 ms packets on stable paths; retain headroom for VPN jitter. */
+        "audio_jitter_buffer_type adaptive\n"
+        "audio_jitter_buffer_ms 40-200\n";
     struct config_audio *audio;
     log_level_set(LEVEL_WARN);
     log_enable_color(false);
@@ -187,14 +470,18 @@ int sip_engine_run(void *handle) {
         str_ncpy(audio->play_dev, e->recording, sizeof(audio->play_dev));
     } else {
 #ifdef __APPLE__
-        str_ncpy(audio->src_mod, "audiounit", sizeof(audio->src_mod));
-        str_ncpy(audio->play_mod, "audiounit", sizeof(audio->play_mod));
+        str_ncpy(audio->src_mod, "coreaudio", sizeof(audio->src_mod));
+        str_ncpy(audio->play_mod, "coreaudio", sizeof(audio->play_mod));
 #elif defined(WIN32)
         str_ncpy(audio->src_mod, "wasapi", sizeof(audio->src_mod));
         str_ncpy(audio->play_mod, "wasapi", sizeof(audio->play_mod));
 #else
         error = ENOTSUP;
 #endif
+    }
+    if (!e->audio_mode) {
+        str_ncpy(audio->src_dev, "default", sizeof(audio->src_dev));
+        str_ncpy(audio->play_dev, "default", sizeof(audio->play_dev));
     }
     if (!error) error = baresip_init(conf_config());
     /* Upstream auto-enumeration excludes IPv4 loopback. Local PBX calls still
@@ -205,17 +492,18 @@ int sip_engine_run(void *handle) {
         if (!error) error = net_add_address(baresip_network(), &loopback);
     }
     if (!error) error = ua_init("SIP native milestone", true, false, false);
+    if (!error && e->diagnostics) {
+        e->diagnostic_started = tmr_jiffies();
+        diagnostic_engine = e;
+        sip_set_trace_handler(uag_sip(), diagnostic_trace);
+    }
     if (!error) error = bevent_register(event_handler, e);
     if (!error) error = module_load("", "g711");
     if (!error) error = module_load("", "auconv");
     if (!error) error = module_load("", "auresamp");
     if (!error) error = module_load("", "ausine");
     if (!error) error = module_load("", "aufile");
-#ifdef __APPLE__
-    if (!error && !e->audio_mode) error = module_load("", "audiounit");
-#elif defined(WIN32)
-    if (!error && !e->audio_mode) error = module_load("", "wasapi");
-#endif
+    if (!error && !e->audio_mode) error = ensure_platform_audio(e);
     LOCK(&e->lock);
     if (!error) error = mqueue_alloc(&e->queue, queue_handler, e);
     e->running = !error;
@@ -223,17 +511,24 @@ int sip_engine_run(void *handle) {
     emit(e, EV_READY, error);
     if (!error) {
         tmr_start(&e->shutdown_timer, 50, shutdown_tick, e);
+        sip_network_reset();
+        tmr_start(&e->network_timer, 5000, network_tick, e);
         error = re_main(NULL);
     }
     tmr_cancel(&e->shutdown_timer);
+    tmr_cancel(&e->network_timer);
+    sip_network_reset();
     LOCK(&e->lock);
     e->running = false;
     e->queue = mem_deref(e->queue);
     while (e->pending) { struct request *r = e->pending; e->pending = r->next; free_request(r); }
     UNLOCK(&e->lock);
     if (initialized) {
+        diagnostic_engine = NULL;
+        stop_ring(e);
         bevent_unregister(event_handler);
-        e->call = NULL; e->ua = NULL;
+        e->call = NULL; e->call_ua = NULL;
+        memset(e->accounts, 0, sizeof(e->accounts));
         ua_close();
         module_app_unload();
         baresip_close();
@@ -246,7 +541,7 @@ int sip_engine_run(void *handle) {
     return error;
 }
 
-int sip_engine_request(void *handle, int operation, uint64_t call_generation, const char *registrar,
+int sip_engine_request(void *handle, int operation, uint32_t account_id, uint64_t call_generation, const char *registrar,
                        const char *username, const char *password, const char *destination) {
     struct engine *e = handle;
     struct request *r;
@@ -259,6 +554,7 @@ int sip_engine_request(void *handle, int operation, uint64_t call_generation, co
     r = calloc(1, sizeof(*r));
     if (!r) return ENOMEM;
     r->operation = operation;
+    r->account_id = account_id;
     r->call_generation = call_generation;
     r->registrar = copy_string(registrar); r->username = copy_string(username);
     r->password = copy_string(password); r->destination = copy_string(destination);

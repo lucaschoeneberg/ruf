@@ -26,6 +26,9 @@
     "lab:up": "docker compose -f tests/interop/asterisk/compose.yml up -d --wait",
     "lab:down": "docker compose -f tests/interop/asterisk/compose.yml down",
     "test:asterisk": "bun scripts/asterisk-smoke.mjs",
+    "test:macos-audio": "bun scripts/check-macos-audio.mjs",
+    "test:sip-diagnostics": "bun scripts/check-sip-diagnostics.mjs",
+    "test:network-roam": "bun scripts/check-network-roam.mjs",
     "test:ui": "bun test tests/ui"
   }
 }

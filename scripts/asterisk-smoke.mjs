@@ -14,6 +14,25 @@ mkdirSync("native/build", { recursive: true });
 const recording = join(root, "native/build", `echo-${process.pid}.wav`);
 rmSync(recording, { force: true });
 run("docker", [...compose, "up", "-d", "--wait", "--wait-timeout", "60"]);
+// Compose keeps an existing container; bind-mounted fixture changes need a reload.
+run("docker", [
+  ...compose,
+  "exec",
+  "-T",
+  "asterisk",
+  "asterisk",
+  "-rx",
+  "dialplan reload",
+]);
+run("docker", [
+  ...compose,
+  "exec",
+  "-T",
+  "asterisk",
+  "asterisk",
+  "-rx",
+  "pjsip reload",
+]);
 run(
   "cargo",
   [
@@ -89,9 +108,9 @@ run(
     "--features",
     "native",
     "--lib",
-    "stale_call_actions",
     "--",
     "--ignored",
+    "--test-threads=1",
   ],
   {
     env: { ...process.env, SIP_TEST_PASSWORD: "sip-lab-only-not-a-secret" },

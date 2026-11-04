@@ -8,7 +8,12 @@ fn main() {
         .join("../../native/install")
         .join(&target);
     println!("cargo:rerun-if-changed=native/bridge.c");
+    println!("cargo:rerun-if-changed=native/audio_devices.c");
+    println!("cargo:rerun-if-changed=native/audio_devices.h");
+    println!("cargo:rerun-if-changed=native/network_roam.c");
+    println!("cargo:rerun-if-changed=native/network_roam.h");
     println!("cargo:rerun-if-changed=../../native/sources.json");
+    println!("cargo:rerun-if-changed=../../native/patches/re-sip-nat.patch");
     println!(
         "cargo:rerun-if-changed={}",
         prefix.join("sdk.json").display()
@@ -27,9 +32,24 @@ fn main() {
         Some(target.as_str()),
         "SDK architecture mismatch"
     );
+    assert_eq!(
+        manifest["patches"]["reSipNat"].as_str(),
+        Some(include_str!("../../native/patches/re-sip-nat.patch")),
+        "Native SIP NAT patch changed; run bun run native:build"
+    );
+    if target.contains("apple") {
+        assert!(
+            manifest["modules"]
+                .as_array()
+                .is_some_and(|modules| modules.iter().any(|module| module == "coreaudio")),
+            "Native SDK needs coreaudio; run bun run native:build"
+        );
+    }
     let mut bridge = cc::Build::new();
     bridge
         .file("native/bridge.c")
+        .file("native/audio_devices.c")
+        .file("native/network_roam.c")
         .include(prefix.join("include"))
         .include(prefix.join("include/re"))
         .std("c11");

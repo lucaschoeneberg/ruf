@@ -10,4 +10,5 @@ ignorePatterns = [
   "apps/desktop/src/lib/generated/",
   "Cargo.lock",
   "bun.lock",
+  ".playwright-cli/",
 ]

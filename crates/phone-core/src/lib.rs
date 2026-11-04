@@ -5,6 +5,8 @@ use ts_rs::TS;
 
 mod phone;
 pub use phone::*;
+mod desktop;
+pub use desktop::*;
 
 /// Native telephone engine availability. This is not an account registration state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]

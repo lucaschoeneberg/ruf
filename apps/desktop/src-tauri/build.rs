@@ -9,6 +9,16 @@ fn main() {
             "dial",
             "answer",
             "hangup",
+            "save_account",
+            "select_account",
+            "remove_account",
+            "open_settings",
+            "get_audio_devices",
+            "save_sound_settings",
+            "preview_ringtone",
+            "stop_ringtone_preview",
+            "get_desktop_settings",
+            "save_desktop_settings",
         ]),
     ))
     .expect("Failed to build the Tauri application and command permissions");

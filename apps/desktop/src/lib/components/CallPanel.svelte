@@ -27,6 +27,7 @@
     calling: "Verbindung wird aufgebaut …",
     ringing: "Es klingelt …",
     incoming: "Eingehender Anruf",
+    answering: "Wird angenommen …",
     active: "Gespräch läuft",
   };
 </script>
@@ -38,7 +39,7 @@
 >
   <div class="call-details" role="status" aria-live="polite">
     <div class="call-symbol">
-      <Icon name="phone" size={compact ? 18 : 28} />
+      <Icon name="phone" size={compact ? 16 : 22} />
     </div>
     <p class="call-state">{labels[state]}</p>
     <h1 class="call-peer">{peer}</h1>

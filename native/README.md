@@ -50,18 +50,48 @@ Without `native`, no SDK is needed and telephony reports `notLinked`.
 
 ## Selected functionality
 
-Static modules: `g711`, `auconv`, `auresamp`, `ausine`, `aufile`, plus `audiounit`
+Static modules: `g711`, `auconv`, `auresamp`, `ausine`, `aufile`, plus `coreaudio`
 on macOS or `wasapi` on Windows. Audio stays entirely within baresip. Test-tone
 mode uses 440 Hz input and writes decoded incoming PCM to WAV; system mode uses
 the platform microphone/speaker and requires manual device/permission testing.
 The file player's upstream path buffer allows at most 127 UTF-8 bytes; a longer
 path is rejected explicitly. Each test call overwrites its selected WAV.
 
-This milestone supports one in-memory account, SIP/UDP, G.711, one call, answer,
+This milestone supports up to eight accounts, SIP/UDP, G.711, one call, answer,
 reject/hangup and observable registration/call states. It does not implement
-TLS/SRTP, IPv6 registrar syntax, outbound proxies, NAT traversal outside the local
-lab, persistence, transfers, account switching or full SIP interoperability.
+TLS/SRTP, IPv6 registrar syntax, outbound proxies, general media NAT traversal,
+transfers or full SIP interoperability.
 OpenSSL is linked as an upstream dependency; this does not enable encrypted calls.
+
+The tracked [libre NAT extension](patches/README.md) learns the observed local
+SIP/UDP address from validated REGISTER responses and uses it for Contact/Via,
+without changing socket or RTP binding. It re-registers and removes the previous
+Contact after address/port translation changes. The Docker/Asterisk regression
+disables server Contact rewriting and requires both call directions to terminate
+remotely. Real UniFi Talk over Tailscale still needs deployment verification;
+the automated result is not a blanket certification of VPN/NAT interoperability.
+
+The client configures the existing adaptive audio jitter buffer with a 40–200 ms
+delay range, replacing the upstream fixed 100 ms minimum. It can reduce delay on
+stable paths while retaining headroom for variable arrival times. This is not a
+60 ms guarantee for total microphone-to-speaker latency. Hardware, remote PBX,
+packetization and the VPN still contribute. No device-buffer setting is changed.
+
+CPU-only native jitter-buffer comparison (macOS, matching staged SDK required):
+
+```sh
+clang -std=c11 -I native/install/aarch64-apple-darwin/include -I native/install/aarch64-apple-darwin/include/re \
+  crates/baresip-adapter/native/latency_probe.c -L native/install/aarch64-apple-darwin/lib \
+  -lbaresip -lre -lssl -lcrypto -framework CoreFoundation -framework SystemConfiguration \
+  -framework CoreAudio -framework AudioToolbox -framework Security -lresolv -lpthread -lm \
+  -o native/build/latency-probe
+native/build/latency-probe
+```
+
+This uses a virtual clock and synthetic RTP timing: fixed 100–200 ms versus
+adaptive 40–200 ms, no jitter and a repeated 0–12 ms arrival variation. Each
+scenario must play all 100 packets with no insertion errors. It does not test
+hardware latency, larger jitter spikes, packet loss or a real VPN call.
 
 The bridge uses a dedicated libre thread and message queue. A bounded pending
 queue rejects overload, and a timer observes an allocation-free shutdown flag.
@@ -81,3 +111,24 @@ production releases.
 - [Library integration](https://github.com/baresip/baresip/wiki/Using-baresip-as-a-Library)
 - [Pinned public API](https://github.com/baresip/baresip/blob/9cfab81550acc4bd38d6580d79b45cc6eea65cd6/include/baresip.h)
 - [Current verification evidence](../docs/verification/2026-11-04-native.md)
+
+## Sound routing
+
+Settings → Ton selects microphone, call output and independent ringtone output.
+The device list reads platform metadata without opening capture. macOS uses the
+pinned upstream CoreAudio module because AudioUnit ignores explicit device names;
+WASAPI remains the Windows backend. Rebuild an older macOS SDK with
+`bun run native:build`; build.rs rejects a manifest without CoreAudio.
+
+A built-in two-second PCM ringtone is played through baresip, never browser audio.
+Incoming calls loop it until answer/reject/close; developer test-tone sessions do
+not ring automatically. The explicit preview supports stop and automatic finish.
+
+Run the opt-in audible device check (no microphone capture):
+
+```sh
+cargo run --locked -p baresip-adapter --features native --example sound_smoke
+```
+
+It queries real devices, routes to a selectable output, rejects an invalid device,
+and checks preview start/stop/completion. Windows execution is still required.

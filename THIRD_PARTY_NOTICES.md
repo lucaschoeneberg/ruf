@@ -41,6 +41,9 @@ in desktop bundles. Own application code remains MIT.
 | libre/re (including rem)              | 4.12.0 / `65555dad439de9d6a81b3ee6092b9c096585249b`                      | BSD-3-Clause; [source](https://github.com/baresip/re), [license](native/licenses/re-LICENSE)           |
 | OpenSSL                               | Host-resolved 3.x; exact version recorded in SDK manifest (local: 3.5.9) | Apache-2.0; [source](https://github.com/openssl/openssl), [license](native/licenses/openssl-LICENSE)   |
 
+The libre SDK includes a local [SIP NAT patch](native/patches/README.md) applied
+to the exact revision above. Upstream notices and license text are preserved.
+
 The native build also stages license texts from the actual SDK inputs. Windows
 OpenSSL resolution is constrained by `native/vcpkg.json`; macOS/Linux system
 packages and toolchains remain external inputs. The selected modules are recorded
@@ -53,3 +56,30 @@ not bundled with the app. Asterisk is GPL-2.0; its distribution and accompanying
 third-party components retain their own upstream terms. See the
 [lab guide](tests/interop/asterisk/README.md) and
 [Asterisk license](https://github.com/asterisk/asterisk/blob/master/LICENSE).
+
+Saved desktop credentials use [keyring](https://github.com/open-source-cooperative/keyring-rs)
+4.2.0 and keyring-core 1.0.1, with apple-native-keyring-store 1.0.2 on macOS and
+windows-native-keyring-store 1.1.0 on Windows. These crates are used under their MIT
+license option. Their upstream MIT notices are included in `native/licenses/`
+and bundled with the desktop application's existing license resources. Other
+transitive Rust components retain the licenses recorded in their packages.
+
+The interface bundles unmodified IBM Plex Sans Regular and SemiBold from
+[Zed's font assets](https://github.com/zed-industries/zed/tree/e21ff1b368b074586e4dae0d9bbf15d5dd8a1476/assets/fonts/ibm-plex-sans).
+Copyright © 2017 IBM Corp., Reserved Font Name "Plex". The fonts use the
+SIL Open Font License 1.1, reproduced in
+[IBM-Plex-Sans-LICENSE.txt](apps/desktop/public/fonts/IBM-Plex-Sans-LICENSE.txt).
+That notice and both font files are distributed with the frontend assets.
+Application code remains under MIT.
+
+The shared dark interface palette references the installed GitHub Dark Tritanopia
+variant of [GitHub Zed Themes](https://github.com/PyaeSoneAungRgn/github-zed-theme),
+which is MIT licensed. Its [upstream notice](native/licenses/github-zed-theme-LICENSE-MIT)
+is bundled with the existing native license resources.
+
+Native background integration uses official Tauri plugins under their MIT option:
+`tauri-plugin-autostart` 2.7.0, `tauri-plugin-notification` 2.8.0,
+`tauri-plugin-single-instance` 2.5.5 and `tauri-plugin-dialog` 2.8.4. The
+macOS startup keychain UI guard reuses `security-framework` 3.7.0 under MIT.
+Their unmodified MIT texts are staged in `native/licenses/` and included in bundles.
+The tray handset is drawn by our application code; no additional icon asset is copied.

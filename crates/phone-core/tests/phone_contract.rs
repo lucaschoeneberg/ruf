@@ -91,3 +91,73 @@ fn registrar_port_accepts_only_ascii_digits() {
     input.registrar = "127.0.0.1:+5070".into();
     assert_eq!(input.validate().unwrap_err().code, ErrorCode::InvalidInput);
 }
+
+fn multiple_accounts() -> EngineSnapshot {
+    use phone_core::AccountSnapshot;
+    EngineSnapshot {
+        accounts: vec![
+            AccountSnapshot {
+                id: 1,
+                name: "Büro".into(),
+                registrar: "pbx.test".into(),
+                username: "1000".into(),
+                registration: RegistrationState::Registered,
+                last_error: None,
+                removing: false,
+            },
+            AccountSnapshot {
+                id: 2,
+                name: "Privat".into(),
+                registrar: "home.test".into(),
+                username: "2000".into(),
+                registration: RegistrationState::Failed,
+                last_error: None,
+                removing: false,
+            },
+        ],
+        selected_account_id: Some(1),
+        registration: RegistrationState::Registered,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn outgoing_selection_uses_its_own_registration_and_rejects_unknown_ids() {
+    let mut state = multiple_accounts();
+    state.select_account(2).unwrap();
+    assert_eq!(state.selected_account_id, Some(2));
+    assert_eq!(state.registration, RegistrationState::Failed);
+    assert_eq!(
+        state.reserve_dial("600").unwrap_err().code,
+        ErrorCode::NotRegistered
+    );
+    assert_eq!(
+        state.select_account(999).unwrap_err().code,
+        ErrorCode::InvalidInput
+    );
+    assert_eq!(state.selected_account_id, Some(2));
+    state.select_account(1).unwrap();
+    state.reserve_dial("600").unwrap();
+    assert_eq!(state.call_account_id, Some(1));
+    assert_eq!(state.select_account(2).unwrap_err().code, ErrorCode::Busy);
+    assert_eq!(state.selected_account_id, Some(1));
+}
+
+#[test]
+fn sound_defaults_and_device_boundaries_preserve_native_configuration() {
+    use phone_core::SoundSettings;
+    let mut sound = SoundSettings::default();
+    assert!(sound.ringtone_enabled);
+    assert!(
+        sound.input_device.is_empty()
+            && sound.output_device.is_empty()
+            && sound.ring_device.is_empty()
+    );
+    sound.input_device = "Mikrofon – Büro".into();
+    assert!(sound.validate().is_ok());
+    sound.output_device = "x".repeat(128);
+    assert_eq!(sound.validate().unwrap_err().code, ErrorCode::InvalidInput);
+    sound.output_device = "default".into();
+    sound.ring_device = "bad\0device".into();
+    assert!(sound.validate().is_err());
+}

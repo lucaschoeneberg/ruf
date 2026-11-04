@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -29,6 +30,10 @@ const windows = process.platform === "win32";
 const build = join(root, "native/build", target);
 const prefix = join(root, "native/install", target);
 const sources = join(root, "native/build/sources");
+const natPatch = readFileSync(
+  join(root, "native/patches/re-sip-nat.patch"),
+  "utf8",
+);
 const stageFile = (source, destination) => {
   if (resolve(source) === resolve(destination)) return;
   rmSync(destination, { force: true });
@@ -59,6 +64,21 @@ for (const [name, pin] of Object.entries(pins)) {
     );
   }
 }
+
+// Keep pinned upstream checkouts pristine; apply our reviewed patch in isolation.
+const patchedRe = join(build, "re-patched");
+rmSync(patchedRe, { recursive: true, force: true });
+cpSync(join(sources, "re"), patchedRe, {
+  recursive: true,
+  filter: (path) => !path.split(/[\\/]/).includes(".git"),
+});
+run("git", ["init", "--quiet"], patchedRe);
+run(
+  "git",
+  ["apply", "--check", join(root, "native/patches/re-sip-nat.patch")],
+  patchedRe,
+);
+run("git", ["apply", join(root, "native/patches/re-sip-nat.patch")], patchedRe);
 
 let openssl = process.env.OPENSSL_ROOT_DIR;
 if (!openssl && process.platform === "darwin")
@@ -95,10 +115,10 @@ if (process.platform === "darwin")
     "-DCMAKE_OSX_ARCHITECTURES=arm64",
   );
 
-const reBuild = join(build, "re");
+const reBuild = join(build, "re-nat");
 run("cmake", [
   "-S",
-  join(sources, "re"),
+  patchedRe,
   "-B",
   reBuild,
   ...common,
@@ -116,9 +136,29 @@ run("cmake", [
   "4",
 ]);
 run("cmake", ["--install", reBuild, "--config", "Release"]);
+run("cmake", [
+  "--build",
+  reBuild,
+  "--config",
+  "Release",
+  "--target",
+  "retest",
+  "--parallel",
+  "4",
+]);
+run(
+  join(reBuild, "test", windows ? "Release/retest.exe" : "retest"),
+  windows ? ["test_sip_nat"] : ["-r", "test_sip_nat"],
+  patchedRe,
+);
+run(
+  join(reBuild, "test", windows ? "Release/retest.exe" : "retest"),
+  windows ? ["test_sip_nat_registration"] : ["-r", "test_sip_nat_registration"],
+  patchedRe,
+);
 
 const modules = ["g711", "auconv", "auresamp", "ausine", "aufile"];
-if (process.platform === "darwin") modules.push("audiounit");
+if (process.platform === "darwin") modules.push("coreaudio");
 if (windows) modules.push("wasapi");
 const bareBuild = join(build, "baresip");
 const reLibrary = join(prefix, "lib", windows ? "re-static.lib" : "libre.a");
@@ -201,6 +241,7 @@ writeFileSync(
     {
       target,
       sources: pins,
+      patches: { reSipNat: natPatch },
       modules,
       openssl: { prefix: openssl ?? "system", version: resolved.version },
       licenseInventoryComplete: false,

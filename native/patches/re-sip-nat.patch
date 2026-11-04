@@ -1,0 +1,632 @@
+diff --git a/include/re_sip.h b/include/re_sip.h
+index bd3c4c9..1e58716 100644
+--- a/include/re_sip.h
++++ b/include/re_sip.h
+@@ -332,6 +332,16 @@ void sip_transp_rmladdr(struct sip *sip, const struct sa *laddr);
+ int  sip_settos(struct sip *sip, uint8_t tos);
+ 
+ 
++/* Local SDK extension: mapped SIP addresses never change socket/media binding.
++ * All functions run on the SIP event-loop thread. */
++bool sip_nat_validate(const struct sa *local, const struct sa *peer,
++                      const struct sa *sentby, const char *callid, uint32_t cseq,
++                      const struct sip_msg *msg, struct sa *mapped);
++int sip_nat_set(struct sip *sip, const struct sa *local, const struct sa *peer,
++                const struct sa *mapped, uint32_t lifetime);
++void sip_nat_addr(struct sip *sip, enum sip_transp tp, const struct sa *local,
++                  const struct sa *peer, struct sa *advertised);
++
+ /* request */
+ int sip_request(struct sip_request **reqp, struct sip *sip, bool stateful,
+ 		const char *met, int metl, const char *uri, int uril,
+diff --git a/src/sip/contact.c b/src/sip/contact.c
+index 6703384..dd4cb50 100644
+--- a/src/sip/contact.c
++++ b/src/sip/contact.c
+@@ -12,6 +12,8 @@
+ #include <re_sa.h>
+ #include <re_msg.h>
+ #include <re_sip.h>
++#include <re_tmr.h>
++#include "sip.h"
+ 
+ 
+ /**
+@@ -55,3 +57,81 @@ int sip_contact_print(struct re_printf *pf, const struct sip_contact *contact)
+ 				  contact->addr,
+ 				  sip_transp_param(contact->tp));
+ }
++
++
++/* Only a successful response to this exact REGISTER may supply a local mapping.
++ * The transaction layer has already matched the unpredictable Via branch.
++ * This is not server authentication: SIP/UDP remains an unencrypted transport. */
++bool sip_nat_validate(const struct sa *local, const struct sa *peer,
++                      const struct sa *sentby, const char *callid, uint32_t cseq,
++                      const struct sip_msg *msg, struct sa *mapped)
++{
++ struct pl received, rport;
++ uint32_t port = 0;
++ struct sa candidate;
++ if (!local || !peer || !sentby || !callid || !msg || !mapped ||
++     msg->req || msg->tp != SIP_TRANSP_UDP || msg->scode < 200 ||
++     msg->scode >= 300 || pl_strcmp(&msg->cseq.met, "REGISTER") ||
++     pl_strcmp(&msg->callid, callid) || msg->cseq.num != cseq ||
++     !sa_cmp(&msg->src, peer, SA_ALL) || !sa_cmp(&msg->dst, local, SA_ALL) ||
++     !sa_cmp(&msg->via.addr, sentby, SA_ALL)) return false;
++ if (msg_param_decode(&msg->via.params, "received", &received) ||
++     msg_param_decode(&msg->via.params, "rport", &rport) ||
++     !rport.l || rport.l > 5) return false;
++ for (size_t i = 0; i < rport.l; ++i) {
++  if (rport.p[i] < '0' || rport.p[i] > '9') return false;
++  port = port * 10 + (uint32_t)(rport.p[i] - '0');
++ }
++ if (!port || port > 65535 || sa_set(&candidate, &received, (uint16_t)port) ||
++     sa_af(&candidate) != sa_af(local) || sa_is_any(&candidate) ||
++     sa_is_multicast(&candidate) ||
++     (sa_is_loopback(&candidate) && !sa_is_loopback(local)) ||
++     (sa_af(&candidate) == AF_INET && sa_in(&candidate) == 0xffffffffu))
++  return false;
++ *mapped = candidate;
++ return true;
++}
++
++int sip_nat_set(struct sip *sip, const struct sa *local, const struct sa *peer,
++                const struct sa *mapped, uint32_t lifetime)
++{
++ struct sip_nat_mapping *slot = NULL;
++ const uint64_t now = tmr_jiffies();
++ if (!sip || !local || !peer || !mapped || !lifetime || lifetime > 604800)
++  return EINVAL;
++ for (size_t i = 0; i < 32; ++i) {
++  struct sip_nat_mapping *entry = &sip->nat[i];
++  if (entry->until && sa_cmp(&entry->local, local, SA_ALL) &&
++      sa_cmp(&entry->peer, peer, SA_ALL)) { slot = entry; break; }
++  if (!slot && entry->until <= now) slot = entry;
++ }
++ if (!slot) return ENOSPC;
++ slot->local = *local; slot->peer = *peer; slot->mapped = *mapped;
++ slot->until = now + (uint64_t)lifetime * 1000;
++ return 0;
++}
++
++void sip_nat_addr(struct sip *sip, enum sip_transp tp, const struct sa *local,
++                  const struct sa *peer, struct sa *advertised)
++{
++ *advertised = *local;
++ const struct sip_nat_mapping *fallback = NULL;
++ bool ambiguous = false;
++ const uint64_t now = tmr_jiffies();
++ if (!sip || tp != SIP_TRANSP_UDP || !peer) return;
++ /* A registrar may originate dialogs from a different UDP port. Reuse only
++  * an unambiguous binding learned for this exact socket and the same peer IP.
++  * Never infer mappings across peers or override an exact endpoint match. */
++ for (size_t i = 0; i < 32; ++i) {
++  const struct sip_nat_mapping *entry = &sip->nat[i];
++  if (entry->until <= now || !sa_cmp(&entry->local, local, SA_ALL) ||
++      !sa_cmp(&entry->peer, peer, SA_ADDR)) continue;
++  if (sa_cmp(&entry->peer, peer, SA_ALL)) {
++   *advertised = entry->mapped; return;
++  }
++  if (fallback && !sa_cmp(&fallback->mapped, &entry->mapped, SA_ALL))
++   ambiguous = true;
++  fallback = entry;
++ }
++ if (fallback && !ambiguous) *advertised = fallback->mapped;
++}
+diff --git a/src/sip/request.c b/src/sip/request.c
+index 7ff0fb4..4cbc70c 100644
+--- a/src/sip/request.c
++++ b/src/sip/request.c
+@@ -167,6 +167,7 @@ static int connect_handler(struct sa *src, const struct sa *dst,
+ 	struct sip_request *req = arg;
+ 	struct mbuf *mbs  = NULL;
+ 	struct mbuf *cont = NULL;
++	struct sa advertised;
+ 	int err;
+ 
+ 	if (!sa_isset(src, SA_ALL))
+@@ -182,10 +183,11 @@ static int connect_handler(struct sa *src, const struct sa *dst,
+ 	if (err)
+ 		goto out;
+ 
++	sip_nat_addr(req->sip, req->tp, src, dst, &advertised);
+ 	mbuf_set_pos(mbs, 0);
+ 	err  = mbuf_printf(mb, "%s %s SIP/2.0\r\n", req->met, req->uri);
+ 	err |= mbuf_printf(mb, "Via: SIP/2.0/%s %J;branch=%s;rport\r\n",
+-			   sip_transp_name(req->tp), src, req->branch);
++			   sip_transp_name(req->tp), &advertised, req->branch);
+ 	err |= mbuf_write_mem(mb, mbuf_buf(mbs), mbuf_get_left(mbs));
+ 	err |= mbuf_write_mem(mb, mbuf_buf(req->mb), mbuf_get_left(req->mb));
+ 	if (cont) {
+diff --git a/src/sip/sip.h b/src/sip/sip.h
+index 9f19383..d664b98 100644
+--- a/src/sip/sip.h
++++ b/src/sip/sip.h
+@@ -5,7 +5,14 @@
+  */
+ 
+ 
++/* Bounded per-socket/per-peer mappings, owned by this SIP stack instance. */
++struct sip_nat_mapping {
++ struct sa local, peer, mapped;
++ uint64_t until;
++};
++
+ struct sip {
++	struct sip_nat_mapping nat[32];
+ 	struct list transpl;
+ 	struct list lsnrl;
+ 	struct list reql;
+diff --git a/src/sipreg/reg.c b/src/sipreg/reg.c
+index a7cd5fa..1a9ec14 100644
+--- a/src/sipreg/reg.c
++++ b/src/sipreg/reg.c
+@@ -28,6 +28,10 @@ enum {
+ struct sipreg {
+ 	struct sip_loopstate ls;
+ 	struct sa laddr;
++	struct sa peer, advertised, old_contact;
++	bool remove_old;
++	unsigned nat_retries;
++	uint32_t sent_cseq;
+ 	struct tmr tmr;
+ 	struct sip *sip;
+ 	struct sip_keepalive *ka;
+@@ -162,11 +166,11 @@ static bool contact_handler(const struct sip_hdr *hdr,
+ 	if (pl_strcmp(&c.uri.user, reg->cuser))
+ 	    return false;
+ 
+-	err = sa_set(&host, &c.uri.host, c.uri.port);
++	err = sa_set(&host, &c.uri.host, sip_transp_port(reg->tp, c.uri.port));
+ 	if (err)
+ 		return false;
+ 
+-	if (!sa_cmp(&host, &reg->laddr, SA_ADDR))
++	if (!sa_cmp(&host, &reg->advertised, SA_ALL))
+ 		return false;
+ 
+ 	err = uri_param_get(&c.auri, &transp, &pval);
+@@ -210,6 +214,30 @@ static void response_handler(int err, const struct sip_msg *msg, void *arg)
+ 				  reg);
+ 		reg->registered = reg->wait > 0;
+ 		reg->pexpires = reg->wait;
++		if (reg->expires && !reg->terminated) {
++   struct sa mapped;
++   if (sip_nat_validate(&reg->laddr, &reg->peer, &reg->advertised,
++                       sip_dialog_callid(reg->dlg), reg->sent_cseq,
++                       msg, &mapped)) {
++    uint32_t lifetime = reg->pexpires > 302400 ? 604800 : reg->pexpires * 2;
++    if (lifetime < 120) lifetime = 120;
++    if (!sa_cmp(&mapped, &reg->advertised, SA_ALL) && reg->nat_retries >= 2) {
++     err = ELOOP; goto nat_failed;
++    }
++    err = sip_nat_set(reg->sip, &reg->laddr, &reg->peer, &mapped, lifetime);
++    if (err) goto nat_failed;
++    if (!sa_cmp(&mapped, &reg->advertised, SA_ALL)) {
++     reg->old_contact = reg->advertised;
++     reg->remove_old = true;
++     ++reg->nat_retries;
++     err = request(reg, false);
++     if (!err) return;
++     goto nat_failed;
++    }
++   }
++   reg->remove_old = false;
++   reg->nat_retries = 0;
++  }
+ 		reg->wait *= reg->rwait * (1000 / 100);
+ 		reg->failc = 0;
+ 
+@@ -263,6 +291,12 @@ static void response_handler(int err, const struct sip_msg *msg, void *arg)
+ 
+ 	++reg->failc;
+ 
++	goto out;
++
++ nat_failed:
++	reg->registered = false;
++	reg->wait = failwait(++reg->failc);
++
+  out:
+ 	if (!reg->expires) {
+ 		if (msg && msg->scode >= 400 && msg->scode < 500)
+@@ -308,8 +342,14 @@ static int send_handler(enum sip_transp tp, struct sa *src,
+ 		sa_set_port(src, reg->srcport);
+ 
+ 	reg->laddr = *src;
+-	err = mbuf_printf(mb, "Contact: <sip:%s@%J%s%s%s>;expires=%u%s%s",
+-			  reg->cuser, &reg->laddr, sip_transp_param(reg->tp),
++ reg->peer = *dst;
++ sip_nat_addr(reg->sip, tp, src, dst, &reg->advertised);
++ err = 0;
++ if (reg->remove_old)
++  err = mbuf_printf(mb, "Contact: <sip:%s@%J%s>;expires=0\r\n",
++                    reg->cuser, &reg->old_contact, sip_transp_param(reg->tp));
++	err |= mbuf_printf(mb, "Contact: <sip:%s@%J%s%s%s>;expires=%u%s%s",
++			  reg->cuser, &reg->advertised, sip_transp_param(reg->tp),
+ 			  reg->cparams ? ";" : "",
+ 			  reg->cparams ? reg->cparams : "",
+ 			  reg->expires,
+@@ -330,9 +370,11 @@ static int request(struct sipreg *reg, bool reset_ls)
+ 		reg->expires = 0;
+ 
+ 	if (reset_ls) {
++		reg->nat_retries = 0;
+ 		sip_loopstate_reset(&reg->ls);
+ 	}
+ 
++	reg->sent_cseq = sip_dialog_lseq(reg->dlg);
+ 	return sip_drequestf(&reg->req, reg->sip, true, "REGISTER", reg->dlg,
+ 			     0, reg->auth, send_handler, response_handler, reg,
+ 			     "%s"
+diff --git a/src/sipsess/connect.c b/src/sipsess/connect.c
+index 9a3f234..69c080f 100644
+--- a/src/sipsess/connect.c
++++ b/src/sipsess/connect.c
+@@ -27,6 +27,7 @@ static int send_handler(enum sip_transp tp, struct sa *src,
+ 			struct mbuf **contp, void *arg)
+ {
+ 	struct sip_contact contact;
++	struct sa advertised;
+ 	struct sipsess *sess = arg;
+ 	struct mbuf *desc = NULL;
+ 	struct mbuf *cont = NULL;
+@@ -38,7 +39,8 @@ static int send_handler(enum sip_transp tp, struct sa *src,
+ 			return err;
+ 	}
+ 
+-	sip_contact_set(&contact, sess->cuser, src, tp);
++	sip_nat_addr(sess->sip, tp, src, dst, &advertised);
++	sip_contact_set(&contact, sess->cuser, &advertised, tp);
+ 	err = mbuf_printf(mb, "%H", sip_contact_print, &contact);
+ 	if (err)
+ 		goto out;
+diff --git a/src/sipsess/modify.c b/src/sipsess/modify.c
+index ce33605..cb351a8 100644
+--- a/src/sipsess/modify.c
++++ b/src/sipsess/modify.c
+@@ -131,11 +131,13 @@ static int send_handler(enum sip_transp tp, struct sa *src,
+ 			struct mbuf **contp, void *arg)
+ {
+ 	struct sip_contact contact;
++	struct sa advertised;
+ 	struct sipsess *sess = arg;
+ 	(void)dst;
+ 	(void)contp;
+ 
+-	sip_contact_set(&contact, sess->cuser, src, tp);
++	sip_nat_addr(sess->sip, tp, src, dst, &advertised);
++	sip_contact_set(&contact, sess->cuser, &advertised, tp);
+ 
+ 	return mbuf_printf(mb, "%H", sip_contact_print, &contact);
+ }
+diff --git a/src/sipsess/reply.c b/src/sipsess/reply.c
+index df73d32..1c81e39 100644
+--- a/src/sipsess/reply.c
++++ b/src/sipsess/reply.c
+@@ -112,6 +112,7 @@ int sipsess_reply_2xx(struct sipsess *sess, const struct sip_msg *msg,
+ {
+ 	struct sipsess_reply *reply = NULL;
+ 	struct sip_contact contact;
++	struct sa advertised;
+ 	int err = ENOMEM;
+ 	bool sdp = mbuf_get_left(msg->mb) > 0;
+ 	bool non_invite = !pl_strcmp(&msg->met, "PRACK")
+@@ -141,7 +142,8 @@ int sipsess_reply_2xx(struct sipsess *sess, const struct sip_msg *msg,
+ 	if (non_invite && sess->neg_state != SDP_NEG_REMOTE_OFFER)
+ 		desc = NULL;
+ 
+-	sip_contact_set(&contact, sess->cuser, &msg->dst, msg->tp);
++	sip_nat_addr(sess->sip, msg->tp, &msg->dst, &msg->src, &advertised);
++	sip_contact_set(&contact, sess->cuser, &advertised, msg->tp);
+ 	err = sip_treplyf(non_invite ? NULL : &sess->st,
+ 			  reply ? &reply->mb : NULL, sess->sip,
+ 			  msg, true, scode, reason,
+@@ -198,6 +200,7 @@ int sipsess_reply_1xx(struct sipsess *sess, const struct sip_msg *msg,
+ {
+ 	struct sipsess_reply *reply;
+ 	struct sip_contact contact;
++	struct sa advertised;
+ 	char rseq_header[64];
+ 	bool reliably;
+ 	enum rel100_mode rel100_peer = REL100_DISABLED;
+@@ -253,7 +256,8 @@ int sipsess_reply_1xx(struct sipsess *sess, const struct sip_msg *msg,
+ 	reply->sess = sess;
+ 	reply->scode = scode;
+ 
+-	sip_contact_set(&contact, sess->cuser, &msg->dst, msg->tp);
++	sip_nat_addr(sess->sip, msg->tp, &msg->dst, &msg->src, &advertised);
++	sip_contact_set(&contact, sess->cuser, &advertised, msg->tp);
+ 	if (reliably) {
+ 		sess->rel_seq = sess->rel_seq ? sess->rel_seq+1 : rand_u16();
+ 		reply->rel_seq = sess->rel_seq;
+diff --git a/src/sipsess/update.c b/src/sipsess/update.c
+index 1e982f8..9ba233a 100644
+--- a/src/sipsess/update.c
++++ b/src/sipsess/update.c
+@@ -110,11 +110,13 @@ static int send_handler(enum sip_transp tp, struct sa *src,
+ 			struct mbuf **contp, void *arg)
+ {
+ 	struct sip_contact contact;
++	struct sa advertised;
+ 	struct sipsess_request *req = arg;
+ 	(void)dst;
+ 	(void)contp;
+ 
+-	sip_contact_set(&contact, req->sess->cuser, src, tp);
++	sip_nat_addr(req->sess->sip, tp, src, dst, &advertised);
++	sip_contact_set(&contact, req->sess->cuser, &advertised, tp);
+ 
+ 	return mbuf_printf(mb, "%H", sip_contact_print, &contact);
+ }
+diff --git a/test/main.c b/test/main.c
+index 5b26f53..c3aead0 100644
+--- a/test/main.c
++++ b/test/main.c
+@@ -176,6 +176,11 @@ int main(int argc, char *argv[])
+ 	do_perf	  = false;
+ 	do_all	  = false;
+ 	verbose	  = true;
++	if (argc == 2) {
++		name = argv[1];
++		do_int = false;
++		do_thread = false;
++	}
+ #endif
+ 
+ 	/* Initialise debugging */
+diff --git a/test/sip.c b/test/sip.c
+index 31ec2f7..e53b41f 100644
+--- a/test/sip.c
++++ b/test/sip.c
+@@ -1232,3 +1232,212 @@ int test_sip_transp_wss_verify_host(void)
+ 	return err;
+ }
+ #endif
++
++
++#define NAT_ERR(call) do { err = (call); TEST_ERR(err); } while (0)
++
++int test_sip_nat(void)
++{
++ struct sip *sip = NULL;
++ struct sip_msg *msg = NULL;
++ struct mbuf *mb = NULL;
++ struct sa local, peer, mapped, result, other;
++ int err = 0;
++ NAT_ERR(sip_alloc(&sip, NULL, 32, 32, 32, "nat-test", NULL, NULL));
++ NAT_ERR(sa_set_str(&local, "100.64.0.8", 50000));
++ NAT_ERR(sa_set_str(&peer, "192.168.50.1", 5060));
++ mb = mbuf_alloc(1024);
++ if (!mb) { err = ENOMEM; goto out; }
++ NAT_ERR(mbuf_write_str(mb,
++  "SIP/2.0 200 OK\r\n"
++  "Via: SIP/2.0/UDP 100.64.0.8:50000;branch=z9hG4bKtest;received=192.168.50.2;rport=51000\r\n"
++  "From: <sip:1003@lab>;tag=test\r\nTo: <sip:1003@lab>;tag=server\r\n"
++  "Call-ID: nat-test\r\nCSeq: 7 REGISTER\r\nContent-Length: 0\r\n\r\n"));
++ mb->pos = 0;
++ NAT_ERR(sip_msg_decode(&msg, mb));
++ msg->src = peer; msg->dst = local; msg->tp = SIP_TRANSP_UDP;
++ TEST_ASSERT(sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &mapped));
++ TEST_ASSERT(sa_port(&mapped) == 51000);
++ NAT_ERR(sa_set_str(&other, "192.168.50.2", 51000));
++ TEST_ASSERT(sa_cmp(&mapped, &other, SA_ALL));
++ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "wrong", 7, msg, &result));
++ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 8, msg, &result));
++ msg->scode = 401;
++ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ msg->scode = 200; msg->src = mapped;
++ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ msg->src = peer; msg->dst = mapped;
++ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ msg->dst = local; msg->tp = SIP_TRANSP_TCP;
++ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ msg->tp = SIP_TRANSP_UDP;
++ const char *invalid[] = {
++  ";received=192.168.50.2;rport=0", ";received=192.168.50.2;rport=65536",
++  ";received=192.168.50.2;rport=-1", ";received=192.168.50.2;rport=abc",
++  ";received=0.0.0.0;rport=51000", ";received=224.0.0.1;rport=51000",
++  ";received=127.0.0.1;rport=51000", ";received=255.255.255.255;rport=51000",
++  ";received=attacker.example;rport=51000", ";rport=51000",
++  ";received=192.168.50.2", ";received=::1;rport=51000"
++ };
++ for (size_t i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i) {
++  pl_set_str(&msg->via.params, invalid[i]);
++  TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ }
++ NAT_ERR(sip_nat_set(sip, &local, &peer, &mapped, 120));
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &peer, &result);
++ TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
++ sip_nat_addr(sip, SIP_TRANSP_TCP, &local, &peer, &result);
++ TEST_ASSERT(sa_cmp(&result, &local, SA_ALL));
++ other = peer; sa_set_port(&other, 5061);
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &other, &result);
++ TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
++ /* Peer-IP isolation remains strict even for a matching registrar port. */
++ NAT_ERR(sa_set_str(&other, "192.168.50.9", 5060));
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &other, &result);
++ TEST_ASSERT(sa_cmp(&result, &local, SA_ALL));
++ /* Conflicting mappings suppress fallback, exact endpoint always wins. */
++ other = peer; sa_set_port(&other, 5062);
++ struct sa conflicting = mapped; sa_set_port(&conflicting, 52000);
++ NAT_ERR(sip_nat_set(sip, &local, &other, &conflicting, 1));
++ sa_set_port(&other, 5061);
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &other, &result);
++ TEST_ASSERT(sa_cmp(&result, &local, SA_ALL));
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &peer, &result);
++ TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
++ sys_msleep(1100);
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &other, &result);
++ TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
++ other = local; sa_set_port(&other, 50001);
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &other, &peer, &result);
++ TEST_ASSERT(sa_cmp(&result, &other, SA_ALL));
++ /* Fill the bounded table, retain the live first mapping on exhaustion. */
++ for (unsigned i = 1; i < 32; ++i) {
++  other = peer; sa_set_port(&other, (uint16_t)(5060+i));
++  NAT_ERR(sip_nat_set(sip, &local, &other, &mapped, 120));
++ }
++ other = peer; sa_set_port(&other, 6000);
++ TEST_ASSERT(sip_nat_set(sip, &local, &other, &mapped, 120) == ENOSPC);
++ sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &peer, &result);
++ TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
++ out:
++ mem_deref(msg); mem_deref(mb); mem_deref(sip);
++ return err;
++}
++
++#undef NAT_ERR
++
++
++struct nat_registration_test {
++ struct udp_sock *server;
++ struct sip *sip;
++ struct sipreg *reg;
++ struct tmr stop;
++ unsigned requests, removals, completed;
++ uint16_t port;
++ bool bounce;
++ int error;
++};
++
++static void nat_reg_done(int err, const struct sip_msg *msg, void *arg)
++{
++ struct nat_registration_test *test = arg;
++ (void)msg;
++ test->error = err;
++ ++test->completed;
++ re_cancel();
++}
++
++static void nat_reg_stop(void *arg)
++{
++ (void)arg;
++ re_cancel();
++}
++
++static void nat_reg_receive(const struct sa *src, struct mbuf *mb, void *arg)
++{
++ struct nat_registration_test *test = arg;
++ struct sip_msg *request_msg = NULL;
++ struct mbuf *reply = NULL;
++ const struct sip_hdr *active = NULL;
++ struct le *le;
++ struct sip_addr contact;
++ struct pl expires;
++ int error = sip_msg_decode(&request_msg, mb);
++ if (error) goto done;
++ ++test->requests;
++ if (test->bounce) ++test->port;
++ LIST_FOREACH(&request_msg->hdrl, le) {
++  const struct sip_hdr *header = le->data;
++  if (header->id != SIP_HDR_CONTACT || sip_addr_decode(&contact, &header->val)) continue;
++  if (!msg_param_decode(&contact.params, "expires", &expires) && pl_u32(&expires) == 0)
++   ++test->removals;
++  else active = header;
++ }
++ if (!active) { error = EBADMSG; goto done; }
++ reply = mbuf_alloc(1024);
++ if (!reply) { error = ENOMEM; goto done; }
++ error = mbuf_printf(reply,
++  "SIP/2.0 200 OK\r\nVia: SIP/2.0/UDP %r;branch=%r;received=127.0.0.1;rport=%u\r\n"
++  "From: %r\r\nTo: %r;tag=server\r\nCall-ID: %r\r\nCSeq: %u REGISTER\r\n"
++  "Contact: <sip:nat-test@127.0.0.1:%u>;expires=999\r\n"
++  "Contact: %r\r\nContent-Length: 0\r\n\r\n",
++  &request_msg->via.sentby, &request_msg->via.branch, test->port,
++  &request_msg->from.val, &request_msg->to.val, &request_msg->callid,
++  request_msg->cseq.num, (unsigned)(test->port+1), &active->val);
++ if (!error) {
++  reply->pos = 0;
++  error = udp_send(test->server, src, reply);
++ }
++ done:
++ mem_deref(reply); mem_deref(request_msg);
++ if (error) { test->error = error; re_cancel(); }
++}
++
++int test_sip_nat_registration(void)
++{
++ struct nat_registration_test test = {0};
++ struct sa local, peer;
++ char registrar[128];
++ int err = 0;
++ #define NAT_REG_ERR(call) do { err = (call); TEST_ERR(err); } while (0)
++ NAT_REG_ERR(sa_set_str(&local, "127.0.0.1", 0));
++ NAT_REG_ERR(udp_listen(&test.server, &local, nat_reg_receive, &test));
++ NAT_REG_ERR(udp_local_get(test.server, &peer));
++ NAT_REG_ERR(sip_alloc(&test.sip, NULL, 32, 32, 32, "nat-reg", NULL, NULL));
++ NAT_REG_ERR(sip_transp_add(test.sip, SIP_TRANSP_UDP, &local));
++ NAT_REG_ERR(re_snprintf(registrar, sizeof(registrar), "sip:%J", &peer) < 0 ? EINVAL : 0);
++ NAT_REG_ERR(sipreg_alloc(&test.reg, test.sip, registrar, "sip:nat-test@lab", NULL,
++                         "sip:nat-test@lab", 60, "nat-test", NULL, 0, 0,
++                         NULL, NULL, false, nat_reg_done, &test, NULL, NULL));
++ test.port = 12345;
++ NAT_REG_ERR(sipreg_send(test.reg));
++ NAT_REG_ERR(re_main_timeout(3000));
++ NAT_REG_ERR(test.error);
++ TEST_ASSERT(test.completed == 1 && test.requests == 2 && test.removals == 1);
++ TEST_ASSERT(sipreg_registered(test.reg));
++ TEST_ASSERT(sipreg_proxy_expires(test.reg) == 60);
++ TEST_ASSERT(sa_port(sipreg_laddr(test.reg)) != test.port);
++ /* Rebinding must converge within the budget, then fail with normal backoff. */
++ test.bounce = true; test.completed = 0; test.requests = 0;
++ NAT_REG_ERR(sipreg_send(test.reg));
++ NAT_REG_ERR(re_main_timeout(3000));
++ TEST_ASSERT(test.error == ELOOP && test.requests == 3 && test.completed == 1);
++ tmr_start(&test.stop, 300, nat_reg_stop, NULL);
++ NAT_REG_ERR(re_main_timeout(1000));
++ TEST_ASSERT(test.requests == 3);
++ /* A fresh operation resets the immediate-retry budget and can recover. */
++ test.bounce = false; test.error = 0; test.completed = 0; test.requests = 0;
++ test.port = 13000;
++ NAT_REG_ERR(sipreg_send(test.reg));
++ NAT_REG_ERR(re_main_timeout(3000));
++ NAT_REG_ERR(test.error);
++ TEST_ASSERT(test.requests == 2 && test.completed == 1);
++ TEST_ASSERT(sipreg_registered(test.reg));
++ TEST_ASSERT(sipreg_proxy_expires(test.reg) == 60);
++ out:
++ tmr_cancel(&test.stop);
++ mem_deref(test.reg);
++ sip_close(test.sip, true); mem_deref(test.sip); mem_deref(test.server);
++ return err;
++ #undef NAT_REG_ERR
++}
+diff --git a/test/test.c b/test/test.c
+index 3fbeab0..4edd2f8 100644
+--- a/test/test.c
++++ b/test/test.c
+@@ -205,6 +205,8 @@ static const struct test tests[] = {
+ 	TEST(test_sip_param),
+ 	TEST(test_sip_parse),
+ 	TEST(test_sip_via),
++	TEST(test_sip_nat),
++	TEST(test_sip_nat_registration),
+ #ifdef USE_TLS
+ 	TEST(test_sip_transp_add_client_cert),
+ 	TEST(test_sip_transp_wss_verify_host),
+@@ -427,8 +429,8 @@ static int test_exec(const struct test *test)
+ 	if (!test)
+ 		return EINVAL;
+ 
+-	struct memstat mstat_before;
+-	struct memstat mstat_after;
++	struct memstat mstat_before = {0};
++	struct memstat mstat_after = {0};
+ 
+ 	mem_get_stat(&mstat_before);
+ 
+diff --git a/test/test.h b/test/test.h
+index 6a20ce0..5294bc9 100644
+--- a/test/test.h
++++ b/test/test.h
+@@ -317,6 +317,8 @@ int test_sip_msg(void);
+ int test_sip_param(void);
+ int test_sip_parse(void);
+ int test_sip_via(void);
++int test_sip_nat(void);
++int test_sip_nat_registration(void);
+ int test_sip_dns(void);
+ #ifdef USE_TLS
+ int test_sip_transp_add_client_cert(void);

@@ -1,9 +1,31 @@
-use crate::phone::{PhoneState, active_engine};
-use baresip_adapter::Engine;
-use phone_core::{AccountConfig, AppInfo, AudioMode, EngineSnapshot, ErrorCode, PhoneError};
-use tauri::Manager;
+use crate::phone::{PhoneSession, PhoneState};
+use phone_core::{
+    AccountConfig, AppInfo, AudioDevices, EngineSnapshot, ErrorCode, PhoneError, SoundSettings,
+};
+use tauri::{Emitter, Manager};
 
-/// Read startup information without accessing credentials or initializing telephony.
+async fn with_session(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    operation: impl FnOnce(&mut PhoneSession) -> Result<EngineSnapshot, PhoneError> + Send + 'static,
+) -> Result<EngineSnapshot, PhoneError> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    state
+        .execute(move |session| {
+            session.load(directory, cache)?;
+            operation(session)
+        })
+        .await
+}
+
+/// Read startup information without initializing telephony or accessing credentials.
 #[tauri::command]
 pub fn get_app_info() -> AppInfo {
     AppInfo {
@@ -12,96 +34,208 @@ pub fn get_app_info() -> AppInfo {
     }
 }
 
-/// Configure one ephemeral account. Password is never returned or persisted.
+/// Restore saved accounts once, then read shared password-free state from either window.
+#[tauri::command]
+pub async fn get_engine_snapshot(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, |session| session.snapshot()).await
+}
+
+/// Save credentials to the OS keychain and queue independent registration.
+/// Null id creates an account; an existing id updates it. Empty password on update keeps the saved secret.
+#[tauri::command]
+pub async fn save_account(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    id: Option<u32>,
+    name: String,
+    account: AccountConfig,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| session.save(id, name, account)).await
+}
+
+/// Compatibility command: save/replace the selected account using its username as name.
 #[tauri::command]
 pub async fn configure_account(
     app: tauri::AppHandle,
     state: tauri::State<'_, PhoneState>,
     account: AccountConfig,
 ) -> Result<EngineSnapshot, PhoneError> {
-    account.validate()?;
-    let recording = if matches!(account.audio_mode, AudioMode::TestTone) {
-        let directory = app.path().app_cache_dir().map_err(|_| {
-            PhoneError::new(
-                ErrorCode::NativeFailure,
-                "The application cache directory is unavailable.",
-            )
-        })?;
-        Some(directory.join("received.wav"))
-    } else {
-        None
-    };
-    state
-        .execute(move |slot| {
-            if let Some(existing) = slot.as_mut() {
-                existing.configure_account(&account)?;
-                return existing.snapshot();
-            }
-            if let Some(directory) = recording.as_ref().and_then(|path| path.parent()) {
-                std::fs::create_dir_all(directory).map_err(|_| {
-                    PhoneError::new(
-                        ErrorCode::NativeFailure,
-                        "Cannot create the test-audio directory.",
-                    )
-                })?;
-            }
-            let mut engine = Engine::start(account.audio_mode, recording)?;
-            engine.configure_account(&account)?;
-            let snapshot = engine.snapshot()?;
-            *slot = Some(engine);
-            Ok(snapshot)
-        })
-        .await
+    with_session(app, state, move |session| {
+        let id = session.snapshot()?.selected_account_id;
+        session.save(id, account.username.clone(), account)
+    })
+    .await
 }
 
-/// Read real engine state without credentials; safe to poll during a lab call.
+/// Persist outgoing selection; other user agents remain registered.
 #[tauri::command]
-pub async fn get_engine_snapshot(
+pub async fn select_account(
+    app: tauri::AppHandle,
     state: tauri::State<'_, PhoneState>,
+    id: u32,
 ) -> Result<EngineSnapshot, PhoneError> {
-    state
-        .execute(|slot| {
-            slot.as_ref()
-                .map_or_else(|| Ok(EngineSnapshot::default()), Engine::snapshot)
-        })
-        .await
+    with_session(app, state, move |session| session.select(id)).await
 }
 
-/// Queue a validated number/extension. Connection follows through native state.
+/// Delete saved credentials/metadata and queue unregistering. Requires an idle phone.
+#[tauri::command]
+pub async fn remove_account(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    id: u32,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| session.remove(id)).await
+}
+
+/// Queue a validated number on the selected account, reserving the single call slot.
 #[tauri::command]
 pub async fn dial(
+    app: tauri::AppHandle,
     state: tauri::State<'_, PhoneState>,
     destination: String,
 ) -> Result<EngineSnapshot, PhoneError> {
-    state
-        .execute(move |slot| {
-            let engine = active_engine(slot)?;
-            engine.dial(&destination)?;
-            engine.snapshot()
-        })
-        .await
+    with_session(app, state, move |session| {
+        session.engine()?.dial(&destination)?;
+        session.snapshot()
+    })
+    .await
 }
 
-/// Accept the single currently offered incoming call.
+/// Accept the single offered incoming call on its own account.
 #[tauri::command]
-pub async fn answer(state: tauri::State<'_, PhoneState>) -> Result<EngineSnapshot, PhoneError> {
-    state
-        .execute(|slot| {
-            let engine = active_engine(slot)?;
-            engine.answer()?;
-            engine.snapshot()
-        })
-        .await
+pub async fn answer(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.answer_call(&call_id)?;
+        session.snapshot()
+    })
+    .await
 }
 
-/// Reject or end the current call and let its native close event update state.
+/// Reject or end the current call; completion follows through native state.
 #[tauri::command]
-pub async fn hangup(state: tauri::State<'_, PhoneState>) -> Result<EngineSnapshot, PhoneError> {
-    state
-        .execute(|slot| {
-            let engine = active_engine(slot)?;
-            engine.hangup()?;
-            engine.snapshot()
-        })
+pub async fn hangup(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.hangup_call(&call_id)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// Open or focus the single settings window. Async avoids Windows WebView2 deadlocks.
+#[tauri::command]
+pub async fn open_settings(
+    app: tauri::AppHandle,
+    section: Option<String>,
+) -> Result<(), PhoneError> {
+    let section = section.unwrap_or_else(|| "accounts".into());
+    if !matches!(section.as_str(), "general" | "accounts" | "audio" | "about") {
+        return Err(PhoneError::new(
+            ErrorCode::InvalidInput,
+            "Unknown settings section.",
+        ));
+    }
+    static OPEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = OPEN.lock().map_err(|_| window_error())?;
+    crate::shell::make_regular(&app).map_err(|_| window_error())?;
+    if let Some(window) = app.get_webview_window("settings") {
+        window.unminimize().map_err(|_| window_error())?;
+        window.show().map_err(|_| window_error())?;
+        app.emit_to("settings", "settings-section", &section)
+            .map_err(|_| window_error())?;
+        return window.set_focus().map_err(|_| window_error());
+    }
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App(format!("index.html?window=settings&section={section}").into()),
+    )
+    .title("SIP · Einstellungen")
+    .inner_size(900.0, 660.0)
+    .min_inner_size(740.0, 540.0)
+    .theme(Some(tauri::Theme::Dark))
+    .center()
+    .build()
+    .map_err(|_| window_error())?;
+    Ok(())
+}
+
+/// Read actual OS login-start state and saved notification preference; permission may be unknown.
+#[tauri::command]
+pub async fn get_desktop_settings(
+    app: tauri::AppHandle,
+) -> Result<phone_core::DesktopSettings, PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || crate::desktop::settings(&app))
         .await
+        .map_err(|_| window_error())?
+}
+
+/// Change login-start/notification preferences from the foreground settings window only.
+/// Temporary or development builds reject enabling login start with InvalidInput.
+#[tauri::command]
+pub async fn save_desktop_settings(
+    app: tauri::AppHandle,
+    autostart_enabled: bool,
+    notifications_enabled: bool,
+) -> Result<phone_core::DesktopSettings, PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::desktop::save_settings(&app, autostart_enabled, notifications_enabled)
+    })
+    .await
+    .map_err(|_| window_error())?
+}
+fn window_error() -> PhoneError {
+    PhoneError::new(
+        ErrorCode::NativeFailure,
+        "The settings window could not be opened. Please try again.",
+    )
+}
+
+/// Read current native audio endpoint metadata without starting SIP or microphone capture.
+#[tauri::command]
+pub async fn get_audio_devices() -> Result<AudioDevices, PhoneError> {
+    tauri::async_runtime::spawn_blocking(baresip_adapter::audio_devices)
+        .await
+        .map_err(|_| {
+            PhoneError::new(
+                ErrorCode::NativeFailure,
+                "Audio inventory could not complete.",
+            )
+        })?
+}
+/// Persist shared routing for subsequent calls; rejects active calls and invalid devices.
+#[tauri::command]
+pub async fn save_sound_settings(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    sound: SoundSettings,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| session.save_sound(sound)).await
+}
+/// Play the built-in two-second preview on a draft output without saving it.
+#[tauri::command]
+pub async fn preview_ringtone(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    device: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| session.preview_ring(device)).await
+}
+/// Stop only a preview, preserving an actual incoming-call alert.
+#[tauri::command]
+pub async fn stop_ringtone_preview(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, |session| session.stop_preview()).await
 }

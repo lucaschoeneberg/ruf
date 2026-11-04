@@ -3,6 +3,9 @@ import type {
   AccountConfig,
   AppInfo,
   EngineSnapshot,
+  SoundSettings,
+  AudioDevices,
+  DesktopSettings,
 } from "./generated/AppInfo";
 
 async function desktopInvoke<T>(
@@ -22,10 +25,42 @@ export const getEngineSnapshot = () =>
   desktopInvoke<EngineSnapshot>("get_engine_snapshot");
 export const configureAccount = (account: AccountConfig) =>
   desktopInvoke<EngineSnapshot>("configure_account", { account });
+export const saveAccount = (
+  id: number | null,
+  name: string,
+  account: AccountConfig,
+) => desktopInvoke<EngineSnapshot>("save_account", { id, name, account });
+export const removeAccount = (id: number) =>
+  desktopInvoke<EngineSnapshot>("remove_account", { id });
+export const selectAccount = (id: number) =>
+  desktopInvoke<EngineSnapshot>("select_account", { id });
+export type SettingsSection = "accounts" | "audio" | "general" | "about";
+export const openSettings = (section?: SettingsSection) =>
+  desktopInvoke<void>("open_settings", section ? { section } : undefined);
+export const getDesktopSettings = () =>
+  desktopInvoke<DesktopSettings>("get_desktop_settings");
+export const saveDesktopSettings = (
+  autostartEnabled: boolean,
+  notificationsEnabled: boolean,
+) =>
+  desktopInvoke<DesktopSettings>("save_desktop_settings", {
+    autostartEnabled,
+    notificationsEnabled,
+  });
+export const getAudioDevices = () =>
+  desktopInvoke<AudioDevices>("get_audio_devices");
+export const saveSoundSettings = (sound: SoundSettings) =>
+  desktopInvoke<EngineSnapshot>("save_sound_settings", { sound });
+export const previewRingtone = (device: string) =>
+  desktopInvoke<EngineSnapshot>("preview_ringtone", { device });
+export const stopRingtonePreview = () =>
+  desktopInvoke<EngineSnapshot>("stop_ringtone_preview");
 export const dial = (destination: string) =>
   desktopInvoke<EngineSnapshot>("dial", { destination });
-export const answer = () => desktopInvoke<EngineSnapshot>("answer");
-export const hangup = () => desktopInvoke<EngineSnapshot>("hangup");
+export const answer = (callId: string) =>
+  desktopInvoke<EngineSnapshot>("answer", { callId });
+export const hangup = (callId: string) =>
+  desktopInvoke<EngineSnapshot>("hangup", { callId });
 
 export function errorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error) {
@@ -40,6 +75,10 @@ export function errorMessage(error: unknown): string {
         return "Die Aktion passt nicht zum aktuellen Gesprächsstatus. Prüfe den Status und versuche es erneut.";
       case "engineUnavailable":
         return "Telefonieren ist hier nicht verfügbar. Nutze die Desktop-App mit nativer Telefonie.";
+      case "credentialCleanupPending":
+        return "Die Kontoänderung ist gespeichert. Ein altes Passwort konnte noch nicht aus dem Schlüsselbund gelöscht werden. Erlaube den Zugriff und starte die App erneut, damit die Löschung wiederholt wird.";
+      case "storageFailure":
+        return "Das Konto konnte nicht dauerhaft gespeichert oder geladen werden. Prüfe den Zugriff auf den System-Schlüsselbund und den App-Datenordner. Versuche es danach erneut.";
       case "nativeFailure":
         return "Die Telefonie-Aktion ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.";
     }

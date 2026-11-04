@@ -14,17 +14,59 @@ telephony: TelephonyStatus, };
 
 export type AudioMode = "system" | "testTone";
 
+export type SoundSettings = {
+/**
+ * Input device ID, or empty for the system default microphone.
+ */
+inputDevice: string,
+/**
+ * Call output device ID, or empty for the system default speaker.
+ */
+outputDevice: string,
+/**
+ * Independent ringtone output ID, or empty for the system default output.
+ */
+ringDevice: string,
+/**
+ * Play the built-in ringtone for incoming calls (lab test-tone mode stays silent).
+ */
+ringtoneEnabled: boolean, };
+
+export type AudioDevice = {
+/**
+ * Backend identifier accepted unchanged in SoundSettings.
+ */
+id: string,
+/**
+ * Human-readable platform device name.
+ */
+name: string,
+/**
+ * False when the backend cannot distinguish identically named endpoints.
+ */
+selectable: boolean, };
+
+export type AudioDevices = {
+/**
+ * Input endpoints.
+ */
+inputs: Array<AudioDevice>,
+/**
+ * Output endpoints, usable for calls and ringtone independently.
+ */
+outputs: Array<AudioDevice>, };
+
 export type AccountConfig = {
 /**
  * DNS name or IPv4 registrar, optionally with a nonzero port.
  */
 registrar: string,
 /**
- * SIP and authentication username for this first account.
+ * SIP and authentication username.
  */
 username: string,
 /**
- * In-memory password; never returned through IPC or written to configuration.
+ * Secret input; never returned through IPC or written to metadata.
  */
 password: string,
 /**
@@ -32,7 +74,7 @@ password: string,
  */
 audioMode: AudioMode, };
 
-export type ErrorCode = "invalidInput" | "notRegistered" | "busy" | "invalidState" | "engineUnavailable" | "nativeFailure";
+export type ErrorCode = "invalidInput" | "notRegistered" | "busy" | "invalidState" | "engineUnavailable" | "storageFailure" | "credentialCleanupPending" | "nativeFailure";
 
 export type PhoneError = {
 /**
@@ -46,11 +88,41 @@ message: string, };
 
 export type RegistrationState = "unconfigured" | "registering" | "registered" | "failed";
 
-export type CallState = "idle" | "calling" | "ringing" | "incoming" | "active";
+export type CallState = "idle" | "calling" | "ringing" | "incoming" | "answering" | "active";
+
+export type AccountSnapshot = {
+/**
+ * Stable, nonzero identity within this engine session.
+ */
+id: number,
+/**
+ * User-visible account name, 1–64 Unicode characters.
+ */
+name: string,
+/**
+ * SIP registrar; validated using AccountConfig rules.
+ */
+registrar: string,
+/**
+ * SIP authentication username, without the password.
+ */
+username: string,
+/**
+ * This account's independent registration state.
+ */
+registration: RegistrationState,
+/**
+ * Safe registration error, or null.
+ */
+lastError: PhoneError | null,
+/**
+ * A queued deletion is awaiting the native event loop.
+ */
+removing: boolean, };
 
 export type EngineSnapshot = {
 /**
- * Account registration state.
+ * Registration of the selected outgoing account (compatibility projection).
  */
 registration: RegistrationState,
 /**
@@ -58,6 +130,53 @@ registration: RegistrationState,
  */
 call: CallState,
 /**
+ * Opaque current-call token for guarded actions; null before native allocation or while idle.
+ */
+callId: string | null,
+/**
  * Last safe error, or null.
  */
-lastError: PhoneError | null, };
+lastError: PhoneError | null,
+/**
+ * All configured accounts, in creation order; never contains passwords.
+ */
+accounts: Array<AccountSnapshot>,
+/**
+ * Account used for the next outgoing call, or null before configuration.
+ */
+selectedAccountId: number | null,
+/**
+ * Account owning the current call, independent of outgoing selection.
+ */
+callAccountId: number | null,
+/**
+ * Actual engine-wide audio backend, null before engine initialization.
+ */
+audioMode: AudioMode | null,
+/**
+ * Audio routing preferences actually applied, or saved defaults before engine startup.
+ */
+soundSettings: SoundSettings,
+/**
+ * A preview or incoming-call ringtone is currently playing through baresip.
+ */
+ringtonePlaying: boolean, };
+
+export type DesktopSettings = {
+/**
+ * Whether the operating system currently starts this installed app at login.
+ */
+autostartEnabled: boolean,
+/**
+ * False for development builds and apps outside supported installation locations.
+ */
+autostartAvailable: boolean,
+/**
+ * User preference for a single system notification per incoming call.
+ */
+notificationsEnabled: boolean,
+/**
+ * Actual OS permission when queryable; null on desktop where the plugin cannot query it.
+ * An unknown or denied permission never prevents native ringing or answering.
+ */
+notificationsGranted: boolean | null, };

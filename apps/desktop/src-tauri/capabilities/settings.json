@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "settings",
+  "description": "Settings window: read shared status and manage saved accounts; no call controls or arbitrary window creation.",
+  "windows": ["settings"],
+  "permissions": [
+    "allow-get-app-info",
+    "allow-get-engine-snapshot",
+    "allow-save-account",
+    "allow-remove-account",
+    "allow-configure-account",
+    "allow-get-audio-devices",
+    "allow-save-sound-settings",
+    "allow-preview-ringtone",
+    "allow-stop-ringtone-preview",
+    "allow-get-desktop-settings",
+    "allow-save-desktop-settings",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

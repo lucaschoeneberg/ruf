@@ -1,14 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The main window can configure an ephemeral local test account and control one call.",
+  "description": "Compact phone window: read shared status, select outgoing account, open settings and control calls.",
   "windows": ["main"],
   "permissions": [
     "allow-get-app-info",
-    "allow-configure-account",
     "allow-get-engine-snapshot",
     "allow-dial",
     "allow-answer",
-    "allow-hangup"
+    "allow-hangup",
+    "allow-select-account",
+    "allow-open-settings",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
   ]
 }
