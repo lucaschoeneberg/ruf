@@ -3,9 +3,11 @@
 Schlankes SIP-Softphone für macOS und Windows mit Rust, Tauri 2 und Svelte.
 Eigener Code steht unter der [MIT-Lizenz](LICENSE).
 
-**Stand: Projektgrundlage.** Die Desktop-App zeigt ihren echten Laufzeitstatus.
-baresip ist noch nicht eingebunden; Anrufe, Konten, Kontakte, Verlauf und Kalender
-sind noch nicht implementiert. Installer aus dieser Phase sind Entwicklungspakete.
+**Stand: erste native Telefonie-Anbindung.** Ein flüchtiges Konto, SIP/UDP,
+G.711, Anrufsteuerung und echte Statusanzeigen sind eingebunden. Der lokale
+Asterisk-Echotest prüft Anmeldung, Gesprächsaufbau und zurückkehrendes Audio.
+Kontakte, Verlauf, Kalender und mehrere Konten folgen später. Entwicklungspakete
+sind noch keine produktionsreifen Telefone.
 
 ## Lokal starten
 
@@ -15,8 +17,17 @@ Voraussetzungen: Node aus `.node-version`, npm 11, Rustup sowie die
 
 ```sh
 npm ci
-npm run dev
+npm run native:build
+npm run lab:up
+npm run test:asterisk
+npm run dev:native
 ```
+
+Native Voraussetzungen und Windows-vcpkg-Konfiguration stehen in
+[native/README.md](native/README.md). Das öffentliche Testkonto und die
+Nebenstelle stehen im [Asterisk-Labor](tests/interop/asterisk/README.md).
+`npm run dev` startet weiterhin ohne native Telefonie, `npm run lab:down` beendet
+nur die eigene Testanlage. SIP/UDP ist vorerst auf isolierte Testnetze beschränkt.
 
 Rustup installiert die in `rust-toolchain.toml` festgelegte Version. Wenn Cargo
 über Homebrew oder einen anderen Paketmanager statt Rustup aufgerufen wird,
@@ -43,9 +54,9 @@ Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Paket
 | `apps/desktop/src`       | Svelte-Oberfläche                                              |
 | `apps/desktop/src-tauri` | Tauri-App, IPC und spätere Plattformanbindungen                |
 | `crates/phone-core`      | Plattformunabhängige Rust-Verträge und spätere Anwendungslogik |
-| `crates/baresip-adapter` | Grenze zur späteren nativen Telefonie-Engine                   |
-| `native`                 | Vorbereitung reproduzierbarer nativer Builds                   |
-| `tests/interop`          | Vorbereitung echter Anlagen- und Audiotests                    |
+| `crates/baresip-adapter` | Sichere Anbindung der nativen Telefonie-Engine                 |
+| `native`                 | Gepinnte native Builds und Lizenztexte                         |
+| `tests/interop`          | Lokale Asterisk-Anlage und echter Audiotest                    |
 | `.github`                | CI, plattformübergreifende Installer und Release-Entwürfe      |
 
 ## Weiterarbeiten

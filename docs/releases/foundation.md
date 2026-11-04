@@ -1,10 +1,13 @@
-Project foundation for the future SIP desktop application.
+# Native development build
 
-- Rust workspace, Tauri 2 desktop shell and Svelte/TypeScript frontend.
-- Generated IPC contract and explicit native engine availability.
-- macOS and Windows build preparation.
+First native baresip integration: one ephemeral SIP/UDP account, G.711 calls,
+registration/call status and answer/hangup controls. A local Asterisk lab verifies
+registration, call establishment and returned 440 Hz RTP audio.
 
-This development scaffold cannot make or receive calls. baresip, account storage,
-contacts, call history and calendar integration are not implemented. macOS uses
-ad-hoc signing; Windows installers are unsigned. Audio/SIP interoperability and
-production distribution have not been qualified.
+macOS arm64 and Windows x64 native SDK/installer jobs are configured. Actual
+hosted/platform execution must be checked in the corresponding workflow run.
+Microphone/headset testing remains manual. No TLS/SRTP, persistence, contacts,
+history, calendar, multiple accounts or production signing/update flow yet.
+
+Use only an isolated test network. These are development packages, not a public
+production release. Own code is MIT; bundled dependencies retain upstream terms.

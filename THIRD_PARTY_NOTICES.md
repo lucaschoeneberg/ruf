@@ -31,5 +31,25 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-baresip/libre are not bundled or linked yet. Their license/module inventory and
-the complete resolved dependency notices must accompany production distribution.
+Native-feature builds statically link the following upstream components. Their
+unmodified license texts are in `native/licenses/` and included as `native-licenses`
+in desktop bundles. Own application code remains MIT.
+
+| Component                             | Version/revision                                                         | License and source                                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| baresip, selected G.711/audio modules | 4.12.0 / `9cfab81550acc4bd38d6580d79b45cc6eea65cd6`                      | BSD-3-Clause; [source](https://github.com/baresip/baresip), [license](native/licenses/baresip-LICENSE) |
+| libre/re (including rem)              | 4.12.0 / `65555dad439de9d6a81b3ee6092b9c096585249b`                      | BSD-3-Clause; [source](https://github.com/baresip/re), [license](native/licenses/re-LICENSE)           |
+| OpenSSL                               | Host-resolved 3.x; exact version recorded in SDK manifest (local: 3.5.9) | Apache-2.0; [source](https://github.com/openssl/openssl), [license](native/licenses/openssl-LICENSE)   |
+
+The native build also stages license texts from the actual SDK inputs. Windows
+OpenSSL resolution is constrained by `native/vcpkg.json`; macOS/Linux system
+packages and toolchains remain external inputs. The selected modules are recorded
+in `sdk.json`; no third-party audio codec packages are added in this milestone.
+This is not a complete transitive/source-file/optional-module license inventory.
+Complete that review before a production distribution.
+
+The digest-pinned Asterisk community container is a separate local/CI test tool,
+not bundled with the app. Asterisk is GPL-2.0; its distribution and accompanying
+third-party components retain their own upstream terms. See the
+[lab guide](tests/interop/asterisk/README.md) and
+[Asterisk license](https://github.com/asterisk/asterisk/blob/master/LICENSE).

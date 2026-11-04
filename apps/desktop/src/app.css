@@ -59,3 +59,48 @@ dd {
     padding: 32px 24px;
   }
 }
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+label {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+input,
+select,
+button {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid #aab8aa;
+  border-radius: 4px;
+}
+input,
+select {
+  width: 100%;
+  background: white;
+  color: inherit;
+}
+button {
+  background: #284f39;
+  color: white;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 3px solid #8cba9a;
+  outline-offset: 2px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}

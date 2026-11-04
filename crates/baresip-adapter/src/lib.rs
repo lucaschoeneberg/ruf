@@ -1,9 +1,19 @@
-//! Native telephone integration boundary. No C library is linked in this scaffold.
+//! Safe native telephone integration boundary. C handles remain private.
 
 use phone_core::TelephonyStatus;
 
-/// Report actual engine availability; this scaffold cannot register or place calls.
+mod engine;
+pub use engine::Engine;
+#[cfg(feature = "native")]
+#[allow(unsafe_code)]
+mod ffi;
+
+/// Report linkage only; account registration is returned by the engine snapshot.
 #[must_use]
 pub const fn status() -> TelephonyStatus {
-    TelephonyStatus::NotLinked
+    if cfg!(feature = "native") {
+        TelephonyStatus::Linked
+    } else {
+        TelephonyStatus::NotLinked
+    }
 }

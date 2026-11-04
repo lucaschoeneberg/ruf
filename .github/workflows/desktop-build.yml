@@ -32,6 +32,8 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Install the desktop target
         run: rustup target add ${{ matrix.target }}
+      - name: Build pinned native SDK
+        run: npm run native:build
       - run: npm run check:versions
       - run: npm run types:generate
       - name: Verify generated contracts are current
@@ -39,13 +41,34 @@ jobs:
       - run: npm run format:check
       - run: npm run check
       - run: npm run build
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets --features sip-desktop/native -- -D warnings
+      - run: cargo test --locked --workspace --features sip-desktop/native
       - name: Build the installer
-        run: npm run desktop:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+        run: npm run desktop:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} --features native
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: desktop-${{ matrix.target }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
           retention-days: 14
+
+  interop:
+    name: Asterisk SIP and RTP echo
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Install native build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y cmake libssl-dev pkg-config
+      - run: npm run native:build
+      - run: cargo test --locked -p baresip-adapter --features native
+      - run: npm run test:asterisk
+      - name: Lab diagnostics
+        if: failure()
+        run: docker compose -f tests/interop/asterisk/compose.yml logs --tail 100
+      - name: Stop this test lab
+        if: always()
+        run: npm run lab:down

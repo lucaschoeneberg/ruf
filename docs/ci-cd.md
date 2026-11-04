@@ -10,10 +10,12 @@ Connect the actual repository before pushing or opening a pull request.
   Portable Linux checks validate formatting, versions, generated DTOs, frontend
   typecheck/build, portable Rust linting and tests.
 - **Desktop build**: reusable workflow called by CI and release; macOS arm64 and
-  Windows x64 run workspace Clippy/tests and produce DMG/NSIS artifacts. Hosted
+  Windows x64 build the pinned native SDK, run native workspace Clippy/tests and
+  produce DMG/NSIS artifacts with the native feature. A Linux Docker job verifies
+  authenticated Asterisk calling and returned 440 Hz RTP audio. Hosted
   compilation does not qualify audio, hardware integration or SIP compatibility.
 - **Draft release**: a pushed `v<version>` tag must match package/Cargo versions.
-  Both native jobs must pass before a separate write-enabled job downloads this
+  Both native jobs and the Asterisk interoperability job must pass before a separate write-enabled job downloads this
   run's two installers and creates a **draft** GitHub release. It does not publish.
   An existing release is not updated; correct/delete an obsolete draft explicitly
   before retrying draft creation. `docs/releases/foundation.md` is the current
@@ -28,15 +30,15 @@ permission. Fork PRs never run the tag release path.
 
 Enable Actions. Protect `main` with a ruleset requiring a pull request, review and
 the actual check names from the first workflow run. Include Portable checks and
-both desktop jobs; prohibit force pushes. The files cannot enforce server-side
+both desktop jobs and Asterisk SIP/RTP echo; prohibit force pushes. The files cannot enforce server-side
 rules before a repository exists. Dependabot should be enabled there as well.
 Enable private vulnerability reporting and publish a maintained private contact
 as described in [SECURITY.md](../SECURITY.md). Community files and issue templates
 are versioned here; they do not activate GitHub settings by themselves.
 
 Do not tag/publish until the app identifier, release notes and platform policies
-are ready. A version tag currently produces a development **scaffold**, not a
-functional phone or a verified MVP.
+are ready. A version tag produces a development phone build; the complete MVP, hardware
+qualification and production distribution policies remain unfinished.
 
 ## Signing and updates
 

@@ -3,12 +3,17 @@
 use serde::Serialize;
 use ts_rs::TS;
 
+mod phone;
+pub use phone::*;
+
 /// Native telephone engine availability. This is not an account registration state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum TelephonyStatus {
     /// The native baresip library is not linked into this application yet.
     NotLinked,
+    /// Native baresip is linked; registration is reported separately.
+    Linked,
 }
 
 /// Read-only startup information returned by the desktop IPC API.

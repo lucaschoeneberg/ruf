@@ -6,10 +6,12 @@ utilities and dependencies. Make a short plan, a minimal patch, then run checks.
 - Rust: edition 2024; version is pinned in rust-toolchain.toml. Use workspace
   metadata/dependencies. Keep phone-core independent of Tauri and native handles.
 - TypeScript: strict typing. Frontend IPC contracts come from Rust through ts-rs.
-- Native: all future C/unsafe integration belongs in baresip-adapter. Do not
+- Native: all C/unsafe integration belongs in baresip-adapter. Do not
   implement SIP/audio in the frontend or add a second audio pipeline.
-- The current adapter reports `notLinked`; do not replace that with simulated
-  registration or call success. Actual engine readiness needs real native evidence.
+- Portable builds report `notLinked`; native builds report `linked` only for
+  compiled linkage. Registration and media success require real native evidence.
+  Build the SDK before `--features sip-desktop/native` workspace checks; run
+  `npm run test:asterisk` for changes affecting SIP or audio.
 - Document changed commands/DTOs, required/optional fields, validation and errors
   in docs/api. Use Rust documentation comments for public Rust APIs.
 - Prefer existing patterns; avoid speculative abstractions and unused dependencies.

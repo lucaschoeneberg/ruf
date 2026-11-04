@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The main window can only read application startup information.",
+  "description": "The main window can configure an ephemeral local test account and control one call.",
   "windows": ["main"],
-  "permissions": ["allow-get-app-info"]
+  "permissions": [
+    "allow-get-app-info",
+    "allow-configure-account",
+    "allow-get-engine-snapshot",
+    "allow-dial",
+    "allow-answer",
+    "allow-hangup"
+  ]
 }

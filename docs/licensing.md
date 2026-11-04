@@ -40,9 +40,12 @@ Apache-2.0 components retain their own conditions and notices. Discuss copyleft
 or unusual terms before inclusion; open source does not mean material can be
 redistributed as MIT. Do not import material with unresolved rights or license terms.
 
-baresip is BSD-3-Clause and is not linked/bundled in this scaffold. The native
-milestone must review the actual baresip/libre/OpenSSL versions and selected
-modules/codecs rather than infer every module's license from the top-level project.
+Native builds link baresip and libre 4.12.0 (BSD-3-Clause) plus host-resolved
+OpenSSL 3.x (Apache-2.0). Exact source pins, selected modules and license texts
+are recorded under `native/` and in THIRD_PARTY_NOTICES. The SDK records the
+resolved OpenSSL version. Complete the source-file/transitive-module inventory
+before production distribution; do not infer every embedded component's license
+from a top-level project.
 [baresip license](https://github.com/baresip/baresip/blob/main/LICENSE)
 
 ## Distribution
@@ -52,6 +55,7 @@ inventory from the actual locked packages, platform and enabled native modules;
 lockfiles identify versions but are not license notices. Check asset provenance
 and keep SPDX/package metadata consistent.
 
-The scaffold bundles its own MIT license and current THIRD_PARTY_NOTICES. That
+The desktop bundles its MIT license, current THIRD_PARTY_NOTICES and tracked
+native license texts. That
 file is explicitly not a complete transitive inventory. Complete distribution
 review remains necessary before a public production release.

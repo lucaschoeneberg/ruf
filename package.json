@@ -21,7 +21,12 @@
     "types:generate": "cargo run --locked -p phone-core --example export_types",
     "format": "prettier --write . && cargo fmt --all",
     "format:check": "prettier --check . && cargo fmt --all -- --check",
-    "desktop:build": "node scripts/build-desktop.mjs"
+    "desktop:build": "node scripts/build-desktop.mjs",
+    "native:build": "node native/build.mjs",
+    "dev:native": "npm run tauri --workspace @sip/desktop -- dev --features native",
+    "lab:up": "docker compose -f tests/interop/asterisk/compose.yml up -d --wait",
+    "lab:down": "docker compose -f tests/interop/asterisk/compose.yml down",
+    "test:asterisk": "node scripts/asterisk-smoke.mjs"
   },
   "devDependencies": {
     "prettier": "3.9.10",

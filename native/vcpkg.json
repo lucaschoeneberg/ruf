@@ -1,0 +1,6 @@
+{
+  "name": "sip-native",
+  "version-string": "0.1.0",
+  "builtin-baseline": "5e0e0648aeb5d29e69b9e5b0bd16476a149c8336",
+  "dependencies": ["openssl"]
+}
