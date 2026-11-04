@@ -24,6 +24,7 @@ bun run types:generate
 git diff --exit-code -- apps/desktop/src/lib/generated
 bun run check:versions
 bun run format:check
+bun run test:ui
 bun run check
 bun run build
 cargo clippy --locked --workspace --all-targets -- -D warnings
@@ -72,3 +73,17 @@ References: [Bun formatter](https://bun.com/docs/format),
 [lockfile migration](https://bun.sh/docs/pm/lockfile),
 [GitHub Actions setup](https://github.com/oven-sh/setup-bun), and
 [Dependabot Bun support](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#package-ecosystem).
+
+## Compact desktop UI
+
+The native window defaults to 360 × 560 pixels (minimum 320 × 500). UI components
+live in `apps/desktop/src/lib/components`, with shared styles in `src/app.css`.
+The desktop [product record](../apps/desktop/PRODUCT.md) and
+[design system](../apps/desktop/DESIGN.md) describe the confirmed dark direction.
+
+`bun run test:ui` covers keypad insertion/deletion, selection replacement and the
+64-character native destination limit using Bun's existing test runner. CI runs
+it before the Svelte/TypeScript check. No browser/test dependency is added to the
+application. Browser preview allows keypad/navigation/layout work but never
+claims native readiness or enables registration/calling. Real calls still use the
+existing Tauri API and the independent Asterisk echo regression.

@@ -1,0 +1,343 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-04T16:10:42.869663+00:00",
+  "title": "Design System: SIP Desktop",
+  "extensions": {
+    "colorMeta": {
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15% 0.0039 255.61)",
+          "oklch(25% 0.0064 255.61)",
+          "oklch(35% 0.0090 255.61)",
+          "oklch(47% 0.0090 255.61)",
+          "oklch(59% 0.0090 255.61)",
+          "oklch(71% 0.0090 255.61)",
+          "oklch(83% 0.0061 255.61)",
+          "oklch(95% 0.0018 255.61)"
+        ]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Surface Raised",
+        "tonalRamp": [
+          "oklch(15% 0.0054 258.37)",
+          "oklch(25% 0.0089 258.37)",
+          "oklch(35% 0.0125 258.37)",
+          "oklch(47% 0.0125 258.37)",
+          "oklch(59% 0.0125 258.37)",
+          "oklch(71% 0.0125 258.37)",
+          "oklch(83% 0.0085 258.37)",
+          "oklch(95% 0.0025 258.37)"
+        ]
+      },
+      "surface-hover": {
+        "role": "neutral",
+        "displayName": "Surface Hover",
+        "tonalRamp": [
+          "oklch(15% 0.0064 252.31)",
+          "oklch(25% 0.0106 252.31)",
+          "oklch(35% 0.0149 252.31)",
+          "oklch(47% 0.0149 252.31)",
+          "oklch(59% 0.0149 252.31)",
+          "oklch(71% 0.0149 252.31)",
+          "oklch(83% 0.0101 252.31)",
+          "oklch(95% 0.0030 252.31)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border",
+        "tonalRamp": [
+          "oklch(15% 0.0069 255.63)",
+          "oklch(25% 0.0116 255.63)",
+          "oklch(35% 0.0162 255.63)",
+          "oklch(47% 0.0162 255.63)",
+          "oklch(59% 0.0162 255.63)",
+          "oklch(71% 0.0162 255.63)",
+          "oklch(83% 0.0110 255.63)",
+          "oklch(95% 0.0032 255.63)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "tonalRamp": [
+          "oklch(15% 0.0012 264.54)",
+          "oklch(25% 0.0021 264.54)",
+          "oklch(35% 0.0029 264.54)",
+          "oklch(47% 0.0029 264.54)",
+          "oklch(59% 0.0029 264.54)",
+          "oklch(71% 0.0029 264.54)",
+          "oklch(83% 0.0020 264.54)",
+          "oklch(95% 0.0006 264.54)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15% 0.0075 259.42)",
+          "oklch(25% 0.0126 259.42)",
+          "oklch(35% 0.0176 259.42)",
+          "oklch(47% 0.0176 259.42)",
+          "oklch(59% 0.0176 259.42)",
+          "oklch(71% 0.0176 259.42)",
+          "oklch(83% 0.0120 259.42)",
+          "oklch(95% 0.0035 259.42)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent",
+        "tonalRamp": [
+          "oklch(15% 0.0325 163.32)",
+          "oklch(25% 0.0542 163.32)",
+          "oklch(35% 0.0759 163.32)",
+          "oklch(47% 0.0759 163.32)",
+          "oklch(59% 0.0759 163.32)",
+          "oklch(71% 0.0759 163.32)",
+          "oklch(83% 0.0516 163.32)",
+          "oklch(95% 0.0152 163.32)"
+        ]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Accent Ink",
+        "tonalRamp": [
+          "oklch(15% 0.0211 162.71)",
+          "oklch(25% 0.0352 162.71)",
+          "oklch(35% 0.0493 162.71)",
+          "oklch(47% 0.0493 162.71)",
+          "oklch(59% 0.0493 162.71)",
+          "oklch(71% 0.0493 162.71)",
+          "oklch(83% 0.0335 162.71)",
+          "oklch(95% 0.0099 162.71)"
+        ]
+      },
+      "danger": {
+        "displayName": "Danger",
+        "tonalRamp": [
+          "oklch(15% 0.0317 13.55)",
+          "oklch(25% 0.0529 13.55)",
+          "oklch(35% 0.0741 13.55)",
+          "oklch(47% 0.0741 13.55)",
+          "oklch(59% 0.0741 13.55)",
+          "oklch(71% 0.0741 13.55)",
+          "oklch(83% 0.0504 13.55)",
+          "oklch(95% 0.0148 13.55)"
+        ]
+      },
+      "field-border": {
+        "role": "neutral",
+        "displayName": "Field Border",
+        "tonalRamp": [
+          "oklch(15% 0.0084 254.06)",
+          "oklch(25% 0.0141 254.06)",
+          "oklch(35% 0.0197 254.06)",
+          "oklch(47% 0.0197 254.06)",
+          "oklch(59% 0.0197 254.06)",
+          "oklch(71% 0.0197 254.06)",
+          "oklch(83% 0.0134 254.06)",
+          "oklch(95% 0.0039 254.06)"
+        ]
+      },
+      "secondary-text": {
+        "role": "neutral",
+        "displayName": "Secondary Text",
+        "tonalRamp": [
+          "oklch(15% 0.0037 247.92)",
+          "oklch(25% 0.0062 247.92)",
+          "oklch(35% 0.0087 247.92)",
+          "oklch(47% 0.0087 247.92)",
+          "oklch(59% 0.0087 247.92)",
+          "oklch(71% 0.0087 247.92)",
+          "oklch(83% 0.0059 247.92)",
+          "oklch(95% 0.0017 247.92)"
+        ]
+      },
+      "nav-selected": {
+        "role": "neutral",
+        "displayName": "Nav Selected",
+        "tonalRamp": [
+          "oklch(15% 0.0078 168.09)",
+          "oklch(25% 0.0129 168.09)",
+          "oklch(35% 0.0181 168.09)",
+          "oklch(47% 0.0181 168.09)",
+          "oklch(59% 0.0181 168.09)",
+          "oklch(71% 0.0181 168.09)",
+          "oklch(83% 0.0123 168.09)",
+          "oklch(95% 0.0036 168.09)"
+        ]
+      },
+      "nav-selected-text": {
+        "role": "neutral",
+        "displayName": "Nav Selected Text",
+        "tonalRamp": [
+          "oklch(15% 0.0228 164.03)",
+          "oklch(25% 0.0380 164.03)",
+          "oklch(35% 0.0532 164.03)",
+          "oklch(47% 0.0532 164.03)",
+          "oklch(59% 0.0532 164.03)",
+          "oklch(71% 0.0532 164.03)",
+          "oklch(83% 0.0362 164.03)",
+          "oklch(95% 0.0106 164.03)"
+        ]
+      },
+      "danger-surface": {
+        "displayName": "Danger Surface",
+        "tonalRamp": [
+          "oklch(15% 0.0300 13.24)",
+          "oklch(25% 0.0500 13.24)",
+          "oklch(35% 0.0700 13.24)",
+          "oklch(47% 0.0700 13.24)",
+          "oklch(59% 0.0700 13.24)",
+          "oklch(71% 0.0700 13.24)",
+          "oklch(83% 0.0476 13.24)",
+          "oklch(95% 0.0140 13.24)"
+        ]
+      },
+      "danger-text": {
+        "displayName": "Danger Text",
+        "tonalRamp": [
+          "oklch(15% 0.0188 10.99)",
+          "oklch(25% 0.0313 10.99)",
+          "oklch(35% 0.0438 10.99)",
+          "oklch(47% 0.0438 10.99)",
+          "oklch(59% 0.0438 10.99)",
+          "oklch(71% 0.0438 10.99)",
+          "oklch(83% 0.0298 10.99)",
+          "oklch(95% 0.0088 10.99)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "number": {
+        "displayName": "Number entry",
+        "purpose": "Centered number or extension input."
+      },
+      "digit": {
+        "displayName": "Keypad digit",
+        "purpose": "Telephone number-entry keys."
+      },
+      "body": {
+        "displayName": "Compact body",
+        "purpose": "Supporting copy, navigation and fields."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "control-color",
+        "value": "140ms ease",
+        "purpose": "Background, text and border color transitions; disabled under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "framed-preview",
+        "value": "(min-width: 500px)"
+      },
+      {
+        "name": "short-window",
+        "value": "(max-height: 510px)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Call, answer or register when available.",
+      "html": "<button class=\"ds-primary\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.69 2.79a2 2 0 0 1-.45 2.11L8.08 9.89a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.89.33 1.83.56 2.79.69A2 2 0 0 1 22 16.92Z\"/></svg>Anrufen</button>",
+      "css": ".ds-primary{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:42px;padding:10px 16px;border:0;border-radius:8px;font-size:13px;font-weight:650;background:var(--accent);color:var(--accent-ink)}.ds-primary:hover:not(:disabled){background:#b7ebd2}.ds-primary:active:not(:disabled){background:#83cba7}.ds-primary:disabled{background:#30383a;color:#a3b1ad;cursor:default}.ds-primary:focus-visible{outline:2px solid var(--accent);outline-offset:3px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Return from an empty state to the keypad.",
+      "html": "<button class=\"ds-secondary\">Zur Tastatur</button>",
+      "css": ".ds-secondary{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:42px;padding:10px 16px;border:0;border-radius:8px;font-size:13px;font-weight:650;min-height:36px;font-size:12px;background:var(--surface-raised);color:#e2e7ec;border:1px solid #444c56}.ds-secondary:hover{background:var(--surface-hover)}.ds-secondary:focus-visible{outline:2px solid var(--accent);outline-offset:3px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    },
+    {
+      "name": "End call action",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "The supported hangup or reject action.",
+      "html": "<button class=\"ds-danger\">Auflegen</button>",
+      "css": ".ds-danger{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:42px;padding:10px 16px;border:0;border-radius:8px;font-size:13px;font-weight:650;background:#5e2e34;color:#ffd8dc}.ds-danger:hover:not(:disabled){background:#773943}.ds-danger:disabled{opacity:.65;cursor:default}.ds-danger:focus-visible{outline:2px solid var(--accent);outline-offset:3px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    },
+    {
+      "name": "Icon action",
+      "kind": "button",
+      "refersTo": "button-icon",
+      "description": "Compact back or settings-style header action.",
+      "html": "<button class=\"ds-icon\" aria-label=\"Zurück\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m15 18-6-6 6-6\"/></svg></button>",
+      "css": ".ds-icon{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;width:34px;height:34px;padding:7px;border:0;background:transparent;color:var(--muted);border-radius:7px;display:inline-flex;align-items:center;justify-content:center}.ds-icon:hover{color:#f0f1f3;background:var(--surface-hover)}.ds-icon:focus-visible{outline:2px solid var(--accent);outline-offset:3px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    },
+    {
+      "name": "Settings field",
+      "kind": "input",
+      "refersTo": "input-settings",
+      "description": "Labeled raised field for SIP account settings.",
+      "html": "<label class=\"ds-label\" for=\"ds-registrar\">Registrar</label><input class=\"ds-input\" id=\"ds-registrar\" placeholder=\"sip.example.org\" autocomplete=\"off\">",
+      "css": ".ds-label{display:block;font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;font-size:12px;font-weight:550;color:#d5dae0;margin:0 0 5px}.ds-input{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;cursor:text;width:100%;min-width:0;min-height:36px;padding:7px 10px;color:#f0f1f3;background:var(--surface-raised);border:1px solid #444c56;border-radius:6px;font-size:12px}.ds-input::placeholder{color:var(--muted)}.ds-input:focus-visible{outline:2px solid var(--accent);outline-offset:3px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    },
+    {
+      "name": "Bottom navigation",
+      "kind": "nav",
+      "refersTo": "navigation-selected",
+      "description": "Three labeled destinations with a selected page.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Hauptnavigation\"><button class=\"ds-tab\" aria-current=\"page\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 4h1v1H5zM11.5 4h1v1h-1zM18 4h1v1h-1zM5 10.5h1v1H5zM11.5 10.5h1v1h-1zM18 10.5h1v1h-1zM5 17h1v1H5zM11.5 17h1v1h-1zM18 17h1v1h-1z\"/></svg><span>Tastatur</span></button><button class=\"ds-tab\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z\"/></svg><span>Kontakte</span></button><button class=\"ds-tab\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7M12 7v5l3 2\"/></svg><span>Verlauf</span></button></nav>",
+      "css": ".ds-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:7px 12px 9px;border-top:1px solid var(--border);background:var(--surface)}.ds-tab{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;display:grid;justify-items:center;align-content:center;gap:3px;min-height:46px;padding:5px 8px;background:transparent;border:0;border-radius:8px;color:var(--muted);font-size:12px}.ds-tab:hover{color:#f0f1f3;background:var(--surface-raised)}.ds-tab[aria-current]{background:#303c37;color:#b9e4cf}.ds-tab:focus-visible{outline:2px solid var(--accent);outline-offset:3px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    },
+    {
+      "name": "Dial key",
+      "kind": "button",
+      "refersTo": "dial-key",
+      "description": "Number-entry key with a letter annotation.",
+      "html": "<button class=\"ds-key\" aria-label=\"2, ABC\"><span class=\"ds-digit\">2</span><span class=\"ds-letters\" aria-hidden=\"true\">ABC</span></button>",
+      "css": ".ds-key{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:44px;background:var(--surface-raised);border:1px solid transparent;border-radius:9px;color:#f0f1f3;padding:3px;user-select:none;touch-action:manipulation}.ds-key:hover:not(:disabled){background:var(--surface-hover);border-color:#46505b}.ds-key:active:not(:disabled){background:#3d4943}.ds-key:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.ds-digit{font-size:24px;line-height:1.15;font-weight:450}.ds-letters{font-size:10px;line-height:1.3;letter-spacing:.12em;color:#bec5ce;margin-top:2px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    },
+    {
+      "name": "Inline availability note",
+      "kind": "card",
+      "refersTo": "inline-note",
+      "description": "Raised informational container used in account settings.",
+      "html": "<p class=\"ds-note\">Die Vorschau zeigt das Layout. Anmelden und telefonieren kannst du in der Desktop-App.</p>",
+      "css": ".ds-note{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.45;color:#c7d1dc;background:var(--surface-raised);padding:10px;border-radius:7px;font-size:12px;margin:0 0 16px} @media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The compact native telephone",
+    "overview": "A compact, dark softphone shaped around the familiar telephone keypad. Charcoal surfaces, system typography and a restrained mint accent keep the number, registration state and available call action easy to scan in a small desktop window.\n\nThe system uses tonal layers and fine dividers rather than ornamental depth. German labels accompany the navigation and call actions; settings stay behind their own action, while the current call remains reachable when another view is open.",
+    "keyCharacteristics": [
+      "Compact keypad and persistent three-item bottom navigation.",
+      "System typography with larger numbers and quiet supporting labels.",
+      "Charcoal tonal layers with mint for primary actions and available state.",
+      "Explicit empty and unavailable states grounded in actual capabilities."
+    ],
+    "rules": [
+      {
+        "name": "The State Before Decoration Rule",
+        "body": "Use accent and danger color to identify available actions, selection and real runtime state.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do keep dialing and the current call action prominent in the compact window.",
+      "Do use German text labels alongside navigation icons and call actions.",
+      "Do preserve visible keyboard focus and reduced-motion behavior.",
+      "Do show real runtime availability and honest empty states."
+    ],
+    "donts": [
+      "Don't turn contacts or history into populated lists before their data exists.",
+      "Don't add unsupported call controls such as mute, hold or transfer.",
+      "Don't replace native window controls with a decorative custom title bar.",
+      "Don't expand the compact utility into a dashboard layout."
+    ]
+  }
+}

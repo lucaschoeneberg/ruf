@@ -9,6 +9,12 @@ Asterisk-Echotest prüft Anmeldung, Gesprächsaufbau und zurückkehrendes Audio.
 Kontakte, Verlauf, Kalender und mehrere Konten folgen später. Entwicklungspakete
 sind noch keine produktionsreifen Telefone.
 
+Die dunkle Desktop-Oberfläche startet kompakt mit 360 × 560 Pixeln. Sie bietet
+eine Wähltastatur sowie Navigation für Kontakte und Verlauf. Das Konto wird über
+das Zahnrad eingerichtet; Kontakte und Verlauf zeigen vorerst ehrliche
+Leerzustände ohne angebundene Daten. [Designregeln](apps/desktop/DESIGN.md) und
+[UI-Prüfung](docs/verification/2026-11-04-compact-ui.md) beschreiben den Stand.
+
 ## Lokal starten
 
 Voraussetzungen: Bun aus `.bun-version`, Rustup sowie die
