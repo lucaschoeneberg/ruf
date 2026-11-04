@@ -18,6 +18,12 @@ answer/hangup require a matching token before queueing. Answer reserves
 `answering` under the same lock until ACK/establishment, close, or an explicit
 native answer failure. Queue rejection restores `incoming` immediately.
 Engine callbacks copy numeric state/error information into a synchronized Rust snapshot.
+The private `sip_event` / repr(C) `NativeEvent` payload also borrows bounded caller
+arrays and, only for DTMF-start, a two-byte NUL-terminated digit array. Rust copies
+them synchronously; no native pointer escapes. Progress, hold/resume, DTMF and
+redirect/transfer-failure signals enter a bounded sequenced snapshot buffer.
+SIP response statuses are interpreted only on protocol-specific event kinds;
+native errno remains a separate failure. See [the SIP contract](../../../docs/api/sip-events.md).
 The synchronous platform inventory callback copies device IDs, names and selectability; its borrowed strings never escape C.
 
 The native singleton prevents conflicting process-global upstream state. Rust

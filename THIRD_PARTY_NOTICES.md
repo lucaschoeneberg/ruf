@@ -43,6 +43,9 @@ in desktop bundles. Own application code remains MIT.
 
 The libre SDK includes a local [SIP NAT patch](native/patches/README.md) applied
 to the exact revision above. Upstream notices and license text are preserved.
+The baresip SDK also includes a minimal tracked
+[REFER-policy patch](native/patches/baresip-refer-policy.patch) enforcing its
+existing disabled-transfer setting. Its original BSD notices are preserved.
 
 The native build also stages license texts from the actual SDK inputs. Windows
 OpenSSL resolution is constrained by `native/vcpkg.json`; macOS/Linux system

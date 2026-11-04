@@ -4,6 +4,11 @@
 [sources.json](sources.json), verifies clean source checkouts, builds static
 libraries and stages `native/install/<Rust target>/`. Re-running is supported.
 Sources, build trees, SDKs, recordings and diagnostic logs are ignored by Git.
+The SDK also applies the tracked baresip REFER-policy patch in an isolated source
+copy. Both local patch texts are recorded in sdk.json; older staged SDKs must be
+rebuilt before adapter checks. Unsupported REFER is rejected, including the
+out-of-dialog no-subscription form, and never silently accepted. See the
+[event/state contract](../docs/api/sip-events.md) for progress, hold, DTMF and errors.
 Do not edit the fetched checkouts; update the pins deliberately instead.
 
 Supported build hosts: macOS arm64, Windows MSVC x64; Linux x64/arm64 is available

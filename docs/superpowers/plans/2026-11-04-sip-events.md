@@ -10,13 +10,13 @@ REFER is unsupported: disable advertising it, reject both dialog and out-of-dial
 
 ## Tasks
 
-- [ ] Add a real UDP REFER regression and observe it accepting the unsupported request before the fix.
-- [ ] Extend canonical Rust contracts for early media/hold, sequenced events and typed SIP errors. Verify classification, normal cancellation, native-error separation and bounded retention.
-- [ ] Extend the private C event payload and native projection; preserve lifecycle journaling, caller sanitization and generation guards. Cover progress, hold/resume, SIP INFO DTMF, redirect and failure responses with loopback SIP tests.
-- [ ] Disable REFER capabilities, apply the narrowly scoped SDK patch and prove dialog/out-of-dialog rejection without transfer or call loss.
-- [ ] Update the existing call panel, restored-snapshot caller selection, timer handling, tray labels and German error messages. Add frontend regressions.
-- [ ] Document required/nullable DTO fields, event retention, errors and unsupported-transfer policy in docs/api. Generate TypeScript from Rust and verify regeneration is byte-identical.
-- [ ] Run format, frontend checks/build/tests, version checks, portable/native Rust checks, Asterisk/diagnostic regressions and desktop build. Perform an independent final review and address substantive findings.
+- [x] Add a real UDP REFER regression and observe it accepting the unsupported request before the fix.
+- [x] Extend canonical Rust contracts for early media/hold, sequenced events and typed SIP errors. Verify classification, normal cancellation, native-error separation and bounded retention.
+- [x] Extend the private C event payload and native projection; preserve lifecycle journaling, caller sanitization and generation guards. Cover progress, hold/resume, SIP INFO DTMF, redirect and failure responses with loopback SIP tests.
+- [x] Disable REFER capabilities, apply the narrowly scoped SDK patch and prove dialog/out-of-dialog rejection without transfer or call loss.
+- [x] Update the existing call panel, restored-snapshot caller selection, timer handling, tray labels and German error messages. Add frontend regressions.
+- [x] Document required/nullable DTO fields, event retention, errors and unsupported-transfer policy in docs/api. Generate TypeScript from Rust and verify regeneration is byte-identical.
+- [x] Run format, frontend checks/build/tests, version checks, portable/native Rust checks, Asterisk/diagnostic regressions and desktop build. Perform an independent final review and address substantive findings.
 
 ## Review focus
 
@@ -26,3 +26,12 @@ REFER is unsupported: disable advertising it, reject both dialog and out-of-dial
 - Rapid DTMF start/end events must survive snapshot polling; retention limits must be explicit.
 - Holding/resuming must not reset call duration, release the call slot or discard caller identity.
 - Existing call-history observation and notification behavior must keep working.
+
+## Additional reliability findings
+
+- Failed background reads previously fabricated idle/no accounts; retain last successful state and show the read error instead.
+- Bound pending native main-thread publication to the latest snapshot. Exclude read-only revision changes from publication signatures.
+- Apply native revision ordering in both the phone and Settings window, including command responses and fallback reads.
+- Preserve internal native/media failures (701) as nativeFailure with no SIP status; transfer failures without a response must not invent 501.
+
+Completed verification and execution limits: [SIP event verification](../../verification/2026-11-05-sip-events.md).

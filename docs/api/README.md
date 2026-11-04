@@ -69,14 +69,20 @@ do not use this mode for private calls. The upstream path limit is 127 UTF-8 byt
 
 ```ts
 {
+  revision: number;
   registration: "unconfigured" | "registering" | "registered" | "failed";
-  call: "idle" | "calling" | "ringing" | "incoming" | "answering" | "active";
+  call: "idle" | "calling" | "ringing" | "earlyMedia" | "incoming" | "answering" | "active" | "held";
   lastError: PhoneError | null;
   accounts: AccountSnapshot[];
   selectedAccountId: number | null;
   callAccountId: number | null;
   callId: string | null;
+  callConnectedAtMs: number | null;
+  callEvents: CallEvent[];
+  callEventsDropped: number;
   caller: { name: string | null; number: string | null } | null;
+  callerContact: ContactReference | null;
+  historyError: PhoneError | null;
   audioMode: "system" | "testTone" | null;
   soundSettings: SoundSettings;
   ringtonePlaying: boolean;
@@ -90,16 +96,22 @@ null before engine initialization. Webview reloads/settings windows read this
 value and do not infer it from draft defaults. `active` means SIP established;
 [the echo test](../../tests/interop/asterisk/README.md) separately verifies media.
 
+Required ordering/event/timing fields, early media/hold, SIP errors and explicit
+REFER rejection are detailed in [SIP events and state](sip-events.md). These new
+output fields and enum values intentionally extend the generated IPC contract.
+
 `caller` is a required nullable `CallerIdentity`. Its required nullable `name` and
 `number` fields are the bounded, plain-text display name and URI user from the
 incoming SIP From header, not a verified identity. Only incoming calls supply it;
-it remains through `answering`/`active` and clears on idle/new outgoing calls.
+it remains through `answering`/`active`/`held` and clears on idle/new outgoing calls.
 Display names fit 128 UTF-8 bytes, URI users 80 bytes, truncated at UTF-8 boundaries;
 malformed or control/bidi-containing fields are omitted. SIP URI hosts/passwords and
 P-Asserted-Identity are never used as the displayed number. Anonymous/withheld
 From values or Privacy `id` suppress the number. The UI shows name and number,
 number alone, or “Unbekannter Anrufer”. No caller data is added to diagnostics
-or account metadata. Address-book matching is not part of this contract.
+or account metadata. The authorized `callerContact` address-book projection is
+documented in [contacts](contacts.md); `historyError` remains separate from SIP
+and registration errors as described in [history](history.md).
 
 `AccountSnapshot` contains required `id`, `name`, `registrar`, `username`,
 `registration`, nullable `lastError`, and boolean `removing`. Registration failures
@@ -107,7 +119,7 @@ are per account. Missing/inaccessible saved credentials restore a visibly failed
 account that can be repaired by supplying a password. No secret is read back.
 
 Answer/hangup capture an internal call generation; delayed actions for call A
-cannot affect replacement call B. The opaque `callId` is a session-local generation token, not a SIP Call-ID. It is null while idle and can be null while outgoing queueing is pending. Both call-control commands now require the displayed token (an intentional MVP IPC change); empty/stale tokens reject with `invalidState`. Duplicate answers reject. `answering` means the native answer is pending an ACK; only the native established event reports `active`. Engine lifetime
+cannot affect replacement call B. The opaque `callId` is a session-local generation token, not a SIP Call-ID. It is null while idle and reserved before a successful outgoing attempt is queued. Both call-control commands require the displayed token; empty/stale tokens reject with `invalidState`. Duplicate answers reject. `answering` means the native answer is pending an ACK; only the native established event reports `active` (or `held` when already remotely held). Engine lifetime
 belongs to the application, rather than either webview.
 
 ## Persistence and credential cleanup
@@ -145,7 +157,10 @@ are ordinary local application data.
 
 `message` is a safe explanation, sometimes with a numeric native/SIP code; never
 raw protocol text or credentials. Codes are application classifications, not SIP
-response codes. The frontend translates known codes to German recovery guidance.
+response codes. Required nullable `sipStatus` contains an actual final SIP response
+only; native errors leave it null. Additional `sip*` classifications are defined
+in [SIP events and state](sip-events.md#phoneerror). The frontend translates known
+codes to German recovery guidance.
 
 ## Sound commands (settings window only)
 

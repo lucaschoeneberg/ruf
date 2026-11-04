@@ -1,5 +1,19 @@
 # Local libre SIP NAT extension
 
+## Baresip REFER policy
+
+`baresip-refer-policy.patch` applies to the pinned baresip 4.12.0 revision. It
+enforces the existing disabled account transfer flag for out-of-dialog REFER,
+returning 405 with the actual Allow list before a request can be accepted.
+In-dialog rejection uses libre's existing 501 path. The app also removes REFER,
+replaces and norefersub advertisements. No transfer target is dialed automatically.
+The SDK builder preserves pristine upstream checkouts, applies this small patch
+in an isolated copy and records exact patch text in sdk.json. Adapter builds
+reject older SDKs. Native SIP tests cover both request forms and call survival.
+Upstream BSD notices and source pins are unchanged.
+
+## Libre NAT patch
+
 `re-sip-nat.patch` applies only to re revision
 `65555dad439de9d6a81b3ee6092b9c096585249b` (4.12.0). The SDK builder verifies
 the original checkout is pristine, copies it into an isolated build tree,

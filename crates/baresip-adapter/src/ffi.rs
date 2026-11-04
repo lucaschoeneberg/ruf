@@ -301,6 +301,9 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                         && let Some(error) = PhoneError::from_sip_status(status)
                     {
                         state.last_error = Some(error);
+                    } else if !local_ending && code >= 700 {
+                        // baresip uses internal non-SIP sentinels for native/media failures.
+                        state.last_error = Some(native_error(code));
                     }
                 }
                 10 => state.last_error = Some(native_error(code)),
@@ -393,9 +396,17 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 EV_DTMF_END => record_call_event(state, CallEventKind::DtmfEnd),
                 EV_TRANSFER_FAILED => {
                     record_call_event(state, CallEventKind::TransferFailed);
-                    state.last_error =
-                        PhoneError::from_sip_status(u16::try_from(code).unwrap_or(501))
-                            .or_else(|| PhoneError::from_sip_status(501));
+                    state.last_error = Some(
+                        u16::try_from(code)
+                            .ok()
+                            .and_then(PhoneError::from_sip_status)
+                            .unwrap_or_else(|| {
+                                PhoneError::new(
+                                    ErrorCode::NativeFailure,
+                                    "Call transfer failed without a SIP response.",
+                                )
+                            }),
+                    );
                 }
                 EV_REDIRECT => {
                     if let Ok(status @ 300..=399) = u16::try_from(code) {
@@ -870,6 +881,40 @@ mod observation_tests {
         let error = state.snapshot.last_error.as_ref().unwrap();
         assert_eq!(error.code, ErrorCode::NativeFailure);
         assert_eq!(error.sip_status, None);
+    }
+
+    #[test]
+    fn transfer_failure_without_a_response_does_not_invent_a_sip_status() {
+        let mut h = Harness::new();
+        h.event(5, 0, 10, "", "");
+        h.event(8, 0, 10, "", "");
+        h.event(32, 0, 10, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        let error = state.snapshot.last_error.as_ref().unwrap();
+        assert_eq!(error.code, ErrorCode::NativeFailure);
+        assert_eq!(error.sip_status, None);
+        assert_eq!(state.snapshot.call, CallState::Active);
+        assert!(matches!(
+            state.snapshot.call_events.last().unwrap().event,
+            CallEventKind::TransferFailed
+        ));
+    }
+
+    #[test]
+    fn native_call_close_failure_is_reported_without_claiming_a_sip_response() {
+        let mut h = Harness::new();
+        h.event(5, 0, 10, "", "");
+        // Pinned baresip reports native RTP stream failures with its internal 701 sentinel.
+        h.event(9, 701, 10, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        let error = state
+            .snapshot
+            .last_error
+            .as_ref()
+            .expect("native close failure must be visible");
+        assert_eq!(error.code, ErrorCode::NativeFailure);
+        assert_eq!(error.sip_status, None);
+        assert_eq!(state.snapshot.call, CallState::Idle);
     }
     #[test]
     fn incoming_offers_keep_effective_account_identity_while_replacement_is_pending() {
