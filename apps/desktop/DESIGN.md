@@ -1,303 +1,393 @@
 ---
 name: SIP Desktop
-description: Compact dark native softphone with a familiar keypad and explicit runtime state.
+description: Compact native softphone in the shared Zed GitHub Dark Tritanopia visual world.
 colors:
-  surface: "#191c20"
-  surface-raised: "#24282e"
-  surface-hover: "#30363d"
-  border: "#343a42"
-  text: "#f0f1f3"
-  muted: "#a9b0bb"
-  accent: "#a0dec0"
-  accent-ink: "#123526"
-  danger: "#eeafb4"
-  caution: "#eacb99"
-  error-surface: "#42292d"
-  error-copy: "#ffd1d4"
-  field-border: "#444c56"
-  secondary-text: "#e2e7ec"
-  nav-selected: "#303c37"
-  nav-selected-text: "#b9e4cf"
-  danger-surface: "#5e2e34"
-  danger-text: "#ffd8dc"
+  surface: "#0d1117"
+  surface-panel: "#010409"
+  surface-raised: "#212830"
+  surface-hover: "#262e38"
+  surface-selected: "#1a2737"
+  border: "#30363d"
+  border-strong: "#3d444d"
+  text: "#f0f6fc"
+  text-secondary: "#c9d1d9"
+  muted: "#9198a1"
+  disabled: "#8b949e"
+  accent: "#58a6ff"
+  accent-fill: "#1f6feb"
+  accent-hover: "#1a60cf"
+  accent-active: "#174ea6"
+  accent-ink: "#ffffff"
+  info-surface: "#142235"
+  danger: "#ffa198"
+  danger-surface: "#2b191e"
+  danger-hover: "#3d2025"
+  danger-border: "#77413f"
+  caution: "#e3b341"
 typography:
   number:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-    fontSize: "27px"
-    fontWeight: 450
-    lineHeight: 1.3
-    letterSpacing: "-0.025em"
-  digit:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     fontSize: "24px"
-    fontWeight: 450
-    lineHeight: 1.15
-  title:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-    fontSize: "17px"
-    fontWeight: 650
-    lineHeight: 1.45
+    fontWeight: 400
+    lineHeight: 1.3
     letterSpacing: "-0.02em"
-  introduction:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  digit:
+    fontSize: "22px"
+    fontWeight: 400
+    lineHeight: 1.15
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  call-peer:
+    fontSize: "22px"
+    fontWeight: 600
+    lineHeight: 1.4
+    letterSpacing: "-0.02em"
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  call-timer:
     fontSize: "20px"
+    fontWeight: 400
+    lineHeight: 1.4
+    fontFeature: '"tnum"'
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  introduction:
+    fontSize: "18px"
     fontWeight: 600
     lineHeight: 1.25
-    letterSpacing: "-0.025em"
+    letterSpacing: "-0.01em"
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  settings-title:
+    fontSize: "17px"
+    fontWeight: 600
+    lineHeight: 1.3
+    letterSpacing: "normal"
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  view-title:
+    fontSize: "15px"
+    fontWeight: 600
+    lineHeight: 1.4
+    letterSpacing: "normal"
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  label:
+    fontSize: "14px"
+    fontWeight: 600
+    lineHeight: 1.4
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
   body:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.4
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  button:
+    fontSize: "13px"
+    fontWeight: 600
+    lineHeight: 1.4
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  help:
     fontSize: "12px"
     fontWeight: 400
-    lineHeight: 1.45
-  button:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-    fontSize: "13px"
-    fontWeight: 650
-    lineHeight: 1.45
-  label:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-    fontSize: "12px"
-    fontWeight: 550
-    lineHeight: 1.45
+    lineHeight: 1.4
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  caption:
+    fontSize: "11px"
+    fontWeight: 400
+    lineHeight: 1.4
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  key-letters:
+    fontSize: "10px"
+    fontWeight: 400
+    lineHeight: 1.3
+    letterSpacing: "0.06em"
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 rounded:
-  field: "6px"
-  icon: "7px"
-  control: "8px"
-  key: "9px"
-  preview-shell: "12px"
+  control: "4px"
+  preview-shell: "6px"
 spacing:
   xs: "4px"
   small-gap: "6px"
   gap: "8px"
   control: "10px"
   group: "12px"
+  phone-inset: "14px"
   section: "16px"
-  inset: "20px"
-  dial-inset: "22px"
+  settings-gap: "20px"
+  settings-compact-inset: "24px"
+  settings-inset: "32px"
 components:
   button-primary:
-    backgroundColor: "{colors.accent}"
+    backgroundColor: "{colors.accent-fill}"
     textColor: "{colors.accent-ink}"
     typography: "{typography.button}"
     rounded: "{rounded.control}"
-    padding: "10px 16px"
+    padding: "5px 10px"
+    height: "30px"
   button-secondary:
     backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.secondary-text}"
-    rounded: "{rounded.control}"
-    padding: "10px 16px"
-  button-danger:
-    backgroundColor: "{colors.danger-surface}"
-    textColor: "{colors.danger-text}"
+    textColor: "{colors.text-secondary}"
     typography: "{typography.button}"
     rounded: "{rounded.control}"
-    padding: "10px 16px"
+    padding: "5px 10px"
+    height: "28px"
+  button-danger:
+    backgroundColor: "{colors.danger-surface}"
+    textColor: "{colors.danger}"
+    typography: "{typography.button}"
+    rounded: "{rounded.control}"
+    padding: "5px 10px"
+    height: "30px"
   button-icon:
     backgroundColor: "transparent"
     textColor: "{colors.muted}"
-    rounded: "{rounded.icon}"
-    padding: "7px"
-    size: "34px"
+    rounded: "{rounded.control}"
+    padding: "5px"
+    size: "28px"
   input-settings:
     backgroundColor: "{colors.surface-raised}"
     textColor: "{colors.text}"
     typography: "{typography.body}"
-    rounded: "{rounded.field}"
-    padding: "7px 10px"
-  navigation-selected:
-    backgroundColor: "{colors.nav-selected}"
-    textColor: "{colors.nav-selected-text}"
+    rounded: "{rounded.control}"
+    padding: "3px 8px"
+    height: "28px"
+  button-settings-primary:
+    backgroundColor: "{colors.accent-fill}"
+    textColor: "{colors.accent-ink}"
+    typography: "{typography.button}"
+    rounded: "{rounded.control}"
+    padding: "4px 10px"
+    height: "28px"
+  settings-navigation-selected:
+    backgroundColor: "{colors.surface-hover}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.control}"
+    padding: "4px 8px"
+    height: "28px"
+  settings-account-selected:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text-secondary}"
     typography: "{typography.body}"
     rounded: "{rounded.control}"
-    padding: "5px 8px"
+    padding: "6px 8px"
+  navigation-selected:
+    backgroundColor: "{colors.surface-selected}"
+    textColor: "{colors.accent}"
+    typography: "{typography.help}"
+    rounded: "{rounded.control}"
+    padding: "4px 6px"
+    height: "30px"
   dial-key:
-    backgroundColor: "{colors.surface-raised}"
+    backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
-    rounded: "{rounded.key}"
+    rounded: "{rounded.control}"
     padding: "3px"
-  inline-note:
-    backgroundColor: "{colors.surface-raised}"
-    typography: "{typography.body}"
-    rounded: "{rounded.icon}"
-    padding: "10px"
+  settings-feedback:
+    backgroundColor: "{colors.info-surface}"
+    textColor: "{colors.text-secondary}"
+    rounded: "{rounded.control}"
+    padding: "9px 10px"
 ---
 
 # Design System: SIP Desktop
 
 ## Overview
 
-**Creative North Star: "The compact native telephone"**
+**Creative North Star: "The compact Zed workspace"**
 
-A compact, dark softphone shaped around the familiar telephone keypad. Charcoal surfaces, system typography and a restrained mint accent keep the number, registration state and available call action easy to scan in a small desktop window.
+A compact native telephone with Zed’s dark workspace character across the whole application. The inspected local Zed settings use GitHub Dark Tritanopia: near-black panels, slate controls, fine dividers and blue actions. Phone, onboarding, calls, empty states, account settings and sound settings share this palette and the bundled IBM Plex Sans interface face.
 
-The system uses tonal layers and fine dividers rather than ornamental depth. German labels accompany the navigation and call actions; settings stay behind their own action, while the current call remains reachable when another view is open.
+Density serves operation: short horizontal navigation, flat keypad cells and restrained setting rows leave the current identity, real runtime state and available action easy to scan. Native window controls remain native. Settings open in their own window, with a persistent searchable sidebar and a scrolling document.
 
 **Key Characteristics:**
 
-- Compact keypad and persistent three-item bottom navigation.
-- System typography with larger numbers and quiet supporting labels.
-- Charcoal tonal layers with mint for primary actions and available state.
-- Explicit empty and unavailable states grounded in actual capabilities.
+- One shared palette and font across phone and settings.
+- Compact 340 × 500px phone with a flat keypad and horizontal navigation.
+- Blue actions and focus; explicit text accompanies registration and error states.
+- Searchable settings sidebar, multiple account identities and thin setting rows.
+- Honest capability, empty and unavailable states.
 
 ## Colors
 
-The palette combines cool charcoal neutrals with a pale mint primary accent.
-The frontmatter records the actual reused values from `src/app.css`. The sidecar
-adds synthesized tonal ramps for swatch previews; those ramps are documentation
-metadata, not additional application color tokens.
+The frontmatter records the shared `:root` values in `src/app.css`. Phone and
+settings resolve the same tokens; settings have no local palette overrides.
 
 ### Primary
 
-- **Mint:** primary call and registration actions, available registration state,
-  keyboard focus and the focused number-entry underline.
-- **Deep green ink:** text on mint primary actions.
+Blue `accent` marks focus, selected phone navigation and connected runtime state.
+The stronger `accent-fill` carries primary actions with white `accent-ink`;
+`accent-hover` and `accent-active` give the button states. `surface-selected`
+marks a selected phone destination, while settings section selection uses the
+quieter `surface-hover` and account selection uses `surface-raised` plus a border.
 
 ### Neutral
 
-- **Charcoal:** the application surface; **raised charcoal** distinguishes keys,
-  form fields and informational notes; **hover charcoal** responds to interaction.
-- **Soft white:** primary labels and entered numbers; **cool gray:** supporting
-  explanations, inactive navigation and registration information.
-- **Slate borders:** structural dividers; the lighter field border outlines
-  secondary controls and settings fields.
-- **Muted green selection:** background and text of the current navigation item.
+Near-black `surface-panel` separates the header, navigation and settings sidebar
+from the dark `surface` canvas. `surface-raised` and `surface-hover` distinguish
+controls and interaction. `border` divides regions; `border-strong` outlines
+controls. `text`, `text-secondary`, `muted` and `disabled` establish hierarchy.
+`info-surface` contains operation and unsaved-change feedback.
 
 ### State colors
 
-- **Pale rose:** failed registration status.
-- **Dark rose with pale rose text:** the hangup or reject action. Error notices
-  use a related rose surface and remain distinct from normal content.
+`danger` identifies validation, failed registration and destructive actions.
+`danger-surface`, `danger-hover` and `danger-border` support notices and call
+termination. `caution` identifies explicit test-audio disclosures. State labels
+remain readable independently of a colored dot.
 
-**The State Before Decoration Rule.** Use accent and danger color to identify
-available actions, selection and real runtime state.
+**The State Before Decoration Rule.** Use accent and danger color to identify available actions, selection and real runtime state; selection alone never proves registration.
+
+The sidecar's eight-step OKLCH ramps are synthesized swatch metadata derived
+from these current colors, not additional application tokens.
 
 ## Typography
 
-**Font:** the platform system stack recorded in the frontmatter. There is no
-bundled display font or icon font.
+**Font:** `SIP UI` is the local CSS alias for unmodified IBM Plex Sans Regular
+(400) and SemiBold (600), bundled under SIL OFL 1.1 in `public/fonts/`. The
+existing platform stack remains the fallback. `font-synthesis: none` prevents
+synthetic faces; there is no icon font.
 
-Numbers carry the largest hierarchy: the centered number entry uses the number
-role, keypad digits use the digit role, and view headings use the title role.
-Most navigation, explanatory copy, form fields and runtime states use the compact
-body size. Primary action labels are heavier and slightly larger than supporting
-copy. Keypad letters are small uppercase annotations with open tracking.
+Body and fields use 13px with a 1.4 base line height. Setting labels use 14px/600;
+section navigation uses 14px/400. Settings titles are 17px/600, collection titles
+15px/600 and first-run titles 18px/600. Number entry is 24px/400, keypad digits
+22px/400 and letter annotations 10px with 0.06em tracking. Phone identity and the
+outgoing-account picker use 14px/600. Helpers are 12px, captions 11px. Descriptions
+use 1.4 line height; feedback and longer introduction copy use 1.45. Setting
+descriptions are bounded to 60ch, empty-state copy to 38ch.
 
-The active call peer uses a larger heading; the compact call panel reduces it
-when another view is open. The call timer uses tabular numerals. Empty-state copy
-is centered and constrained to a short measure (28ch).
+Call peers use 22px/600; compact call strips reduce them to 14px. The active
+20px timer uses tabular numerals. Empty states are left-aligned.
 
 ## Layout
 
-The desktop window starts at approximately 360 × 560 pixels, with native window
-controls and a dark OS theme. The content is a single vertical stack: account
-identity and availability, flexible view content, then a persistent three-item
-bottom navigation. Settings are opened separately from the header.
+The native phone starts at 340 × 500px and has a 320 × 440px minimum. A fixed
+header, flexible scrolling content and persistent three-item navigation form
+one vertical stack. Navigation pairs icons and labels horizontally. The dialer
+uses 14px side insets and a three-column, four-row keypad with 4px gaps and
+44px minimum rows. At viewport heights up to 450px, rows reduce to 40px and
+padding compresses while the content remains scrollable.
 
-At narrow viewport widths, the shell fills the available width and viewport
-height, capped at 420px wide and 680px tall. At viewport widths from 500px, the
-browser preview centers a 360 × 560px shell with a thin border and rounded corners,
-inside a darker surround. Its height remains bounded by the viewport.
+The unframed browser shell fills its viewport, capped at 420px wide and 680px
+high. From 500px viewport width the browser preview centers a 340 × 500px shell
+inside 24px padding, with height bounded by the viewport. This preview frame is
+not a custom native title bar.
 
-The keypad is a three-column, four-row grid with consistent gaps. View content
-scrolls within the shell; the header and navigation do not shrink. Below a 510px
-viewport height, header and dialer padding, keypad gaps and navigation height
-compress. The compact call panel sits above contacts, history or settings so its
-answer/reject or hangup actions remain accessible.
+Settings open at 900 × 660px, minimum 740 × 540px, filling their own viewport.
+A 222px sidebar holds search, section links, the scrollable account list and a
+bottom version footer. A fixed 44px minimum breadcrumb sits above the scrolling
+main document. Main insets are 32px. Setting rows pair descriptions and
+180–230px controls across a 20px gap, with 16px vertical padding and thin rules.
+Fields, search and settings buttons have a 28px minimum height.
+
+At widths up to 820px the sidebar is 200px, main insets 24px and controls
+160–190px. At up to 620px the browser fallback has a 160px sidebar, 18px insets
+and stacked row controls and actions. Native settings cannot shrink to this
+fallback width. Compact call panels sit above contacts or history so the
+current supported call actions remain reachable.
 
 ## Elevation & Depth
 
-Depth comes from tonal layering and thin borders. The implemented system has no
-box shadows, gradients or floating cards. The browser preview shell is a frame;
-it is not a custom native title bar. Settings notes use a raised tonal container.
+Depth comes from tonal layers and one-pixel borders. There are no box shadows,
+gradients or floating cards. Feedback receives a tonal container; sidebar and
+setting rows remain flat.
 
 ## Shapes
 
-Controls have modest rounded corners: settings fields are the tightest, icon
-buttons and notes slightly softer, action buttons and navigation slightly wider,
-and keypad keys slightly rounder. The desktop preview alone has the larger shell
-radius. Status dots are circular. Dividers and outlined fields preserve the
-compact utility character.
+Actions, fields, navigation and keypad cells share 4px corners. The browser
+preview frame alone has 6px corners. Status dots are circular; dividers and
+outlined flat keys preserve the workspace character.
 
 ## Components
 
-### Buttons
+### Buttons and keyboard feedback
 
-Mint primary actions use dark ink, with lighter hover and darker pressed states.
-Unavailable primary actions use a muted charcoal/gray-green treatment. Secondary
-actions use a raised surface and outlined border. Hangup and reject actions use
-the dark rose variant. Icon buttons are compact squares with transparent default
-backgrounds and a raised hover/selected treatment. Shared keyboard focus uses a
-mint outline (2px with 3px offset).
+Primary buttons use blue fill, white labels and darker hover/pressed states.
+Their usual minimum height is 30px, with 5px 10px padding; the full-width call
+action is at least 34px. Settings buttons use 28px minimum height and 4px 10px
+padding. Secondary buttons use raised slate, secondary text and a strong border;
+destructive buttons use the danger surface and border. Icon actions are 28px
+squares. Disabled actions expose actual capability or busy state.
 
-Color and border transitions use a short easing (140ms ease); reduced-motion
-preferences remove transitions and animations.
+Shared focus is a 2px blue outline with 3px offset. Color transitions use
+140ms ease and disappear with reduced-motion preferences. Search and number
+entry use focused border treatments instead of a second nested outline.
 
-### First run and connection feedback
+### Inputs, keypad and navigation
 
-The first-run introduction prioritizes the user's own SIP account. It can be
-skipped and reopened from the header's info action; only a non-sensitive dismissal
-flag is stored. Existing configured sessions do not get interrupted by the intro.
-The introduction uses the compact introduction type role, not a hero layout.
+Number entry is centered and borderless above an underline; backspace sits
+alongside. Its hint explains invalid characters. Settings fields are raised,
+outlined and paired with visible labels and descriptions. Errors appear below
+the relevant field, with focus moved to the first invalid control. Sidebar
+search is transparent inside an outlined control and uses a blue focused border.
 
-Account fields start empty and use the normal microphone/speaker source. Inline
-field help identifies the SIP server, authentication username and session-only
-password. Test audio and the local Asterisk guide are progressively disclosed.
-The actual SIP/UDP development limitation stays visible before connecting.
+Twelve flat outlined keys retain telephone order; hover raises the surface and
+pressing selects it. Holding zero enters plus. These enter numbers and do not
+implement in-call DTMF. Tastatur, Kontakte and Verlauf receive equal navigation
+space, horizontal icon/label pairs and `aria-current` for the selected page.
 
-A queued registration is pending. Focus and scroll reveal pending/failed status
-without interrupting a user editing a field; confirmed native registration leads
-to the keypad with a short first-call hint. Native failures receive actionable
-German copy. Contacts/history do not claim their unavailable data is merely empty.
+### First run, accounts and errors
 
-Restored native sessions whose audio source cannot be read are explicitly
-unknown: possible test recording is disclosed, new calls/answer/reconfiguration
-are blocked until an app restart, and hangup/reject remain available. The draft's
-microphone default is never treated as evidence of a restored engine's mode.
+The first-run introduction prioritizes the user's SIP account, can be skipped
+and reopened, and stores only a non-sensitive dismissal flag. Configured
+sessions are not interrupted. Setup opens settings with empty account fields.
+Up to eight accounts persist; passwords stay in the OS credential store and are
+never returned to the form. A blank password preserves a saved credential;
+new accounts require one. Saving starts registration and does not prove success.
+Dots and labels follow native pending, connected, failed and removing snapshots.
+Native errors receive actionable German copy.
 
-### Inputs / Fields
+Settings search filters section labels and account identities. Cmd/Ctrl+F focuses
+it; Escape and a labeled clear action clear it. Section/account buttons expose
+`aria-current`. Account names truncate above their SIP identity. The outgoing
+account picker is independent of the account being edited. The plus action
+opens an empty form and disables at eight accounts.
 
-The number input is centered, borderless and large; focus is shown by an underline
-on its containing row. A compact backspace action sits alongside it. Settings
-fields use raised surfaces, thin slate borders and visible labels above them.
-The number hint changes to describe allowed characters when input is invalid.
+Unsaved account or sound edits reveal an inline continue/discard choice before
+navigation; the notice scrolls into view and focuses continue editing. Removal
+requires inline confirmation and deletes the stored password. Account mutations
+are disabled during calls or busy operations. Browser and portable modes explain
+unavailable native operations. About retains storage details, SIP/UDP limits
+and the collapsed local Asterisk guide.
 
-### Navigation
+### Sound
 
-The bottom navigation gives equal space to Tastatur, Kontakte and Verlauf. Each
-item combines an inline line icon with a label. Hover raises its surface; the
-current item uses the muted green selection treatment and `aria-current`.
+Ton uses the same setting rows for Mikrofon, Lautsprecher and independent
+Klingelton-Ausgabe. Systemstandard follows the OS. Refresh, missing devices and
+ambiguous duplicate names receive explicit feedback; an unavailable saved device
+stays visible until replaced. Ringtone enablement uses a native 16px checkbox
+with blue accent and an adjacent Ein/Aus label. Disabling ringing preserves the
+incoming-call display.
 
-### Keypad
+Klingelton anhören explicitly previews two seconds on the selected output without
+saving, changes to Hörprobe stoppen while native playback is reported, and has
+a live status. Ton speichern requires unsaved changes and applies to all SIP
+accounts. Device changes and preview are disabled during calls, operations or
+unavailable native support. Audio für Entwicklung remains initially collapsed:
+it selects the shared source before the first account, then shows and locks the
+engine snapshot's `audioMode` for the session. Test-tone mode discloses its
+440-Hz source, received-audio recording and suppressed automatic ringing.
 
-Twelve raised keys form the familiar telephone arrangement. Digits sit above
-letter annotations; symbol keys use slightly larger digits. Hover changes both
-surface and border; pressing deepens the green-gray surface. Holding zero enters
-plus. These are number-entry keys, not an implemented in-call DTMF control.
+### Calls, containers and empty states
 
-### Call panel
+The dialer call panel centers state, peer, active duration and supported actions.
+Other views show its compact strip without the icon or timer. Contacts and
+history keep left-aligned icons, concise missing-data copy and a return-to-keypad
+action. No fabricated rows or unsupported call actions appear.
 
-The dialer view centers the call state, peer, duration when active, and supported
-actions. On other views, the same component becomes a compact strip; its icon and
-timer disappear while the peer, state and call actions remain available.
-
-### Containers and empty states
-
-A raised inline note explains unavailable native features in settings. Contacts
-and history use centered line icons, concise headings, honest missing-data copy
-and a secondary action returning to the keypad. They contain no fabricated rows.
+The actual local Zed reference is repository-root
+`.impeccable/review/zed-local-reference.png` (900 × 750px). The `zed-*` app review
+captures use synthetic IPC fixtures to inspect layout and states; they are not
+evidence that native SIP registration, calls or audio succeeded. Font assets
+come from `zed-industries/zed` commit
+`e21ff1b368b074586e4dae0d9bbf15d5dd8a1476`; their license ships with the files.
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** keep dialing and the current call action prominent in the compact window.
-- **Do** use German text labels alongside navigation icons and call actions.
-- **Do** preserve visible keyboard focus and reduced-motion behavior.
-- **Do** show real runtime availability and honest empty states.
+- **Do** reuse the shared root palette for every application surface.
+- **Do** keep dialing and current call actions reachable at the native minimum size.
+- **Do** use German labels, visible keyboard focus and reduced-motion behavior.
+- **Do** preserve real runtime availability, explicit save actions and unsaved-change protection.
 
 ### Don't:
 
-- **Don't** turn contacts or history into populated lists before their data exists.
+- **Don't** introduce a separate settings palette or font stack.
+- **Don't** populate contacts or history before their data exists.
 - **Don't** add unsupported call controls such as mute, hold or transfer.
-- **Don't** replace native window controls with a decorative custom title bar.
-- **Don't** expand the compact utility into a dashboard layout.
+- **Don't** replace native window controls or expand the utility into a dashboard.
