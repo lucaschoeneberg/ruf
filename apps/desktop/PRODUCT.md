@@ -38,6 +38,8 @@ people/numbers are visual reference material, not application data.
 ## Product Principles
 
 - Prioritize dialing and reachable call controls in a small window.
+- The user explicitly prioritizes onboarding with their own SIP account; local
+  Asterisk/test audio is a secondary developer path, never the default.
 - Hide account configuration behind an explicit settings action.
 - Describe actual runtime state; never fabricate registration or contact/history data.
 - Keep common actions accessible by keyboard and named in German.

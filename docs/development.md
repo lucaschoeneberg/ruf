@@ -87,3 +87,20 @@ it before the Svelte/TypeScript check. No browser/test dependency is added to th
 application. Browser preview allows keypad/navigation/layout work but never
 claims native readiness or enables registration/calling. Real calls still use the
 existing Tauri API and the independent Asterisk echo regression.
+
+## First-run onboarding
+
+The initial introduction is skippable and replayable through the header info
+action. It stores only `sip.introduction.v1 = seen` in local storage; blocked
+storage falls back to an in-memory dismissal. Credentials and audio settings are
+not persisted. Own SIP credentials start blank and normal system audio is the
+default. Test tone/recording and the local Asterisk instructions are opt-in
+advanced content. Registration feedback distinguishes a queued request from
+native confirmation.
+
+If a webview reload restores an already configured native session, its audio mode
+is unavailable in the current snapshot contract. The UI explicitly marks it
+unknown instead of assuming system audio. New calls, answering and reconfiguration
+require an app restart; hangup/reject still work. This avoids accidentally using
+a recording test source or submitting an incompatible mode. API shapes remain
+unchanged. See [onboarding verification](verification/2026-11-04-onboarding.md).

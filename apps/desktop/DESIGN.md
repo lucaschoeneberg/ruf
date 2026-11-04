@@ -11,6 +11,9 @@ colors:
   accent: "#a0dec0"
   accent-ink: "#123526"
   danger: "#eeafb4"
+  caution: "#eacb99"
+  error-surface: "#42292d"
+  error-copy: "#ffd1d4"
   field-border: "#444c56"
   secondary-text: "#e2e7ec"
   nav-selected: "#303c37"
@@ -35,6 +38,12 @@ typography:
     fontWeight: 650
     lineHeight: 1.45
     letterSpacing: "-0.02em"
+  introduction:
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: "20px"
+    fontWeight: 600
+    lineHeight: 1.25
+    letterSpacing: "-0.025em"
   body:
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     fontSize: "12px"
@@ -222,6 +231,28 @@ mint outline (2px with 3px offset).
 
 Color and border transitions use a short easing (140ms ease); reduced-motion
 preferences remove transitions and animations.
+
+### First run and connection feedback
+
+The first-run introduction prioritizes the user's own SIP account. It can be
+skipped and reopened from the header's info action; only a non-sensitive dismissal
+flag is stored. Existing configured sessions do not get interrupted by the intro.
+The introduction uses the compact introduction type role, not a hero layout.
+
+Account fields start empty and use the normal microphone/speaker source. Inline
+field help identifies the SIP server, authentication username and session-only
+password. Test audio and the local Asterisk guide are progressively disclosed.
+The actual SIP/UDP development limitation stays visible before connecting.
+
+A queued registration is pending. Focus and scroll reveal pending/failed status
+without interrupting a user editing a field; confirmed native registration leads
+to the keypad with a short first-call hint. Native failures receive actionable
+German copy. Contacts/history do not claim their unavailable data is merely empty.
+
+Restored native sessions whose audio source cannot be read are explicitly
+unknown: possible test recording is disclosed, new calls/answer/reconfiguration
+are blocked until an app restart, and hangup/reject remain available. The draft's
+microphone default is never treated as evidence of a restored engine's mode.
 
 ### Inputs / Fields
 

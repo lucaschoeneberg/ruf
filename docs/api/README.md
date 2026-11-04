@@ -74,3 +74,18 @@ numeric native/SIP code, without protocol text or credentials. Error enums are
 application codes, not SIP response codes. Asynchronous failures appear in
 `lastError`; a new registration/dial clears the preceding error. Invalid new
 input does not replace the current account or call.
+
+## Frontend onboarding behavior
+
+IPC/DTO shapes are unchanged by the onboarding pass. The account form gives
+field-specific feedback using the restrictions above and trims only the server
+and username; it preserves the password verbatim. The backend remains the
+validation authority. Frontend `errorMessage` maps known application codes to
+German recovery guidance; it does not change the original rejected `PhoneError`.
+A queued registration never counts as onboarding success; only native
+`registration: registered` confirms connection.
+
+The snapshot does not expose audio mode. After restoring a configured native
+session without a known local audio selection, the UI requires a full app restart
+before new calls, answering or reconfiguration. Existing hangup/reject remain
+available. It does not infer system audio from its form's default.
