@@ -1,0 +1,51 @@
+name: Desktop build
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            bundle: dmg
+            artifact: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
+            artifact: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+    env:
+      CI: true
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Install the desktop target
+        run: rustup target add ${{ matrix.target }}
+      - run: npm run check:versions
+      - run: npm run types:generate
+      - name: Verify generated contracts are current
+        run: git diff --exit-code -- apps/desktop/src/lib/generated
+      - run: npm run format:check
+      - run: npm run check
+      - run: npm run build
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - name: Build the installer
+        run: npm run desktop:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-${{ matrix.target }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 14

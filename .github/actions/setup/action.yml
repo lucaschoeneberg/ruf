@@ -1,0 +1,18 @@
+name: Set up the workspace
+description: Install the pinned toolchains and locked npm dependencies.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      with:
+        node-version-file: .node-version
+        cache: npm
+    - name: Install the repository's Rust toolchain
+      shell: bash
+      run: rustup show
+    - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+      with:
+        save-if: ${{ github.event_name != 'pull_request' }}
+    - name: Install frontend dependencies
+      shell: bash
+      run: npm ci

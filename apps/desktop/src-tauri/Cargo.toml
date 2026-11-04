@@ -1,0 +1,23 @@
+[package]
+name = "sip-desktop"
+description = "SIP softphone desktop shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "sip_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+tauri.workspace = true
+phone-core.workspace = true
+baresip-adapter.workspace = true
+
+[lints]
+workspace = true

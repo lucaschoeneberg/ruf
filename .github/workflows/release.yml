@@ -1,0 +1,65 @@
+name: Draft release
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Validate release version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Match tag to the application version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run check:versions
+
+  desktop:
+    name: Verified installers
+    needs: version
+    uses: ./.github/workflows/desktop-build.yml
+
+  draft:
+    name: Create release draft
+    needs: [version, desktop]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          pattern: desktop-*
+          path: artifacts
+      - name: Create a draft from this run's installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mac=(artifacts/desktop-aarch64-apple-darwin/*.dmg)
+          windows=(artifacts/desktop-x86_64-pc-windows-msvc/*.exe)
+          if [[ ${#mac[@]} -ne 1 || ${#windows[@]} -ne 1 ]]; then
+            echo "Expected exactly one macOS and one Windows installer."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" "${mac[@]}" "${windows[@]}" \
+            --verify-tag --draft --title "SIP $RELEASE_TAG" \
+            --notes-file docs/releases/foundation.md

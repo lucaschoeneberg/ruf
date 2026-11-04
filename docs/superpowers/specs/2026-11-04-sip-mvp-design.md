@@ -1,6 +1,6 @@
 # SIP-Softphone: MVP-Entwurf
 
-Stand: 4. November 2026. Status: Architekturvorschlag und MVP-Roadmap, noch keine freigegebene Implementierungsspezifikation.
+Stand: 4. November 2026. Status: MVP-Roadmap. Die Projektgrundlage wurde mit der anschließenden Nutzeranweisung zur Umsetzung freigegeben; Telefoniefunktionen bleiben spätere Meilensteine.
 
 ## Ausgangslage und Entscheidungen
 
@@ -129,14 +129,14 @@ Ein einheitlicher AppError liefert einen stabilen Code, eine sichere Meldung und
 
 ## Reihenfolge und überprüfbare Ergebnisse
 
-| Meilenstein | Ergebnis | Abnahme |
-| --- | --- | --- |
-| M0: Native Machbarkeit | Gepinnte baresip-/libre-Versionen, kleiner Rust/C-Aufrufpfad und Builds auf macOS und Windows | Registrierung, eingehender/ausgehender Anruf, Ton in beiden Richtungen und sauberer Shutdown auf beiden Plattformen; AEC- und TLS/SRTP-Buildpfad festlegen |
-| M1: Erster vollständiger Ablauf | Installierbare Tauri-App, ein Konto, sicher hinterlegte Zugangsdaten, Nummer wählen/annehmen/ablehnen/auflegen | Nach App-Neustart wieder erreichbar; verständliche Fehler bei falschem Passwort und verweigertem Mikrofon; keine Geheimnisse in Logs oder Konfigurationsdateien |
-| M2: Alltagstelefonie | Mehrere registrierte Konten, Kontowahl, Hold/Mute/DTMF, Audioauswahl und definierte Belegtbehandlung | Zwei Konten parallel erreichbar; genau ein Gespräch; Sprachmenü reagiert auf DTMF; zweiter Anruf beeinflusst laufendes Gespräch nicht |
-| M3: Dauerhafter Verlauf | SQLite-Migrationen, Verlauf, Rückruf und Wiederherstellung nach Absturz | Ereignisse erzeugen keine doppelten Historieneinträge; Richtung, Ergebnis und Konto stimmen; unterbrochene Gespräche werden erkannt; Löschung bleibt nach Neustart wirksam |
-| M4: Kontakte | vCard-Import auf beiden Plattformen und native macOS-Kontakte | Mehrere Nummern, interne Durchwahlen, Unicode-Namen, wiederholter Import und verweigerte/entzogene Systemfreigabe funktionieren nachvollziehbar |
-| M5: MVP-Abnahme | Tray-Verhalten, Standby/Netz-/Gerätewechsel, Verschlüsselung, Installer und Kompatibilitätsbericht | Getestete Profile bestehen die vereinbarte Matrix auf beiden Plattformen; signierte/notarisierte Installationspakete für die veröffentlichte Beta |
+| Meilenstein                     | Ergebnis                                                                                                       | Abnahme                                                                                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0: Native Machbarkeit          | Gepinnte baresip-/libre-Versionen, kleiner Rust/C-Aufrufpfad und Builds auf macOS und Windows                  | Registrierung, eingehender/ausgehender Anruf, Ton in beiden Richtungen und sauberer Shutdown auf beiden Plattformen; AEC- und TLS/SRTP-Buildpfad festlegen                 |
+| M1: Erster vollständiger Ablauf | Installierbare Tauri-App, ein Konto, sicher hinterlegte Zugangsdaten, Nummer wählen/annehmen/ablehnen/auflegen | Nach App-Neustart wieder erreichbar; verständliche Fehler bei falschem Passwort und verweigertem Mikrofon; keine Geheimnisse in Logs oder Konfigurationsdateien            |
+| M2: Alltagstelefonie            | Mehrere registrierte Konten, Kontowahl, Hold/Mute/DTMF, Audioauswahl und definierte Belegtbehandlung           | Zwei Konten parallel erreichbar; genau ein Gespräch; Sprachmenü reagiert auf DTMF; zweiter Anruf beeinflusst laufendes Gespräch nicht                                      |
+| M3: Dauerhafter Verlauf         | SQLite-Migrationen, Verlauf, Rückruf und Wiederherstellung nach Absturz                                        | Ereignisse erzeugen keine doppelten Historieneinträge; Richtung, Ergebnis und Konto stimmen; unterbrochene Gespräche werden erkannt; Löschung bleibt nach Neustart wirksam |
+| M4: Kontakte                    | vCard-Import auf beiden Plattformen und native macOS-Kontakte                                                  | Mehrere Nummern, interne Durchwahlen, Unicode-Namen, wiederholter Import und verweigerte/entzogene Systemfreigabe funktionieren nachvollziehbar                            |
+| M5: MVP-Abnahme                 | Tray-Verhalten, Standby/Netz-/Gerätewechsel, Verschlüsselung, Installer und Kompatibilitätsbericht             | Getestete Profile bestehen die vereinbarte Matrix auf beiden Plattformen; signierte/notarisierte Installationspakete für die veröffentlichte Beta                          |
 
 Builds und automatisierte Checks auf beiden Plattformen beginnen in M0/M1. Release-Paketierung wird ab M1 mitgeführt. Erst M5 enthält die abschließende Beta-Freigabe, nicht den ersten Windows-Test.
 
