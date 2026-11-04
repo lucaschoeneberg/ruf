@@ -238,3 +238,24 @@ Installed-platform acceptance must cover silent login, tray/menu actions,
 hide/reopen, second-launch handling, denied notifications, delayed VPN availability
 and real incoming/outgoing media. A successful native build alone does not verify
 these OS behaviors.
+
+## Browser state and layout regressions
+
+Run `bun run test:ui:flows` for the phone, Settings and compact-layout scenarios.
+The runner starts its own loopback Vite server, uses pinned Playwright CLI 0.1.23
+through Bun, and closes its browser/server afterward. All SIP/account/device IPC is
+synthetic; this check cannot register accounts, place calls or access a keychain.
+Captures go to the ignored `output/playwright/` directory.
+
+Install Chromium when no browser is available:
+
+```sh
+bunx --package @playwright/cli@0.1.23 playwright-cli install-browser chromium
+bun run test:ui:flows
+```
+
+Linux CI uses `--with-deps` during browser installation. Existing Playwright
+Chromium caches are detected; `SIP_UI_BROWSER_EXECUTABLE` can select another
+installed Chromium executable explicitly. The scenario modules under
+`tests/ui/browser/` are also usable through the CLI's `run-code --filename` after
+wrapping their default function. UI unit tests remain `bun run test:ui`.

@@ -262,6 +262,10 @@ uses 14px side insets and a three-column, four-row keypad with 4px gaps and
 44px minimum rows. At viewport heights up to 450px, rows reduce to 40px and
 padding compresses while the content remains scrollable.
 
+Native windows always fill their available content area, including when enlarged.
+Only the browser preview receives the centered 340 × 500px frame. The runtime
+`native-document` marker keeps that preview decoration out of macOS/Windows windows.
+
 The unframed browser shell fills its viewport, capped at 420px wide and 680px
 high. From 500px viewport width the browser preview centers a 340 × 500px shell
 inside 24px padding, with height bounded by the viewport. This preview frame is
@@ -279,6 +283,16 @@ At widths up to 820px the sidebar is 200px, main insets 24px and controls
 and stacked row controls and actions. Native settings cannot shrink to this
 fallback width. Compact call panels sit above contacts or history so the
 current supported call actions remain reachable.
+
+Text selection, carets and scrollbars share the global palette across phone and
+settings. Use the actual bundled 400/600 font faces; do not introduce intermediate
+weights for the same role. Disabled controls retain their disabled appearance on hover.
+
+Settings drafts survive failed saves and incoming-call transitions. Native window
+close and app Quit reuse the same inline discard panel as section navigation;
+explicit Quit first reveals minimized settings. Loading one settings subsystem must
+not disable unrelated sections. A failed account switch keeps the authoritative
+outgoing identity visible, and unavailable phone state always offers a retry path.
 
 ## Elevation & Depth
 
