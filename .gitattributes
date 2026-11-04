@@ -2,3 +2,6 @@
 *.png binary
 *.ico binary
 *.icns binary
+# Preserve upstream license text and unified-diff context verbatim.
+apps/desktop/public/fonts/IBM-Plex-Sans-LICENSE.txt -whitespace
+native/patches/*.patch -whitespace

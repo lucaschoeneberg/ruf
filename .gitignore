@@ -16,6 +16,7 @@ Thumbs.db
 *.mobileprovision
 /artifacts/
 /.playwright-cli/
+/output/playwright/
 /native/build/
 /native/install/
 

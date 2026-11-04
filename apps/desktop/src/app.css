@@ -20,8 +20,8 @@
     "Segoe UI",
     sans-serif;
   font-size: 13px;
-  color: #f0f6fc;
-  background: #0d1117;
+  color: var(--text);
+  background: var(--surface);
   color-scheme: dark;
   font-synthesis: none;
   line-height: 1.4;
@@ -326,7 +326,7 @@ button {
   font-size: inherit;
   min-height: 22px;
 }
-.text-button:hover {
+.text-button:hover:not(:disabled) {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -432,7 +432,7 @@ fieldset {
   font-size: 13px;
   min-height: 28px;
 }
-.secondary-button:hover {
+.secondary-button:hover:not(:disabled) {
   background: var(--surface-hover);
 }
 .error-notice {
@@ -554,17 +554,25 @@ fieldset {
   border: 0;
 }
 @media (min-width: 500px) {
-  body {
+  :root:not(.native-document) body {
     background: var(--surface-panel);
     padding: 24px;
   }
-  .softphone {
+  :root:not(.native-document) .softphone {
     width: 340px;
     height: 500px;
     max-height: calc(100dvh - 48px);
     border: 1px solid var(--border);
     border-radius: 6px;
   }
+}
+.native-document .softphone {
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
 }
 @media (max-height: 450px) {
   .app-header {
@@ -734,17 +742,6 @@ summary:focus-visible {
   font-size: 13px;
   background: var(--surface);
 }
-.settings-shell ::selection {
-  background: var(--surface-selected);
-  color: var(--accent-ink);
-}
-.settings-shell input {
-  caret-color: var(--accent);
-}
-.settings-shell * {
-  scrollbar-color: var(--border-strong) transparent;
-  scrollbar-width: thin;
-}
 .settings-sidebar {
   padding: 10px 10px 0;
   background: var(--surface-panel);
@@ -831,7 +828,7 @@ summary:focus-visible {
 }
 .accounts-heading h2 {
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 600;
   color: var(--muted);
   margin: 0;
 }
@@ -1135,7 +1132,7 @@ summary:focus-visible {
 .settings-lab summary {
   cursor: pointer;
   color: var(--text-secondary);
-  font-weight: 550;
+  font-weight: 600;
 }
 .settings-lab code {
   color: var(--text-secondary);

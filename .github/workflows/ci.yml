@@ -38,3 +38,24 @@ jobs:
   desktop:
     name: Desktop
     uses: ./.github/workflows/desktop-build.yml
+
+  ui-flows:
+    name: Desktop UI state regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Install the browser used by the pinned CLI
+        run: bunx --package @playwright/cli@0.1.23 playwright-cli install-browser chromium --with-deps
+      - run: bun run test:ui:flows
+      - name: Retain UI captures for review
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ui-state-captures
+          path: output/playwright/
+          if-no-files-found: ignore
+          retention-days: 7

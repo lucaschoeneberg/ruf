@@ -11,4 +11,5 @@ ignorePatterns = [
   "Cargo.lock",
   "bun.lock",
   ".playwright-cli/",
+  "output/playwright/",
 ]
