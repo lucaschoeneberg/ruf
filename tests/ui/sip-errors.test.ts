@@ -10,7 +10,7 @@ const cases: [ErrorCode, RegExp][] = [
   ["sipTimeout", /rechtzeitig/],
   ["sipUnavailable", /nicht erreichbar/],
   ["sipBusy", /besetzt/],
-  ["sipNotAcceptable", /Medien/],
+  ["sipNotAcceptable", /Audioformate/],
   ["sipRejected", /abgelehnt/],
   ["sipFailure", /fehlgeschlagen/],
 ];

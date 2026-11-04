@@ -259,7 +259,7 @@
         onclick={() => {
           confirmation = "all";
           actionError = null;
-        }}>Leeren</button
+        }}>Verlauf leeren</button
       >
     {/if}
   </div>
@@ -372,7 +372,7 @@
             ? "Ändere die Suche oder den Filter."
             : contactScope
               ? "Für diese Nummern sind keine Anrufe gespeichert."
-              : "Deine Anrufe erscheinen hier, sobald Ruf sie aufzeichnet."}
+              : "Hier erscheinen Anrufe, die du mit Ruf tätigst oder empfängst."}
         </p>
         {#if query.trim() || filter !== "all"}<button
             class="secondary-button"
@@ -511,7 +511,8 @@
                       class="text-button delete-entry"
                       type="button"
                       disabled={entry.outcome === "inProgress" || mutating}
-                      onclick={() => (confirmation = entry.id)}>Löschen</button
+                      onclick={() => (confirmation = entry.id)}
+                      >Anruf löschen …</button
                     >
                   </div>
                   {#if entry.outcome === "inProgress"}<p class="history-note">

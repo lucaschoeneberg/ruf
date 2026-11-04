@@ -160,7 +160,7 @@
         ><button
           class="text-button"
           type="button"
-          onclick={() => void openSource()}>In Kontakte öffnen</button
+          onclick={() => void openSource()}>macOS-Kontakte öffnen</button
         >
       </div>
       {#if copiedIndex !== null}<span class="sr-only" role="status"

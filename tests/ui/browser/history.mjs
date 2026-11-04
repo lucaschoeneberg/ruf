@@ -726,7 +726,9 @@ export default async function historyRegressions(page) {
     async () => {
       await fresh();
       await details("Anna Beispiel").click();
-      await page.getByRole("button", { name: "Löschen", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Anruf löschen …", exact: true })
+        .click();
       await ensure(
         page.evaluate(
           () =>
@@ -739,7 +741,9 @@ export default async function historyRegressions(page) {
       await page
         .getByRole("button", { name: "Abbrechen", exact: true })
         .click();
-      await page.getByRole("button", { name: "Löschen", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Anruf löschen …", exact: true })
+        .click();
       await page.evaluate(() => (window.__historyFixture.failDelete = true));
       await page
         .getByRole("button", { name: "Anruf löschen", exact: true })
@@ -769,10 +773,14 @@ export default async function historyRegressions(page) {
       await fresh();
       await details("Laufender Testanruf").click();
       await ensure(
-        page.getByRole("button", { name: "Löschen", exact: true }).isDisabled(),
+        page
+          .getByRole("button", { name: "Anruf löschen …", exact: true })
+          .isDisabled(),
         "Ongoing call can be deleted",
       );
-      await page.getByRole("button", { name: "Leeren", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Verlauf leeren", exact: true })
+        .click();
       await page
         .getByText(
           /Gesamten Verlauf löschen\? Laufende Anrufe bleiben erhalten/,

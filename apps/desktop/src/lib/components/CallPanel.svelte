@@ -30,11 +30,11 @@
     idle: "Kein Gespräch",
     calling: "Verbindung wird aufgebaut …",
     ringing: "Es klingelt …",
-    earlyMedia: "Frühe Medienverbindung",
+    earlyMedia: "Verbindung wird vorbereitet …",
     incoming: "Eingehender Anruf",
     answering: "Wird angenommen …",
     active: "Gespräch läuft",
-    held: "Gespräch gehalten",
+    held: "Gegenstelle hält das Gespräch",
   };
 </script>
 
@@ -58,7 +58,7 @@
       {elapsed}
     </p>{/if}
   {#if receivedDtmf}<p class="call-test-note">
-      Empfangener Tastenton: {receivedDtmf}
+      Empfangene Wähltaste: {receivedDtmf}
     </p>{/if}
   {#if audioUnknown}<p class="call-test-note">
       Audioquelle unbekannt. Es kann ein Testton mit Aufzeichnung aktiv sein.

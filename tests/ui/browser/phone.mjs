@@ -617,7 +617,9 @@ export default async function phoneRegressions(page) {
         });
         f.emit();
       });
-      await page.getByText("Frühe Medienverbindung", { exact: true }).waitFor();
+      await page
+        .getByText("Verbindung wird vorbereitet …", { exact: true })
+        .waitFor();
       await page.evaluate(() => {
         const f = window.__phoneFixture;
         Object.assign(f.state, {
@@ -639,9 +641,11 @@ export default async function phoneRegressions(page) {
         });
         f.emit();
       });
-      await page.getByText("Gespräch gehalten", { exact: true }).waitFor();
       await page
-        .getByText("Empfangener Tastenton: #", { exact: true })
+        .getByText("Gegenstelle hält das Gespräch", { exact: true })
+        .waitFor();
+      await page
+        .getByText("Empfangene Wähltaste: #", { exact: true })
         .waitFor();
       await page.evaluate(() => {
         const f = window.__phoneFixture;

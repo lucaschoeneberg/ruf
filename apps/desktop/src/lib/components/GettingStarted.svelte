@@ -44,7 +44,7 @@
     {runtime === "browser"
       ? "Hier kannst du Tastatur und Navigation ausprobieren. Zum Telefonieren brauchst du die Desktop-App."
       : runtime === "unlinked"
-        ? "Du kannst die Oberfläche ansehen. Für echte Anrufe benötigst du einen Desktop-Build mit nativer Telefonie."
+        ? "Diese App-Version kann keine Anrufe starten oder annehmen. Nutze eine Ruf-Version mit eingebundener Telefonie."
         : runtime === "unavailable"
           ? "Der Verbindungsstatus konnte nicht geladen werden. Prüfe die Meldung oben und versuche es erneut."
           : audioUnknown
@@ -87,7 +87,7 @@
             ? "Nummer wählen"
             : "Tastatur ausprobieren"}</button
       ><button class="text-button" onclick={onsetup}
-        >{ready ? "Kontoeinstellungen öffnen" : "Einrichtung ansehen"}</button
+        >Kontoeinstellungen öffnen</button
       >{/if}
   </div>
   <p class="start-note">Starthilfe jederzeit oben öffnen.</p>

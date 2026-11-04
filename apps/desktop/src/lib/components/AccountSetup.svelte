@@ -79,7 +79,7 @@
         ? `${account.username}@${account.registrar}`
         : existing
           ? `${existing.username}@${existing.registrar}`
-          : "Verbinde eine Telefonanlage oder deinen SIP-Anbieter."}
+          : "Alle Felder sind erforderlich. Die Zugangsdaten erhältst du von deiner Telefonanlage oder deinem SIP-Anbieter."}
     </p>
   </div>
   {#if existing}<span
@@ -111,6 +111,7 @@
           placeholder="z. B. Büro"
           maxlength="64"
           autocomplete="off"
+          required
           aria-invalid={!!nameError}
           aria-describedby={nameError ? "name-error" : "name-help"}
         />{#if nameError}<p id="name-error" class="field-error">

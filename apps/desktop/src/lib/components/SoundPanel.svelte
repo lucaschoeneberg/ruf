@@ -73,7 +73,8 @@
     class="settings-feedback"
   >
     Gleichnamige Geräte lassen sich nicht eindeutig auswählen. Benenne sie in
-    den macOS-Audioeinstellungen um oder verwende Systemstandard.
+    den Audioeinstellungen deines Betriebssystems um oder verwende
+    Systemstandard.
   </p>{/if}
 <h2 class="settings-group">Audiogeräte</h2>
 <fieldset disabled={disabled || busy}>
@@ -109,8 +110,8 @@
             id={`${row.key}-missing`}
             class="field-error"
           >
-            Gerät nicht angeschlossen. Verbinde es erneut oder wähle ein anderes
-            Gerät.
+            Gespeichertes Gerät nicht verfügbar. Verbinde es erneut oder wähle
+            ein anderes Gerät.
           </p>{/if}
       </div>
     </div>

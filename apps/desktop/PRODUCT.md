@@ -63,3 +63,14 @@ settings, onboarding, contacts/history empty states and call views share one dar
 palette, thin dividers, 4px controls and locally bundled IBM Plex Sans. The former
 mint phone/separate blue-settings split is replaced. Native window controls and
 all real application states remain.
+
+## Interface terminology
+
+Use concise German with direct “du” instructions. “SIP-Konto” names the identity;
+“Anmeldung” names registration and never proves that audio works. “Anruf” covers
+an attempt or incoming offer; “Gespräch” means an established call. Remote hold
+must say that the other party is holding the call. “Verlauf” stores call details,
+while “Audioaufzeichnung” is reserved for the explicit developer test-tone mode.
+“macOS-Kontakte” names the operating-system app; opening it does not select a
+specific contact. Destructive actions name “Anruf” or “Verlauf”. Keep protocol
+and diagnostic details in supporting text rather than primary action labels.

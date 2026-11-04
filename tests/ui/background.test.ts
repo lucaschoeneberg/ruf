@@ -56,8 +56,8 @@ test("an answering call remains visible without another answer action", () => {
 });
 
 for (const [state, label] of [
-  ["earlyMedia", "Frühe Medienverbindung"],
-  ["held", "Gespräch gehalten"],
+  ["earlyMedia", "Verbindung wird vorbereitet …"],
+  ["held", "Gegenstelle hält das Gespräch"],
 ] as const)
   test(`${state} remains visible with guarded hangup and escaped identity`, () => {
     const { body } = render(CallPanel, {
@@ -77,7 +77,7 @@ for (const [state, label] of [
     expect(body).toContain("&lt;img");
     expect(body).not.toContain("<img src=x");
     expect(body).toContain("Auflegen");
-    expect(body).toContain("Empfangener Tastenton: #");
+    expect(body).toContain("Empfangene Wähltaste: #");
     if (state === "held") expect(body).toContain("02:34");
     else expect(body).not.toContain("02:34");
   });

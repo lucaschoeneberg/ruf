@@ -32,7 +32,7 @@
     } catch {
       if (mounted)
         error = request
-          ? "macOS konnte die Freigabe nicht anfordern. Starte die aktualisierte Ruf-App erneut und versuche es noch einmal."
+          ? "Die Kontakte-Freigabe konnte nicht angefordert werden. Starte Ruf neu und versuche es erneut."
           : "Die Kontakte-Freigabe konnte nicht geprüft werden. Versuche es erneut.";
     } finally {
       if (mounted) working = false;

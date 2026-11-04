@@ -83,9 +83,9 @@ export function errorMessage(error: unknown): string {
       case "credentialCleanupPending":
         return "Die Kontoänderung ist gespeichert. Ein altes Passwort konnte noch nicht aus dem Schlüsselbund gelöscht werden. Erlaube den Zugriff und starte die App erneut, damit die Löschung wiederholt wird.";
       case "storageFailure":
-        return "Das Konto konnte nicht dauerhaft gespeichert oder geladen werden. Prüfe den Zugriff auf den System-Schlüsselbund und den App-Datenordner. Versuche es danach erneut.";
+        return "Die Einstellungen konnten nicht gespeichert oder geladen werden. Prüfe den Zugriff auf den System-Schlüsselbund und den App-Datenordner. Versuche es danach erneut.";
       case "sipRedirect":
-        return "Der Anruf wurde umgeleitet. Bitte prüfe die Zielnummer und versuche es erneut.";
+        return "Der Anruf soll umgeleitet werden. Ruf wählt das neue Ziel nicht automatisch. Prüfe die Zielnummer.";
       case "sipAuthenticationFailed":
         return "Die SIP-Anmeldung wurde abgelehnt. Prüfe die Zugangsdaten in den Kontoeinstellungen.";
       case "sipForbidden":
@@ -99,7 +99,7 @@ export function errorMessage(error: unknown): string {
       case "sipBusy":
         return "Die Gegenstelle ist besetzt. Versuche es später erneut.";
       case "sipNotAcceptable":
-        return "Die Gegenstelle unterstützt die angebotenen Medien nicht. Prüfe die Audioeinstellungen oder den SIP-Anbieter.";
+        return "Die Gegenstelle unterstützt die angebotenen Audioformate nicht. Prüfe die Audioeinstellungen oder den SIP-Anbieter.";
       case "sipRejected":
         return "Der Anruf wurde von der Gegenstelle abgelehnt.";
       case "sipFailure":

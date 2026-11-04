@@ -468,7 +468,7 @@ export default async function contactsPermissions(page, baseUrl) {
     .getByRole("button", { name: "Details zu Ben Beispiel", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "In Kontakte öffnen", exact: true })
+    .getByRole("button", { name: "macOS-Kontakte öffnen", exact: true })
     .waitFor();
   await page.evaluate(() => (window.__contactPermissionTest.failCopy = true));
   await page
@@ -491,12 +491,12 @@ export default async function contactsPermissions(page, baseUrl) {
   );
   await page.evaluate(() => (window.__contactPermissionTest.failOpen = true));
   await page
-    .getByRole("button", { name: "In Kontakte öffnen", exact: true })
+    .getByRole("button", { name: "macOS-Kontakte öffnen", exact: true })
     .click();
   await page.getByRole("alert").waitFor();
   await page.evaluate(() => (window.__contactPermissionTest.failOpen = false));
   await page
-    .getByRole("button", { name: "In Kontakte öffnen", exact: true })
+    .getByRole("button", { name: "macOS-Kontakte öffnen", exact: true })
     .click();
   ensure(
     await page.evaluate(() =>

@@ -610,7 +610,7 @@ export default async function settingsRegressions(
         .getByRole("button", { name: "Geräte aktualisieren", exact: true })
         .click();
       await page
-        .getByText("Gerät nicht angeschlossen.", { exact: false })
+        .getByText("Gespeichertes Gerät nicht verfügbar.", { exact: false })
         .waitFor();
       await page
         .getByLabel("Klingelton-Ausgabe", { exact: true })
