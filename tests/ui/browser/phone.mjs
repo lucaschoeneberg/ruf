@@ -162,6 +162,24 @@ export default async function phoneRegressions(page) {
       .waitFor();
   }
   await page.setViewportSize({ width: 340, height: 500 });
+  await check(
+    "invalid number exposes its correction to assistive technology",
+    async () => {
+      await fresh();
+      const input = page.getByRole("textbox", {
+        name: "Nummer oder Nebenstelle",
+      });
+      await input.fill("abc");
+      const described = await input.evaluate((e) =>
+        (e.getAttribute("aria-describedby") ?? "")
+          .split(/\s+/)
+          .map((id) => document.getElementById(id)?.textContent ?? "")
+          .join(" "),
+      );
+      if (!described.includes("Ziffern") || !described.includes("+"))
+        throw new Error("Invalid number has no associated correction hint");
+    },
+  );
   await check("initial snapshot error offers retry and recovers", async () => {
     await fresh("?snapshot-error");
     const retry = page.getByRole("button", {

@@ -309,10 +309,190 @@ export default async function historyRegressions(page) {
     );
   });
   await check(
+    "refresh retains more than two pages, expanded details and keyboard position",
+    async () => {
+      await fresh();
+      await page.evaluate(() => {
+        const f = window.__historyFixture;
+        const source = f.entries[5];
+        for (let index = 55; index < 130; index++)
+          f.entries.push({
+            ...source,
+            id: `synthetic-history-${index}`,
+            number: String(1234 + index),
+            remoteName: `Testanruf ${index}`,
+            startedAtMs: source.startedAtMs - (index - 5) * 60000,
+            answeredAtMs: source.answeredAtMs - (index - 5) * 60000,
+            endedAtMs: source.endedAtMs - (index - 5) * 60000,
+          });
+      });
+      await page.getByRole("button", { name: "Verlauf aktualisieren" }).click();
+      for (const count of [100, 130]) {
+        await page
+          .getByRole("button", { name: "Weitere Anrufe anzeigen" })
+          .click();
+        await page.waitForFunction(
+          (count) =>
+            document.querySelectorAll(".history-entry").length === count,
+          count,
+        );
+      }
+      await details("Testanruf 129").click();
+      const expanded = page.getByRole("button", {
+        name: "Testanruf 129: Anrufdetails ausblenden",
+        exact: true,
+      });
+      await expanded.focus();
+      const scrollTop = await page
+        .locator(".history-panel")
+        .evaluate((e) => e.scrollTop);
+      for (const trigger of ["event", "focus"]) {
+        await page.evaluate((trigger) => {
+          const f = window.__historyFixture;
+          f.commands = [];
+          if (trigger === "event") f.emit();
+          else window.dispatchEvent(new Event("focus"));
+        }, trigger);
+        await page.waitForFunction(() =>
+          window.__historyFixture.commands.some(
+            ({ command }) => command === "get_history",
+          ),
+        );
+        await page.locator('.history-panel[aria-busy="false"]').waitFor();
+        await ensure(
+          page
+            .locator(".history-entry")
+            .count()
+            .then((n) => n === 130),
+          "Refresh discarded loaded pages",
+        );
+        await ensure(expanded.count(), "Refresh collapsed the open call");
+        await ensure(
+          expanded.evaluate((e) => e === document.activeElement),
+          "Refresh lost keyboard focus",
+        );
+        await ensure(
+          page
+            .locator(".history-panel")
+            .evaluate((e, top) => Math.abs(e.scrollTop - top) < 2, scrollTop),
+          "Refresh moved the reading position",
+        );
+      }
+      await page.evaluate(() => {
+        window.__historyFixture.failLoad = true;
+        window.__historyFixture.emit();
+      });
+      await page.getByRole("alert").waitFor();
+      await page.evaluate(() => (window.__historyFixture.failLoad = false));
+      await page
+        .getByRole("button", { name: "Erneut versuchen", exact: true })
+        .click();
+      await page.locator('.history-panel[aria-busy="false"]').waitFor();
+      await ensure(
+        page
+          .locator(".history-entry")
+          .count()
+          .then((n) => n === 130),
+        "Retry discarded the retained window",
+      );
+    },
+  );
+  await check(
+    "unchanged contact scope retains loaded pages and details on focus",
+    async () => {
+      await fresh();
+      await page.evaluate(() => {
+        const f = window.__historyFixture;
+        for (const entry of f.entries) entry.number = "1234";
+      });
+      await details("Anna Beispiel").click();
+      await page
+        .getByRole("button", { name: "Kontakt Anna Beispiel öffnen" })
+        .click();
+      await page
+        .getByRole("button", { name: "Anrufverlauf von Anna Beispiel" })
+        .click();
+      await page.getByText("Für Anna Beispiel", { exact: true }).waitFor();
+      await page
+        .getByRole("button", { name: "Weitere Anrufe anzeigen" })
+        .click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".history-entry").length === 55,
+      );
+      await details("Testanruf 54").click();
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await page.locator('.history-panel[aria-busy="false"]').waitFor();
+      await page.evaluate(
+        () => new Promise((resolve) => setTimeout(resolve, 0)),
+      );
+      await ensure(
+        page
+          .locator(".history-entry")
+          .count()
+          .then((n) => n === 55),
+        "Unchanged contact scope discarded loaded pages",
+      );
+      await ensure(
+        page
+          .getByRole("button", {
+            name: "Testanruf 54: Anrufdetails ausblenden",
+          })
+          .count(),
+        "Unchanged contact scope collapsed details",
+      );
+    },
+  );
+  await check(
+    "search batches typing and retains results while a response is pending",
+    async () => {
+      await fresh();
+      await page.evaluate(() => (window.__historyFixture.commands = []));
+      await search().pressSequentially("Testanruf", { delay: 10 });
+      await ensure(
+        page
+          .locator(".history-entry")
+          .count()
+          .then((n) => n === 50),
+        "Typing removed readable results",
+      );
+      await page.waitForFunction(() =>
+        window.__historyFixture.commands.some(
+          ({ command, args }) =>
+            command === "get_history" && args.query.search === "Testanruf",
+        ),
+      );
+      const queries = await page.evaluate(() =>
+        window.__historyFixture.commands
+          .filter(({ command }) => command === "get_history")
+          .map(({ args }) => args.query.search),
+      );
+      if (queries.length !== 1 || queries[0] !== "Testanruf")
+        throw new Error(`Typing was not batched: ${JSON.stringify(queries)}`);
+      const count = await page.locator(".history-entry").count();
+      await search().fill("delay");
+      await page.waitForFunction(() => !!window.__historyFixture.delayed);
+      await ensure(
+        page
+          .locator(".history-entry")
+          .count()
+          .then((n) => n === count),
+        "Pending search removed previous results",
+      );
+      await page.evaluate(() => window.__historyFixture.delayed());
+    },
+  );
+  await check(
     "literal name number account search and no-result recovery",
     async () => {
       await fresh();
       await search().fill("[100%]");
+      await page.waitForFunction(
+        () =>
+          window.__historyFixture.commands
+            .filter(({ command }) => command === "get_history")
+            .at(-1)?.args.query.search === "[100%]" &&
+          document.querySelector('.history-panel[aria-busy="false"]'),
+      );
       await details("Archiv [100%]").waitFor();
       await ensure(
         page
@@ -369,8 +549,15 @@ export default async function historyRegressions(page) {
     await fresh();
     await search().fill("delay");
     await page.waitForFunction(() => !!window.__historyFixture.delayed);
-    await page.getByText("Verlauf wird geladen …", { exact: true }).waitFor();
+    await page.locator('.history-panel[aria-busy="true"]').waitFor();
     await search().fill("Anna");
+    await page.waitForFunction(
+      () =>
+        window.__historyFixture.commands
+          .filter(({ command }) => command === "get_history")
+          .at(-1)?.args.query.search === "Anna" &&
+        document.querySelector('.history-panel[aria-busy="false"]'),
+    );
     await details("Anna Beispiel").waitFor();
     await page.evaluate(() => window.__historyFixture.delayed());
     await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -439,14 +626,17 @@ export default async function historyRegressions(page) {
         .getByRole("button", { name: "Erneut versuchen", exact: true })
         .click();
       await page.waitForFunction(
-        () => document.querySelectorAll(".history-entry").length === 50,
+        () => document.querySelectorAll(".history-entry").length === 55,
       );
+      await page.locator('.history-panel[aria-busy="false"]').waitFor();
       await ensure(
         page.evaluate(
           () =>
             window.__historyFixture.commands
               .filter(({ command }) => command === "get_history")
-              .at(-1).args.query.offset === 0,
+              .slice(-2)
+              .map(({ args }) => args.query.offset)
+              .join(",") === "0,50",
         ),
         "Refresh retry appended instead of reloading its original query",
       );

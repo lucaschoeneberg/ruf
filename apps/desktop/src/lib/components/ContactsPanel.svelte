@@ -427,7 +427,7 @@
     gap: 8px;
     flex: 1;
     min-width: 0;
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-control);
     background: var(--surface-panel);
     border-radius: var(--radius);
     padding: 0 8px;

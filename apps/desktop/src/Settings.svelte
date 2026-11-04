@@ -84,10 +84,10 @@
   let mounted = false;
   let registerWindowGuard: (() => Promise<void>) | null = null;
   let epoch = 0;
-  let snapshotRevision = 0;
   let firstLoad = true;
   let discardNotice = $state<HTMLDivElement>();
   let keepEditing = $state<HTMLButtonElement>();
+  let editedControl: HTMLInputElement | HTMLSelectElement | null = null;
   let errorNotice = $state<HTMLDivElement>();
   $effect(() => {
     if (error)
@@ -209,13 +209,20 @@
       keepEditing?.focus({ preventScroll: true });
     });
   }
+  function continueEditing() {
+    pendingNavigation = null;
+    void tick().then(() => {
+      if (editedControl?.isConnected && !editedControl.disabled)
+        editedControl.focus();
+      else document.getElementById("settings-search")?.focus();
+    });
+  }
   async function stopOwnedPreview() {
     if (!ownsPreview) return;
     ownsPreview = false;
     if (!callIdle) return;
-    const revision = snapshotRevision;
     const result = await stopRingtonePreview();
-    if (mounted && revision === snapshotRevision) applySnapshot(result);
+    if (mounted) applySnapshot(result);
   }
   async function finishWindowAction(kind: "close" | "quit") {
     if (busy) return;
@@ -263,6 +270,7 @@
     pendingNavigation = null;
   }
   function applySnapshot(result: EngineSnapshot) {
+    if (snapshot && result.revision < snapshot.revision) return;
     if (!soundDirty) resetSound(result.soundSettings);
     snapshot = result;
     if (firstLoad) {
@@ -285,7 +293,7 @@
     loading = true;
     error = null;
     const current = epoch;
-    const revision = snapshotRevision;
+    const revision = snapshot?.revision;
     try {
       await registerWindowGuard?.();
       if (!mounted || current !== epoch) return;
@@ -298,10 +306,10 @@
       ]);
       if (!mounted || current !== epoch) return;
       if (state.status === "fulfilled") {
-        if (state.value && revision === snapshotRevision)
-          applySnapshot(state.value);
+        if (state.value) applySnapshot(state.value);
         else if (!state.value && !accountDirty) edit(null);
-      } else error = errorMessage(state.reason);
+      } else if (revision === snapshot?.revision)
+        error = errorMessage(state.reason);
       if (desktop.status === "fulfilled") {
         if (!desktopDirty) resetDesktop(desktop.value);
         else desktopSettings = desktop.value;
@@ -361,7 +369,6 @@
       void Promise.allSettled([
         listen<EngineSnapshot>("phone-state-changed", ({ payload }) => {
           if (!mounted) return;
-          snapshotRevision++;
           applySnapshot(payload);
         }).then(retain),
         listen<string>("settings-section", ({ payload }) => {
@@ -385,19 +392,19 @@
         return;
       polling = true;
       const current = epoch;
-      const revision = snapshotRevision;
+      const revision = snapshot?.revision;
       void getEngineSnapshot()
         .then((result) => {
+          if (mounted) applySnapshot(result);
+        })
+        .catch((reason) => {
           if (
             mounted &&
             current === epoch &&
-            revision === snapshotRevision &&
+            revision === snapshot?.revision &&
             !busy
           )
-            applySnapshot(result);
-        })
-        .catch((reason) => {
-          if (mounted && current === epoch) error = errorMessage(reason);
+            error = errorMessage(reason);
         })
         .finally(() => {
           polling = false;
@@ -489,11 +496,10 @@
     busy = true;
     error = null;
     feedback = "";
-    const revision = snapshotRevision;
     try {
       const result = await operation();
       if (!mounted) return;
-      if (revision === snapshotRevision) applySnapshot(result);
+      applySnapshot(result);
       if (saved) {
         resetSound(snapshot?.soundSettings ?? result.soundSettings);
         feedback =
@@ -513,11 +519,10 @@
     error = null;
     feedback = "";
     const before = new Set(accounts.map((a) => a.id));
-    const revision = snapshotRevision;
     try {
       const result = await saveAccount(editedId, label, config);
       if (!mounted) return;
-      if (revision === snapshotRevision) applySnapshot(result);
+      applySnapshot(result);
       edit(
         editedId ?? result.accounts.find((a) => !before.has(a.id))?.id ?? null,
       );
@@ -534,11 +539,10 @@
     busy = true;
     epoch++;
     error = null;
-    const revision = snapshotRevision;
     try {
       const result = await removeAccount(editedId);
       if (mounted) {
-        if (revision === snapshotRevision) applySnapshot(result);
+        applySnapshot(result);
         edit(accounts.find((a) => !a.removing)?.id ?? null);
         feedback = result.accounts.some((item) => item.removing)
           ? "Das Konto wird entfernt …"
@@ -557,8 +561,8 @@
       document.getElementById("settings-search")?.focus();
     }
     if (event.key === "Escape") {
-      if (query) query = "";
-      else pendingNavigation = null;
+      if (pendingNavigation) continueEditing();
+      else if (query) query = "";
     }
   }
 </script>
@@ -653,7 +657,17 @@
         >{sections.find((s) => s.id === section)?.label}</span
       >
     </div>
-    <div class="settings-scroll">
+    <div
+      class="settings-scroll"
+      onfocusin={(event) => {
+        const target = event.target;
+        if (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLSelectElement
+        )
+          editedControl = target;
+      }}
+    >
       {#if browser || info?.telephony === "notLinked"}<p
           class="settings-feedback"
         >
@@ -698,8 +712,7 @@
               class="secondary-button"
               type="button"
               bind:this={keepEditing}
-              onclick={() => (pendingNavigation = null)}
-              >Weiter bearbeiten</button
+              onclick={continueEditing}>Weiter bearbeiten</button
             ><button
               class="secondary-button"
               type="button"
@@ -950,7 +963,8 @@
               Derzeit SIP/UDP ohne Verschlüsselung und G.711. Nutze diese
               Entwicklungsversion nur im isolierten Testnetz. Ein Gespräch
               gleichzeitig. macOS-Kontakte lassen sich nach deiner Freigabe
-              durchsuchen und anrufen; der Verlauf ist noch nicht angebunden.
+              durchsuchen und anrufen. Der lokale Verlauf zeigt deine Anrufe mit
+              Ergebnis, Dauer und dem verwendeten Konto.
             </p>
           </div>
         </div>

@@ -49,7 +49,13 @@ export default async function settingsRegressions(
       closed: false,
       failDesktopSave: true,
       deviceAttempts: 0,
+      holdSnapshot: false,
+      resolveSnapshot: null,
+      rejectSnapshot: null,
+      holdSave: false,
+      resolveSave: null,
       emit(payload) {
+        payload = { ...payload, revision: this.snapshot.revision + 1 };
         this.snapshot = structuredClone(payload);
         this.event("phone-state-changed", payload);
       },
@@ -87,8 +93,16 @@ export default async function settingsRegressions(
         }
         if (command === "get_app_info")
           return { version: "0.1.0", telephony: "linked" };
-        if (command === "get_engine_snapshot")
-          return structuredClone(state.snapshot);
+        if (command === "get_engine_snapshot") {
+          state.snapshot.revision++;
+          const captured = structuredClone(state.snapshot);
+          if (state.holdSnapshot)
+            return new Promise((resolve, reject) => {
+              state.resolveSnapshot = () => resolve(captured);
+              state.rejectSnapshot = reject;
+            });
+          return captured;
+        }
         if (command === "get_desktop_settings") {
           if (scenario === "desktop-failure")
             throw {
@@ -129,10 +143,23 @@ export default async function settingsRegressions(
           };
         }
         if (command === "save_sound_settings") {
+          state.snapshot.revision++;
           state.snapshot.soundSettings = { ...args.sound };
           return structuredClone(state.snapshot);
         }
         if (command === "save_account") {
+          if (state.holdSave) {
+            state.snapshot.revision++;
+            Object.assign(state.snapshot.accounts[0], {
+              name: args.name,
+              registrar: args.account.registrar,
+              username: args.account.username,
+            });
+            const captured = structuredClone(state.snapshot);
+            return new Promise((resolve) => {
+              state.resolveSave = () => resolve(captured);
+            });
+          }
           if (scenario === "busy-save")
             await new Promise((resolve) => {
               state.releaseSave = resolve;
@@ -144,6 +171,7 @@ export default async function settingsRegressions(
             await new Promise((resolve) => {
               state.releaseStop = resolve;
             });
+          state.snapshot.revision++;
           state.snapshot.ringtonePlaying = false;
           return structuredClone(state.snapshot);
         }
@@ -171,6 +199,164 @@ export default async function settingsRegressions(
       failures.push(`${name}: ${error.message}`);
     }
   };
+  await check(
+    "continue editing restores focus to the changed field",
+    "",
+    async () => {
+      const input = page.getByLabel("Name", { exact: true });
+      await input.fill("Geänderter Entwurf");
+      await page.getByRole("button", { name: "Ton", exact: true }).click();
+      const keep = page.getByRole("button", {
+        name: "Weiter bearbeiten",
+        exact: true,
+      });
+      await keep.waitFor();
+      await keep.press("Enter");
+      if (!(await input.evaluate((e) => e === document.activeElement)))
+        throw new Error(
+          "Continue editing did not return focus to the edited field",
+        );
+      if ((await input.inputValue()) !== "Geänderter Entwurf")
+        throw new Error("Continue editing lost the draft");
+      await page
+        .getByRole("textbox", { name: "Konten und Bereiche suchen" })
+        .fill("Ton");
+      await page.getByRole("button", { name: "Ton", exact: true }).click();
+      await keep.waitFor();
+      await keep.press("Escape");
+      if (!(await input.evaluate((e) => e === document.activeElement)))
+        throw new Error("Escape did not restore the edited field");
+    },
+  );
+  await check(
+    "older event cannot re-enable account edits during a newer call",
+    "",
+    async () => {
+      await page
+        .getByLabel("Name", { exact: true })
+        .fill("Unveränderter Entwurf");
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        const older = structuredClone(f.snapshot);
+        f.holdSnapshot = true;
+        Object.assign(f.snapshot, {
+          call: "incoming",
+          callId: "new-call",
+          callAccountId: 1,
+        });
+        f.emit(f.snapshot);
+        f.event("phone-state-changed", older);
+      });
+      if (!(await page.getByLabel("Name", { exact: true }).isDisabled()))
+        throw new Error(
+          "Older idle event re-enabled edits during the incoming call",
+        );
+      if (
+        (await page.getByLabel("Name", { exact: true }).inputValue()) !==
+        "Unveränderter Entwurf"
+      )
+        throw new Error("State ordering discarded the account draft");
+    },
+  );
+  await check(
+    "obsolete read failure preserves a newer call without an error",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        f.holdSnapshot = true;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.waitForFunction(
+        () => window.__settingsTest.rejectSnapshot !== null,
+      );
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        Object.assign(f.snapshot, {
+          call: "incoming",
+          callId: "failure-call",
+          callAccountId: 1,
+        });
+        f.emit(f.snapshot);
+        f.rejectSnapshot({
+          code: "nativeFailure",
+          message: "Obsolete status failure",
+        });
+      });
+      await page.evaluate(
+        () => new Promise((resolve) => setTimeout(resolve, 0)),
+      );
+      if (!(await page.getByLabel("Name", { exact: true }).isDisabled()))
+        throw new Error("Read failure removed the valid incoming call");
+      if (await page.getByRole("alert").count())
+        throw new Error(
+          "Obsolete read failure replaced the newer status with an error",
+        );
+    },
+  );
+  await check(
+    "newer read survives an older event delivered while pending",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        f.older = structuredClone(f.snapshot);
+        f.holdSnapshot = true;
+        Object.assign(f.snapshot, {
+          call: "incoming",
+          callId: "read-call",
+          callAccountId: 1,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.waitForFunction(
+        () => window.__settingsTest.resolveSnapshot !== null,
+      );
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        f.event("phone-state-changed", f.older);
+        f.resolveSnapshot();
+      });
+      await page.waitForFunction(() =>
+        document.getElementById("name").matches(":disabled"),
+      );
+    },
+  );
+  await check(
+    "newer account save survives an older event delivered while pending",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        f.older = structuredClone(f.snapshot);
+        f.holdSave = true;
+        f.holdSnapshot = true;
+      });
+      await page.getByLabel("Name", { exact: true }).fill("Neuer Kontoname");
+      await page
+        .getByRole("button", { name: "Speichern & verbinden", exact: true })
+        .click();
+      await page.waitForFunction(
+        () => window.__settingsTest.resolveSave !== null,
+      );
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        f.event("phone-state-changed", f.older);
+        f.resolveSave();
+      });
+      await page
+        .getByText("Gespeichert. Die Anmeldung an der Telefonanlage läuft.", {
+          exact: true,
+        })
+        .waitFor();
+      if (
+        (await page.getByLabel("Name", { exact: true }).inputValue()) !==
+        "Neuer Kontoname"
+      )
+        throw new Error("Older event discarded the newer saved account name");
+      await page.getByRole("button", { name: /Neuer Kontoname/ }).waitFor();
+    },
+  );
   await check("failed account save keeps retry draft", "", async () => {
     await page
       .getByLabel("Passwort", { exact: true })
@@ -374,7 +560,7 @@ export default async function settingsRegressions(
         state.emit(state.snapshot);
       });
       await page.waitForFunction(
-        () => !document.getElementById("name").disabled,
+        () => !document.getElementById("name").matches(":disabled"),
       );
       if (
         (await page.getByLabel("Name", { exact: true }).inputValue()) !==

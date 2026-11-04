@@ -32,6 +32,7 @@
   --surface-selected: #1a2737;
   --border: #30363d;
   --border-strong: #3d444d;
+  --border-control: #6e7681;
   --text: #f0f6fc;
   --text-secondary: #c9d1d9;
   --muted: #9198a1;
@@ -207,7 +208,7 @@ button {
   display: flex;
   align-items: center;
   min-height: 36px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-control);
 }
 .number-entry:focus-within {
   border-bottom-color: var(--accent);
@@ -765,7 +766,7 @@ summary:focus-visible {
   gap: 6px;
   padding: 0 8px;
   min-height: 28px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius);
   color: var(--muted);
   flex-shrink: 0;
@@ -1029,7 +1030,7 @@ summary:focus-visible {
   width: 100%;
   min-width: 0;
   min-height: 28px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius);
   background: var(--surface-raised);
   color: var(--text);

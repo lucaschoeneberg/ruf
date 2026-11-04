@@ -109,6 +109,7 @@
         placeholder="Nummer eingeben"
         maxlength={MAX_NUMBER_LENGTH}
         aria-invalid={invalidNumber}
+        aria-describedby="number-hint"
         disabled={busy}
       />
       <button
@@ -121,7 +122,7 @@
         ><Icon name="backspace" size={19} /></button
       >
     </div>
-    <p class="number-hint">
+    <p id="number-hint" class="number-hint" aria-live="polite">
       {invalidNumber
         ? "Erlaubt sind Ziffern, +, * und #"
         : value

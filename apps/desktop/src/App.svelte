@@ -82,12 +82,17 @@
           ? contacts.contacts.find((contact) => contact.id === id)
           : null;
       if (contact?.phones.some((phone) => phone.destination)) {
-        historyScope = {
-          name: contact.name,
-          numbers: contact.phones
-            .filter((p) => p.destination)
-            .map((p) => p.number),
-        };
+        const numbers = contact.phones
+          .filter((p) => p.destination)
+          .map((p) => p.number);
+        if (
+          historyScope?.name !== contact.name ||
+          historyScope.numbers.length !== numbers.length ||
+          historyScope.numbers.some(
+            (number, index) => number !== numbers[index],
+          )
+        )
+          historyScope = { name: contact.name, numbers };
       } else clearHistoryScope();
     } catch {
       if (mounted && historyContactId === id) clearHistoryScope();

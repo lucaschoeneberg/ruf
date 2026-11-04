@@ -36,6 +36,7 @@
   } = $props();
 
   const pageSize = 50;
+  const searchDelayMs = 200;
   const filters: { value: HistoryFilter; label: string }[] = [
     { value: "all", label: "Alle" },
     { value: "missed", label: "Verpasst" },
@@ -63,7 +64,12 @@
   let actionError = $state<string | null>(null);
   let copiedId = $state<string | null>(null);
   let requestId = 0;
-  let failedRequest: { query: HistoryQuery; append: boolean } | null = null;
+  let failedRequest: {
+    query: HistoryQuery;
+    append: boolean;
+    retainCount: number;
+  } | null = null;
+  let requestedSearch = "";
   const groups = $derived(groupHistory(page?.entries ?? []));
   const currentQuery = $derived<HistoryQuery>({
     search: query.trim(),
@@ -73,14 +79,28 @@
     contactNumbers: contactScope?.numbers ?? [],
   });
 
-  async function load(request: HistoryQuery = currentQuery, append = false) {
+  async function load(
+    request: HistoryQuery = currentQuery,
+    append = false,
+    retainCount = append ? 0 : (page?.entries.length ?? 0),
+  ) {
     if (!mounted || !desktop) return;
     const id = ++requestId;
     loading = true;
     error = null;
     failedRequest = null;
     try {
-      const next = await getHistory(request);
+      let next = await getHistory(request);
+      // Preserve the loaded window without exceeding the API's per-page limit.
+      while (next.hasMore && next.entries.length < retainCount) {
+        if (!mounted || id !== requestId) return;
+        const more = await getHistory({
+          ...request,
+          offset: request.offset + next.entries.length,
+        });
+        next = { ...more, entries: [...next.entries, ...more.entries] };
+        if (!more.entries.length) break;
+      }
       if (!mounted || id !== requestId) return;
       page =
         append && page
@@ -90,7 +110,7 @@
         expandedId = null;
     } catch {
       if (mounted && id === requestId) {
-        failedRequest = { query: request, append };
+        failedRequest = { query: request, append, retainCount };
         error =
           "Der Verlauf konnte nicht geladen werden. Prüfe den Zugriff auf den App-Datenordner und versuche es erneut.";
       }
@@ -103,13 +123,22 @@
     const request = currentQuery;
     if (!mounted || !desktop) return;
     untrack(() => {
+      // Invalidate in-flight results immediately, including during the debounce.
+      ++requestId;
+      loading = true;
+      error = null;
+      failedRequest = null;
       expandedId = null;
       confirmation = null;
       actionError = null;
       copiedId = null;
-      page = null;
-      void load(request);
     });
+    const delay = request.search === requestedSearch ? 0 : searchDelayMs;
+    const timer = setTimeout(() => {
+      requestedSearch = request.search;
+      void load(request, false, 0);
+    }, delay);
+    return () => clearTimeout(timer);
   });
 
   async function remove(id: string | null) {
@@ -155,7 +184,12 @@
     mounted = true;
     const unlisteners: UnlistenFn[] = [];
     const reload = () => {
-      if (document.visibilityState !== "hidden" && !mutating) void load();
+      if (
+        document.visibilityState !== "hidden" &&
+        !mutating &&
+        currentQuery.search === requestedSearch
+      )
+        void load();
     };
     const invalidateContacts = () => {
       // Permission invalidation must remove names even if the next read fails.
@@ -311,14 +345,21 @@
           disabled={loading}
           onclick={() => {
             if (failedRequest)
-              void load(failedRequest.query, failedRequest.append);
+              void load(
+                failedRequest.query,
+                failedRequest.append,
+                failedRequest.retainCount,
+              );
           }}>Erneut versuchen</button
         >
       </div>
     {/if}
-    {#if !page && loading}
-      <p class="history-note" role="status">Verlauf wird geladen …</p>
-    {:else if page && page.entries.length === 0}
+    {#if loading}
+      <p class="history-note" class:sr-only={page !== null} role="status">
+        Verlauf wird geladen …
+      </p>
+    {/if}
+    {#if page && page.entries.length === 0 && !loading}
       <div class="empty-state">
         <Icon name="history" size={22} />
         <h2>
@@ -559,7 +600,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-control);
     background: var(--surface-panel);
     border-radius: var(--radius);
     padding: 0 8px;

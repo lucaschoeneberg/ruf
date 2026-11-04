@@ -9,6 +9,7 @@ colors:
   surface-selected: "#1a2737"
   border: "#30363d"
   border-strong: "#3d444d"
+  border-control: "#6e7681"
   text: "#f0f6fc"
   text-secondary: "#c9d1d9"
   muted: "#9198a1"
@@ -222,7 +223,9 @@ quieter `surface-hover` and account selection uses `surface-raised` plus a borde
 Near-black `surface-panel` separates the header, navigation and settings sidebar
 from the dark `surface` canvas. `surface-raised` and `surface-hover` distinguish
 controls and interaction. `border` divides regions; `border-strong` outlines
-controls. `text`, `text-secondary`, `muted` and `disabled` establish hierarchy.
+secondary actions and selected accounts. `border-control` identifies editable
+fields and searches at over 3:1 contrast against both their fill and surroundings.
+`text`, `text-secondary`, `muted` and `disabled` establish hierarchy.
 `info-surface` contains operation and unsaved-change feedback.
 
 ### State colors
@@ -354,8 +357,9 @@ account picker is independent of the account being edited. The plus action
 opens an empty form and disables at eight accounts.
 
 Unsaved account or sound edits reveal an inline continue/discard choice before
-navigation; the notice scrolls into view and focuses continue editing. Removal
-requires inline confirmation and deletes the stored password. Account mutations
+navigation; the notice scrolls into view and focuses continue editing.
+Continuing edits, including Escape, restores the last focused field when available.
+Removal requires inline confirmation and deletes the stored password. Account mutations
 are disabled during calls or busy operations. Browser and portable modes explain
 unavailable native operations. About retains storage details, SIP/UDP limits
 and the collapsed local Asterisk guide.

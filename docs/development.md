@@ -259,6 +259,13 @@ through Bun, and closes its browser/server afterward. All SIP/account/device IPC
 synthetic; this check cannot register accounts, place calls or access a keychain.
 Captures go to the ignored `output/playwright/` directory.
 
+History regressions cover refresh of more than two loaded pages, retained detail
+and keyboard position, unchanged contact scopes, recoverable refresh failures,
+and debounced searches that keep prior results while rejecting obsolete replies.
+Settings regressions cover focus restoration after continuing a draft and native
+revision ordering across events, reads and saves. The dialer exposes its correction
+hint through the input's accessible description.
+
 Install Chromium when no browser is available:
 
 ```sh
