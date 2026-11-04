@@ -4,15 +4,17 @@
   let {
     runtime,
     registration,
+    audioUnknown,
     onsetup,
     onexplore,
   }: {
     runtime: "desktop" | "browser" | "unlinked" | "unavailable";
     registration: RegistrationState;
+    audioUnknown: boolean;
     onsetup: () => void;
     onexplore: () => void;
   } = $props();
-  const ready = $derived(registration === "registered");
+  const ready = $derived(registration === "registered" && !audioUnknown);
 </script>
 
 <section class="getting-started" aria-labelledby="start-title">
@@ -24,9 +26,11 @@
         ? "Telefonie ist noch nicht verfügbar"
         : runtime === "unavailable"
           ? "Telefonstatus nicht verfügbar"
-          : ready
-            ? "Dein Telefon ist verbunden"
-            : "Verbinde dein SIP-Konto"}
+          : audioUnknown
+            ? "Audioquelle nicht bekannt"
+            : ready
+              ? "Dein Telefon ist verbunden"
+              : "Verbinde dein SIP-Konto"}
   </h1>
   <p class="start-description">
     {runtime === "browser"
@@ -35,11 +39,13 @@
         ? "Du kannst die Oberfläche ansehen. Für echte Anrufe benötigst du einen Desktop-Build mit nativer Telefonie."
         : runtime === "unavailable"
           ? "Der Verbindungsstatus konnte nicht geladen werden. Prüfe die Meldung oben und versuche es erneut."
-          : ready
-            ? "Wähle eine Nummer oder Nebenstelle. Mit Anrufen oder der Eingabetaste startest du dein Gespräch."
-            : "Mit den Zugangsdaten deiner Telefonanlage kannst du anschließend Nummern und Nebenstellen anrufen."}
+          : audioUnknown
+            ? "Die Telefonie läuft bereits. Beende ein laufendes Gespräch und starte die App neu, damit du die Audioquelle vor dem nächsten Anruf sicher wählen kannst."
+            : ready
+              ? "Wähle eine Nummer oder Nebenstelle. Mit Anrufen oder der Eingabetaste startest du dein Gespräch."
+              : "Mit den Zugangsdaten deiner Telefonanlage kannst du anschließend Nummern und Nebenstellen anrufen."}
   </p>
-  {#if runtime === "desktop" && !ready}
+  {#if runtime === "desktop" && !ready && !audioUnknown}
     <p class="start-requirements">
       <strong>Du brauchst:</strong> SIP-Server, Benutzername und Passwort deiner Telefonanlage.
     </p>
@@ -49,14 +55,18 @@
     </p>
   {/if}
   <div class="start-actions">
-    {#if runtime === "desktop" && !ready}<button
+    {#if runtime === "desktop" && !ready && !audioUnknown}<button
         class="primary-button"
         onclick={onsetup}>SIP-Konto einrichten</button
       ><button class="text-button" onclick={onexplore}
         >Erst die Tastatur ansehen</button
       >
     {:else}<button class="primary-button" onclick={onexplore}
-        >{ready ? "Nummer wählen" : "Tastatur ausprobieren"}</button
+        >{audioUnknown
+          ? "Zur Tastatur"
+          : ready
+            ? "Nummer wählen"
+            : "Tastatur ausprobieren"}</button
       ><button class="text-button" onclick={onsetup}
         >{ready ? "Kontoeinstellungen öffnen" : "Einrichtung ansehen"}</button
       >{/if}

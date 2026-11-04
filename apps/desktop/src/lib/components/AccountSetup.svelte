@@ -16,6 +16,8 @@
     callIdle,
     registration,
     audioLocked,
+    audioUnknown,
+    initializing,
     onconfigure,
     onback,
   }: {
@@ -26,6 +28,8 @@
     callIdle: boolean;
     registration: RegistrationState;
     audioLocked: boolean;
+    audioUnknown: boolean;
+    initializing: boolean;
     onconfigure: (account: AccountConfig) => Promise<void>;
     onback: () => void;
   } = $props();
@@ -61,7 +65,8 @@
   }
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!nativeAvailable || busy || !callIdle) return;
+    if (!nativeAvailable || initializing || audioUnknown || busy || !callIdle)
+      return;
     const normalized = normalizeAccount(account);
     errors = validateAccount(normalized);
     const first = (Object.keys(errors) as AccountField[])[0];
@@ -100,6 +105,21 @@
           : "Telefonie ist derzeit nicht verfügbar. Prüfe den Status oben."}</span
       >
     </p>{/if}
+  {#if audioUnknown}<div class="connection-note failed">
+      <p role="status"><strong>Audioquelle unbekannt</strong></p>
+      <p>
+        Die Telefonie läuft bereits, aber diese Ansicht kennt ihre Audioquelle
+        nicht. Es kann ein Testton mit Aufzeichnung aktiv sein.
+      </p>
+      <p>
+        Beende ein laufendes Gespräch und starte die App neu, bevor du ein Konto
+        neu verbindest oder einen neuen Anruf beginnst. Die Ansicht neu zu laden
+        reicht nicht aus.
+      </p>
+    </div>{/if}
+  {#if initializing}<p class="connection-note" role="status">
+      Verbindungsstatus wird geladen …
+    </p>{/if}
   {#if registration === "registering"}<p
       bind:this={feedback}
       tabindex="-1"
@@ -134,7 +154,7 @@
     nur im isolierten Testnetz.
   </p>
   <form bind:this={form} onsubmit={submit} novalidate>
-    <fieldset disabled={busy || !callIdle}>
+    <fieldset disabled={busy || initializing || audioUnknown || !callIdle}>
       <label for="registrar">SIP-Server</label><input
         id="registrar"
         name="registrar"
@@ -199,7 +219,11 @@
       <button
         class="primary-button register-button"
         type="submit"
-        disabled={!nativeAvailable || busy || !callIdle}
+        disabled={!nativeAvailable ||
+          initializing ||
+          audioUnknown ||
+          busy ||
+          !callIdle}
         >{busy
           ? "Wird gesendet …"
           : registration === "registering"
@@ -226,7 +250,10 @@
           value="testTone">Testton für Entwicklung</option
         ></select
       >{/if}
-    {#if account.audioMode === "testTone"}<p class="test-audio-note">
+    {#if audioUnknown}<p>
+        Die tatsächliche Audioquelle kann erst nach einem App-Neustart wieder
+        festgelegt werden.
+      </p>{:else if account.audioMode === "testTone"}<p class="test-audio-note">
         Testton ist gewählt: Ein Ton ersetzt dein Mikrofon. Empfangenes Audio
         wird als WAV im App-Cache gespeichert.
       </p>{:else}<p>

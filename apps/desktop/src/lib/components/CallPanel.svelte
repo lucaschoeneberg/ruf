@@ -8,6 +8,7 @@
     busy,
     compact,
     testAudio = false,
+    audioUnknown = false,
     onanswer,
     onhangup,
   }: {
@@ -17,6 +18,7 @@
     busy: boolean;
     compact: boolean;
     testAudio?: boolean;
+    audioUnknown?: boolean;
     onanswer: () => void;
     onhangup: () => void;
   } = $props();
@@ -44,13 +46,17 @@
   {#if state === "active"}<p class="call-timer" aria-label="Gesprächsdauer">
       {elapsed}
     </p>{/if}
+  {#if audioUnknown}<p class="call-test-note">
+      Audioquelle unbekannt. Es kann ein Testton mit Aufzeichnung aktiv sein.
+      Beende das Gespräch und starte die App neu.
+    </p>{/if}
   {#if testAudio}<p class="call-test-note">
       Testton · empfangenes Audio wird aufgezeichnet
     </p>{/if}
   <div class="call-actions">
     {#if state === "incoming"}<button
         class="primary-button"
-        disabled={busy}
+        disabled={busy || audioUnknown}
         onclick={onanswer}><Icon name="phone" size={18} />Annehmen</button
       >{/if}
     <button class="danger-button" disabled={busy} onclick={onhangup}

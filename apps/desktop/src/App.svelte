@@ -12,6 +12,7 @@
   } from "./lib/api";
   import type {
     AccountConfig,
+    AudioMode,
     AppInfo,
     EngineSnapshot,
     RegistrationState,
@@ -48,6 +49,8 @@
   let pendingRegistration = false;
   let pendingName = "";
   let audioLocked = $state(false);
+  let sessionAudio = $state<AudioMode | null>(null);
+  const audioUnknown = $derived(audioLocked && sessionAudio === null);
   let firstCallHint = $state(false);
   let accountName = $state("");
   let destination = $state("");
@@ -62,6 +65,7 @@
   const registered = $derived(registration === "registered");
   const canCall = $derived(
     nativeAvailable &&
+      !audioUnknown &&
       registered &&
       callIdle &&
       /^[0-9+*#]{1,64}$/.test(destination),
@@ -116,11 +120,13 @@
           : "SIP-Konto verbinden",
   );
   const connectionHint = $derived(
-    account.audioMode === "testTone"
-      ? "Testton statt Mikrofon · Audio wird aufgezeichnet"
-      : firstCallHint
-        ? "Verbunden. Jetzt eine Nummer wählen."
-        : "0 halten für + · Enter zum Anrufen",
+    audioUnknown
+      ? "Audioquelle unbekannt · App neu starten"
+      : sessionAudio === "testTone"
+        ? "Testton statt Mikrofon · Audio wird aufgezeichnet"
+        : firstCallHint
+          ? "Verbunden. Jetzt eine Nummer wählen."
+          : "0 halten für + · Enter zum Anrufen",
   );
 
   function markIntroduction() {
@@ -192,7 +198,7 @@
         if (mounted && epoch === operationEpoch && !busy) applySnapshot(state);
       } else if (!introductionSeen && !navigated) view = "start";
     } catch (reason: unknown) {
-      if (mounted) {
+      if (mounted && epoch === operationEpoch) {
         error = errorMessage(reason);
         if (!introductionSeen && !navigated) view = "start";
       }
@@ -259,14 +265,20 @@
     }
   }
   async function register(submitted: AccountConfig) {
-    if (!nativeAvailable || !callIdle || busy) return;
+    if (!nativeAvailable || loading || audioUnknown || !callIdle || busy)
+      return;
+    const previousAudio = sessionAudio;
+    sessionAudio = submitted.audioMode;
     account = { ...submitted, password: "" };
     pendingRegistration = true;
     pendingName = submitted.username;
     markIntroduction();
     const queued = await perform(() => configureAccount(submitted));
     if (queued) audioLocked = true;
-    else pendingRegistration = false;
+    else {
+      pendingRegistration = false;
+      sessionAudio = previousAudio;
+    }
   }
   async function placeCall() {
     if (!canCall || busy) return;
@@ -358,10 +370,11 @@
         peer={incoming ? "Unbekannte Nummer" : lastDialed || "Aktueller Anruf"}
         elapsed={elapsedLabel}
         {busy}
-        testAudio={account.audioMode === "testTone"}
+        testAudio={sessionAudio === "testTone"}
+        {audioUnknown}
         compact={view !== "dialer"}
         onanswer={() => {
-          void perform(answer);
+          if (!audioUnknown) void perform(answer);
         }}
         onhangup={() => {
           void perform(hangup);
@@ -373,6 +386,7 @@
       <GettingStarted
         runtime={introRuntime}
         {registration}
+        {audioUnknown}
         onsetup={() => selectView("settings")}
         onexplore={() => selectView("dialer")}
       />
@@ -399,6 +413,8 @@
         {callIdle}
         {registration}
         {audioLocked}
+        {audioUnknown}
+        initializing={loading}
         onconfigure={register}
         onback={() => selectView(previousView)}
       />
