@@ -1,0 +1,32 @@
+name: Feature request
+description: Describe a user problem and a focused improvement.
+title: "feat: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing requests and review the MVP roadmap before opening a new one.
+        Describe the problem first. This form is public; use synthetic examples.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem and use case
+      description: Who is affected, and what are they trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the smallest useful improvement and how it would help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds considered
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Platform and interoperability considerations
+      description: Mention relevant operating systems, PBX products or integrations without private account details.

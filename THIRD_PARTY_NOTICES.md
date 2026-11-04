@@ -4,6 +4,10 @@ Own application code is MIT licensed. Rust/npm dependencies retain the licenses
 recorded in their packages; lockfiles identify resolved versions. This file is not
 a completed inventory of transitive dependency licenses.
 
+For incoming contributions, copied assets and distribution requirements, see
+[licensing and attribution](docs/licensing.md). The project's MIT license does not
+replace third-party licenses.
+
 The temporary desktop icons and initial Tauri configuration conventions originate
 from [create-tauri-app](https://github.com/tauri-apps/create-tauri-app), distributed
 under MIT or Apache-2.0. Used under MIT:

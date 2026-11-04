@@ -55,6 +55,8 @@ Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Paket
 - [GitHub, CI/CD und Signierung](docs/ci-cd.md)
 - [MVP-Entwurf](docs/superpowers/specs/2026-11-04-sip-mvp-design.md)
 - [Beitrag leisten](CONTRIBUTING.md)
+- [Verhaltensregeln](CODE_OF_CONDUCT.md), [Sicherheitsmeldungen](SECURITY.md) und
+  [Lizenzierung und Attribution](docs/licensing.md)
 
 GitHub-Workflows sind vorbereitet. Ein Remote und Repository-Regeln werden erst
 nach Verbindung mit dem tatsächlichen Repository eingerichtet. Es wurde durch

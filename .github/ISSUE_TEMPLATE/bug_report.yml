@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible problem in existing functionality.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check existing issues and the README first: this app is currently a scaffold.
+        This report is public. Remove credentials, real numbers, names, addresses,
+        Call-IDs, contact lists and private call traces. For security issues, follow
+        SECURITY.md and arrange a private channel instead.
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+      placeholder: "0.1.0 or the commit hash"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS on Apple Silicon
+        - Windows x64
+        - Other platform or architecture
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system version
+      placeholder: "For example, macOS 14.7 or Windows 11 24H2"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction steps
+      description: Include setup and a small synthetic example where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: telephony-environment
+    attributes:
+      label: Telephone environment, if relevant
+      description: PBX/provider product and version, transport, codec and network scenario; no credentials or identifying addresses.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Checks and sanitized diagnostics
+      description: Describe what you actually ran. Review every log or attachment for private data before submitting.

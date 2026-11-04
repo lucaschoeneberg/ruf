@@ -30,6 +30,9 @@ Enable Actions. Protect `main` with a ruleset requiring a pull request, review a
 the actual check names from the first workflow run. Include Portable checks and
 both desktop jobs; prohibit force pushes. The files cannot enforce server-side
 rules before a repository exists. Dependabot should be enabled there as well.
+Enable private vulnerability reporting and publish a maintained private contact
+as described in [SECURITY.md](../SECURITY.md). Community files and issue templates
+are versioned here; they do not activate GitHub settings by themselves.
 
 Do not tag/publish until the app identifier, release notes and platform policies
 are ready. A version tag currently produces a development **scaffold**, not a
