@@ -17,6 +17,8 @@ Node 24.16.0 and npm 11.13.0. This record describes local evidence only.
 - macOS application bundle and aarch64 DMG builds succeed using locked Cargo
   dependencies. The app declares version 0.1.0 and macOS 14.0 minimum.
 - Ad-hoc code signature verifies. Production signing/notarization is not configured.
+- The final DMG was mounted read-only; bundled LICENSE/THIRD_PARTY_NOTICES.md and
+  the packaged application's ad-hoc signature were verified. The image was detached.
 - `npm audit --omit=dev`: zero findings. The full audit reports two low-severity
   development-dependency findings via deepmerge in vite-plugin-svelte, without
   an available upstream fix at verification time. No dependency override is added.
@@ -25,3 +27,9 @@ Windows/hosted workflows, actual desktop rendering and native IPC interaction,
 release draft upload, signing/notarization, microphone/audio and SIP calls have
 not been executed by this local verification. The next native milestone must
 establish real engine behavior before any phone functionality is advertised.
+
+An independent read-only review of the whole foundation approved it without
+Critical, Important or Minor findings. The reviewer separately reran formatting,
+frontend typecheck, version consistency and mismatched-tag rejection and inspected
+the CLI API, generated command ACL and workflow prerequisites. No native rendering,
+Windows execution or hosted release upload was inferred from those results.
