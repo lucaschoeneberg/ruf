@@ -1,6 +1,6 @@
 # Third-party notices
 
-Own application code is MIT licensed. Rust/npm dependencies retain the licenses
+Own application code is MIT licensed. Rust/JavaScript dependencies retain the licenses
 recorded in their packages; lockfiles identify resolved versions. This file is not
 a completed inventory of transitive dependency licenses.
 

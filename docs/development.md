@@ -1,8 +1,8 @@
 # Development
 
-Use the Node version in `.node-version` and Rustup with `rust-toolchain.toml`.
-The npm version is recorded in `package.json`; install with `npm ci` from the root.
-Commit `package-lock.json` and the root `Cargo.lock`. Cargo defaults to the two
+Use the Bun version in `.bun-version` and Rustup with `rust-toolchain.toml`.
+The exact Bun version is also pinned in `package.json`; install with `bun install --frozen-lockfile` from the root.
+Commit `bun.lock` and the root `Cargo.lock`. Cargo defaults to the two
 portable crates; use `--workspace` to include Tauri.
 
 On macOS install Xcode/Command Line Tools. On Windows install MSVC C++ Build Tools,
@@ -12,35 +12,63 @@ Current release targets are macOS 14+ arm64 and Windows 11 x64. Windows hosted
 builds use Windows Server 2022; that is a build environment, not a runtime test
 on Windows 11. Intel macOS, ARM Windows and Linux are not release targets yet.
 
-`npm run native:build` builds the pinned SDK; `npm run dev:native` starts a
+`bun run native:build` builds the pinned SDK; `bun run dev:native` starts a
 real native phone. See [native prerequisites](../native/README.md) and the
-[Asterisk lab](../tests/interop/asterisk/README.md). `npm run dev` starts Tauri and a loopback-only Vite server. `npm run dev:web` is
+[Asterisk lab](../tests/interop/asterisk/README.md). `bun run dev` starts Tauri and a loopback-only Vite server. `bun run dev:web` is
 for layout work only. Native API access is unavailable in that browser mode.
 
 Before a change is complete:
 
 ```sh
-npm run types:generate
+bun run types:generate
 git diff --exit-code -- apps/desktop/src/lib/generated
-npm run check:versions
-npm run format:check
-npm run check
-npm run build
+bun run check:versions
+bun run format:check
+bun run check
+bun run build
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
-npm run desktop:build
+bun run desktop:build
 ```
 
 After intentional DTO changes, review and commit the generated diff before using
-the clean-diff command as a verification gate. `npm run format` formats source and
+the clean-diff command as a verification gate. `bun run format` uses the built-in
+Bun formatter and `cargo fmt` for source and
 documentation. Native artifacts are under the root `target/release/bundle`, or
 `target/<triple>/release/bundle` when passing `--target`.
 
 For native changes, also run workspace Clippy/tests with
-`--features sip-desktop/native`, `npm run test:asterisk`, and
-`npm run desktop:build -- --features native`. Test-tone mode needs no audio
+`--features sip-desktop/native`, `bun run test:asterisk`, and
+`bun run desktop:build --features native`. Test-tone mode needs no audio
 hardware; microphone/speaker and Windows runtime require separate platform tests.
 
-Version changes update the root npm package, frontend package and Cargo workspace
-version together. Tauri reads the root npm version directly. Run
-`npm run check:versions`; release tags must be exactly `v<version>`.
+Version changes update the root JavaScript package, frontend package and Cargo workspace
+version together. Tauri reads the root JavaScript package version directly. Run
+`bun run check:versions`; release tags must be exactly `v<version>`.
+
+## Bun tooling
+
+Bun owns installation, workspaces, JavaScript execution and formatting. Run
+`bun install --frozen-lockfile` from the repository root after checkout. Commit
+`bun.lock`; do not generate a second package-manager lockfile. Both `.bun-version`
+and `package.json` pin Bun 1.4.4; `bun run check:versions` verifies the pins and
+actual runtime as well as application/release versions.
+
+Workspace tools explicitly run with `bun --bun` so their Node shebangs do not
+select a separately installed Node runtime. Existing `node:` standard-library
+imports in build scripts are supported by Bun and remain unchanged. GitHub-hosted
+actions may use their own bundled runtime; project commands use Bun.
+
+`bun run format` runs the built-in `bun fmt` for Svelte, TypeScript, JavaScript,
+CSS, JSON, YAML, TOML and Markdown, followed by `cargo fmt` for Rust. There is no
+Prettier or Svelte formatter plugin dependency. Configuration and generated-file
+exclusions live in `bunfig.toml`; `.editorconfig` remains authoritative for basic
+whitespace. Native C/CMake formatting is unchanged.
+
+Pass arguments directly: `bun run desktop:build --features native --bundles dmg`
+on macOS, or `--bundles nsis` on Windows. Do not insert npm's argument separator.
+
+References: [Bun formatter](https://bun.com/docs/format),
+[lockfile migration](https://bun.sh/docs/pm/lockfile),
+[GitHub Actions setup](https://github.com/oven-sh/setup-bun), and
+[Dependabot Bun support](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#package-ecosystem).

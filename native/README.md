@@ -1,6 +1,6 @@
 # Native baresip SDK
 
-`npm run native:build` fetches the exact baresip/re 4.12.0 revisions in
+`bun run native:build` fetches the exact baresip/re 4.12.0 revisions in
 [sources.json](sources.json), verifies clean source checkouts, builds static
 libraries and stages `native/install/<Rust target>/`. Re-running is supported.
 Sources, build trees, SDKs, recordings and diagnostic logs are ignored by Git.
@@ -11,7 +11,7 @@ for headless interoperability tests. Cross compilation is not implemented.
 
 ## Prerequisites
 
-- All platforms: Git, Node 24, CMake 3.22+, platform C/C++ compiler, pinned Rustup toolchain.
+- All platforms: Git, Bun 1.4.4, CMake 3.22+, platform C/C++ compiler, pinned Rustup toolchain.
 - macOS: Xcode Command Line Tools and `brew install cmake openssl@3`.
 - Windows: Visual Studio 2022 C++ tools/Windows SDK, CMake and vcpkg.
   Set `VCPKG_INSTALLATION_ROOT` to vcpkg's checkout. GitHub's Windows runner
@@ -30,21 +30,21 @@ Windows; archives are normalized for Cargo linking.
 ## Build and run
 
 ```sh
-npm ci
-npm run native:build
-npm run lab:up
-npm run test:asterisk
-npm run dev:native
+bun install --frozen-lockfile
+bun run native:build
+bun run lab:up
+bun run test:asterisk
+bun run dev:native
 ```
 
 The lab's synthetic account is documented in [the lab guide](../tests/interop/asterisk/README.md).
-The test leaves the lab running for desktop work; use `npm run lab:down` afterward.
+The test leaves the lab running for desktop work; use `bun run lab:down` afterward.
 The desktop initially offers the same registrar/user/echo extension, but requires
 entering the password. Select audio before the first registration. Changing the
 audio backend of an existing engine currently requires restarting the application.
 Account replacement with the same audio backend is supported only while idle.
 
-Native packages: `npm run desktop:build -- --features native --bundles app`
+Native packages: `bun run desktop:build --features native --bundles app`
 on macOS, or `--bundles nsis` on Windows. CI selects explicit target triples.
 Without `native`, no SDK is needed and telephony reports `notLinked`.
 

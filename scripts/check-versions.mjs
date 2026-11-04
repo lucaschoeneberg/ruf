@@ -5,7 +5,23 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const readJson = (path) =>
   JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
-const version = readJson("../package.json").version;
+const manifest = readJson("../package.json");
+const version = manifest.version;
+const bunVersion = readFileSync(
+  new URL("../.bun-version", import.meta.url),
+  "utf8",
+).trim();
+if (
+  manifest.packageManager !== `bun@${bunVersion}` ||
+  manifest.engines?.bun !== bunVersion
+) {
+  throw new Error(
+    "Bun version pins in package.json and .bun-version must match",
+  );
+}
+if (process.versions.bun !== bunVersion) {
+  throw new Error(`Run this workspace with Bun ${bunVersion}`);
+}
 const frontend = readJson("../apps/desktop/package.json");
 const tauri = readJson("../apps/desktop/src-tauri/tauri.conf.json");
 const metadata = JSON.parse(
@@ -25,7 +41,7 @@ if (
   frontend.version !== version ||
   members.some((pkg) => pkg.version !== version)
 ) {
-  throw new Error("npm and Cargo workspace versions must match");
+  throw new Error("JavaScript and Cargo workspace versions must match");
 }
 if (tauri.version !== "../../../package.json")
   throw new Error("Tauri must read the root package version");
@@ -33,5 +49,5 @@ if (process.env.RELEASE_TAG && process.env.RELEASE_TAG !== `v${version}`) {
   throw new Error(`Release tag must be v${version}`);
 }
 console.log(
-  `Version ${version} matches npm, Cargo and Tauri${process.env.RELEASE_TAG ? " and release tag" : ""}.`,
+  `Version ${version} matches JavaScript, Cargo and Tauri${process.env.RELEASE_TAG ? " and release tag" : ""}.`,
 );

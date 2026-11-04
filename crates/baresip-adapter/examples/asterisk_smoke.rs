@@ -72,6 +72,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(not(feature = "native"))]
 fn main() {
-    eprintln!("Run this example with --features native after npm run native:build.");
+    eprintln!("Run this example with --features native after bun run native:build.");
     std::process::exit(1);
 }

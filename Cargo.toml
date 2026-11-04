@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/phone-core", "crates/baresip-adapter", "apps/desktop/src-tauri"]
+members = [
+  "crates/phone-core",
+  "crates/baresip-adapter",
+  "apps/desktop/src-tauri",
+]
 default-members = ["crates/phone-core", "crates/baresip-adapter"]
 resolver = "3"
 

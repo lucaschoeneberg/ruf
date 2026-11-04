@@ -1,0 +1,13 @@
+[install]
+exact = true
+
+[run]
+bun = true
+
+[fmt]
+ignorePatterns = [
+  "**/gen/",
+  "apps/desktop/src/lib/generated/",
+  "Cargo.lock",
+  "bun.lock",
+]

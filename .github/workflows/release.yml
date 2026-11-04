@@ -23,7 +23,7 @@ jobs:
       - name: Match tag to the application version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: npm run check:versions
+        run: bun run check:versions
 
   desktop:
     name: Verified installers

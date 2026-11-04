@@ -14,7 +14,7 @@ fn main() {
         prefix.join("sdk.json").display()
     );
     let manifest = fs::read_to_string(prefix.join("sdk.json"))
-        .expect("Native SDK missing. Run `npm run native:build` on this platform first.");
+        .expect("Native SDK missing. Run `bun run native:build` on this platform first.");
     let manifest: serde_json::Value = serde_json::from_str(&manifest).expect("Valid SDK manifest");
     let pins: serde_json::Value =
         serde_json::from_str(include_str!("../../native/sources.json")).expect("Valid source pins");

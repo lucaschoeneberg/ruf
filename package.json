@@ -4,32 +4,27 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "packageManager": "npm@11.13.0",
+  "packageManager": "bun@1.4.4",
   "engines": {
-    "node": ">=24 <25",
-    "npm": ">=11 <12"
+    "bun": "1.4.4"
   },
   "workspaces": [
     "apps/desktop"
   ],
   "scripts": {
-    "dev": "npm run tauri --workspace @sip/desktop -- dev",
-    "dev:web": "npm run dev --workspace @sip/desktop",
-    "build": "npm run build --workspace @sip/desktop",
-    "check": "npm run check --workspace @sip/desktop",
-    "check:versions": "node scripts/check-versions.mjs",
+    "dev": "bun run --cwd apps/desktop tauri dev",
+    "dev:web": "bun run --cwd apps/desktop dev",
+    "build": "bun run --cwd apps/desktop build",
+    "check": "bun run --cwd apps/desktop check",
+    "check:versions": "bun scripts/check-versions.mjs",
     "types:generate": "cargo run --locked -p phone-core --example export_types",
-    "format": "prettier --write . && cargo fmt --all",
-    "format:check": "prettier --check . && cargo fmt --all -- --check",
-    "desktop:build": "node scripts/build-desktop.mjs",
-    "native:build": "node native/build.mjs",
-    "dev:native": "npm run tauri --workspace @sip/desktop -- dev --features native",
+    "format": "bun fmt && cargo fmt --all",
+    "format:check": "bun fmt --check && cargo fmt --all -- --check",
+    "desktop:build": "bun scripts/build-desktop.mjs",
+    "native:build": "bun native/build.mjs",
+    "dev:native": "bun run --cwd apps/desktop tauri dev --features native",
     "lab:up": "docker compose -f tests/interop/asterisk/compose.yml up -d --wait",
     "lab:down": "docker compose -f tests/interop/asterisk/compose.yml down",
-    "test:asterisk": "node scripts/asterisk-smoke.mjs"
-  },
-  "devDependencies": {
-    "prettier": "3.9.10",
-    "prettier-plugin-svelte": "4.1.1"
+    "test:asterisk": "bun scripts/asterisk-smoke.mjs"
   }
 }

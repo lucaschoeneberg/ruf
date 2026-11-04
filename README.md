@@ -11,22 +11,22 @@ sind noch keine produktionsreifen Telefone.
 
 ## Lokal starten
 
-Voraussetzungen: Node aus `.node-version`, npm 11, Rustup sowie die
+Voraussetzungen: Bun aus `.bun-version`, Rustup sowie die
 [Tauri-Systemvoraussetzungen](https://v2.tauri.app/start/prerequisites/)
 (Xcode auf macOS, MSVC Build Tools und WebView2 auf Windows).
 
 ```sh
-npm ci
-npm run native:build
-npm run lab:up
-npm run test:asterisk
-npm run dev:native
+bun install --frozen-lockfile
+bun run native:build
+bun run lab:up
+bun run test:asterisk
+bun run dev:native
 ```
 
 Native Voraussetzungen und Windows-vcpkg-Konfiguration stehen in
 [native/README.md](native/README.md). Das öffentliche Testkonto und die
 Nebenstelle stehen im [Asterisk-Labor](tests/interop/asterisk/README.md).
-`npm run dev` startet weiterhin ohne native Telefonie, `npm run lab:down` beendet
+`bun run dev` startet weiterhin ohne native Telefonie, `bun run lab:down` beendet
 nur die eigene Testanlage. SIP/UDP ist vorerst auf isolierte Testnetze beschränkt.
 
 Rustup installiert die in `rust-toolchain.toml` festgelegte Version. Wenn Cargo
@@ -34,16 +34,16 @@ Rustup installiert die in `rust-toolchain.toml` festgelegte Version. Wenn Cargo
 muss dessen Toolchain ausdrücklich auf dieselbe Version eingestellt werden.
 
 ```sh
-npm run check
-npm run build
-npm run types:generate
-npm run format:check
+bun run check
+bun run build
+bun run types:generate
+bun run format:check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
-npm run desktop:build
+bun run desktop:build
 ```
 
-`npm run dev:web` öffnet nur die Web-Oberfläche; der native Status ist dort
+`bun run dev:web` öffnet nur die Web-Oberfläche; der native Status ist dort
 ausdrücklich nicht verfügbar. Cargo nutzt ein gemeinsames `target/` im Root.
 Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Pakete.
 

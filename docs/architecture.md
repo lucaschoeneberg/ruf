@@ -3,7 +3,7 @@
 The Cargo workspace has three packages. `sip-desktop` composes `phone-core` and
 `baresip-adapter`. Core owns validated input/output contracts and single-call
 preconditions, independently of Tauri, C handles or network implementations.
-The npm workspace contains the plain Svelte/Vite frontend.
+The Bun workspace contains the plain Svelte/Vite frontend.
 
 ```mermaid
 flowchart LR

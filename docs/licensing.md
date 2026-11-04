@@ -3,7 +3,7 @@
 ## Project and contributions
 
 Original application code and original project documentation use the
-[MIT license](../LICENSE), identified as `MIT` in SPDX, Cargo and npm metadata.
+[MIT license](../LICENSE), identified as `MIT` in SPDX, Cargo and JavaScript package metadata.
 The standard text is preserved. Community/contribution rules live in separate
 documents rather than being inserted into LICENSE.
 

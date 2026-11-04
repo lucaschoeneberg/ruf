@@ -24,13 +24,13 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Validate GitHub Actions workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
-      - run: npm run check:versions
-      - run: npm run types:generate
+      - run: bun run check:versions
+      - run: bun run types:generate
       - name: Verify generated contracts are current
         run: git diff --exit-code -- apps/desktop/src/lib/generated
-      - run: npm run format:check
-      - run: npm run check
-      - run: npm run build
+      - run: bun run format:check
+      - run: bun run check
+      - run: bun run build
       - run: cargo clippy --locked -p phone-core -p baresip-adapter --all-targets -- -D warnings
       - run: cargo test --locked -p phone-core -p baresip-adapter
 

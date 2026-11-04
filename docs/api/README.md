@@ -3,7 +3,7 @@
 Tauri commands are allowed only for the `main` window through explicit generated
 command permissions. There is no HTTP server or HTTP status-code mapping.
 Frontend wrappers in `apps/desktop/src/lib/api.ts` reject browser preview explicitly.
-Rust `phone-core` types are the contract source; run `npm run types:generate` and
+Rust `phone-core` types are the contract source; run `bun run types:generate` and
 commit the resulting `AppInfo.ts`. CI checks generated-contract drift.
 
 ## Commands

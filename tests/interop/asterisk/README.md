@@ -6,12 +6,12 @@ in the verified macOS arm64 run. This container is a separate test tool; it is
 not linked into or distributed inside the MIT application.
 
 ```sh
-npm run native:build
-npm run lab:up
-npm run test:asterisk
-npm run dev:native
+bun run native:build
+bun run lab:up
+bun run test:asterisk
+bun run dev:native
 # When finished:
-npm run lab:down
+bun run lab:down
 ```
 
 Desktop fields: registrar `127.0.0.1:5070`, user `1000`, password

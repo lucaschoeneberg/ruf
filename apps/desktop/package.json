@@ -5,10 +5,10 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
-    "tauri": "tauri"
+    "dev": "bun --bun vite",
+    "build": "bun --bun vite build",
+    "check": "bun --bun svelte-check --tsconfig ./tsconfig.json && bun --bun tsc --noEmit",
+    "tauri": "bun --bun tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"

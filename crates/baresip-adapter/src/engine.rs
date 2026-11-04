@@ -165,7 +165,7 @@ mod interop_tests {
     }
 
     #[test]
-    #[ignore = "Requires the isolated Asterisk lab; npm run test:asterisk runs it"]
+    #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
     fn stale_call_actions_preserve_a_replacement_call() {
         let account = AccountConfig {
             registrar: "127.0.0.1:5070".into(),

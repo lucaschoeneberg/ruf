@@ -11,5 +11,5 @@ process.chdir(fileURLToPath(new URL("../apps/desktop/", import.meta.url)));
 // Tauri options precede '--'; Cargo alone consumes the immutable-lockfile flag.
 await run(
   ["build", ...process.argv.slice(2), "--", "--locked"],
-  "npm run desktop:build",
+  "bun run desktop:build",
 );

@@ -94,7 +94,7 @@
     {#if !info && !error}<p>Desktop-Status wird geladen …</p>{/if}
     {#if info?.telephony === "notLinked"}<p class="notice">
         baresip ist nicht verbunden. Native SDK bauen und mit <code
-          >npm run dev:native</code
+          >bun run dev:native</code
         > starten.
       </p>{/if}
     {#if error}<p class="notice">{error}</p>{/if}

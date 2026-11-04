@@ -98,5 +98,5 @@ run(
   },
 );
 console.log(
-  `Recording: ${recording}\nLab remains available; stop with npm run lab:down.`,
+  `Recording: ${recording}\nLab remains available; stop with bun run lab:down.`,
 );

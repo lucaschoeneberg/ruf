@@ -21,6 +21,10 @@ Connect the actual repository before pushing or opening a pull request.
   before retrying draft creation. `docs/releases/foundation.md` is the current
   release-notes source and must be updated as real features ship.
 
+The shared setup installs the pinned Bun version from `.bun-version` and runs
+`bun install --frozen-lockfile`; frontend tools, native build orchestration and
+formatting run through Bun. Dependabot monitors the `bun` ecosystem/text lockfile.
+
 All remote actions are pinned to commits, with Dependabot enabled for updates.
 PR workflows have read-only content permissions, do not persist checkout
 credentials and do not receive signing secrets. Draft creation alone uses write
