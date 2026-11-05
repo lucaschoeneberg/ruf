@@ -130,10 +130,10 @@ impl PhoneSession {
         Ok(engine)
     }
     pub fn snapshot(&self) -> Result<EngineSnapshot, PhoneError> {
-        let mut snapshot = self
-            .engine
-            .as_ref()
-            .map_or_else(|| Ok(EngineSnapshot::default()), Engine::snapshot)?;
+        let mut snapshot = self.engine.as_ref().map_or_else(
+            || Ok(EngineSnapshot::default().with_read_revision()),
+            Engine::snapshot,
+        )?;
         if self.engine.is_none() {
             snapshot.sound_settings = self.settings.sound.clone();
         }

@@ -33,7 +33,15 @@ shared Rust session, registrations and any call. The main phone stays compact.
 | `configure_account`   | `{account: AccountConfig}`                                                                   | Compatibility command, settings only: save/replace the selected account, using username as its name. **Now durable**, unlike the earlier ephemeral API. New UI uses `save_account`. |
 | `dial`                | `{destination: string}`                                                                      | Reserves the single call slot on the selected, registered account. Number/extension: 1–64 ASCII digits or `+ * #`; arbitrary SIP URIs are unsupported.                              |
 | `answer`              | required `{callId: string}`                                                                  | Accepts the current incoming call on its own account, independent of outgoing selection.                                                                                            |
+| `reject`              | required `{callId: string}`                                                                  | Rejects only an unanswered incoming call; stale or already answered calls return `invalidState`. Main window only.                                                                  |
 | `hangup`              | required `{callId: string}`                                                                  | Rejects/ends the current call; native completion follows through state.                                                                                                             |
+
+`reject` is a main-window command with required `{callId: string}` input and an
+`EngineSnapshot` result. It rejects only an offered incoming call. Empty/stale
+tokens and calls already answering or established reject with `invalidState`;
+the native queue rechecks the offer. Missing/malformed arguments are rejected by
+Tauri. Absent/stopped native support or queue failures use the existing
+`engineUnavailable` / `nativeFailure` errors. No optional input fields exist.
 
 All except `get_app_info` can reject with `PhoneError`. Tauri separately rejects
 malformed arguments, missing required fields, unknown account fields/enum values,
@@ -41,6 +49,11 @@ runtime failures or denied permissions. Queue acceptance does not imply SIP/medi
 success: poll real registration/call state. Account save/remove wait for native
 application/rejection, rather than abandoning a delayed mutation after a timeout.
 Native shutdown causes those waits to reject.
+Native removal/replacement acceptance does not wait for the registrar to confirm
+unregistration. The retired account finishes its pending REGISTER (including a
+possible timeout) before unregistering a confirmed binding. Late responses from
+that retired account cannot alter a replacement account's snapshot. Command
+inputs, output DTOs and error codes are unchanged.
 
 ## AccountConfig (credential-bearing input only)
 
@@ -121,6 +134,17 @@ account that can be repaired by supplying a password. No secret is read back.
 Answer/hangup capture an internal call generation; delayed actions for call A
 cannot affect replacement call B. The opaque `callId` is a session-local generation token, not a SIP Call-ID. It is null while idle and reserved before a successful outgoing attempt is queued. Both call-control commands require the displayed token; empty/stale tokens reject with `invalidState`. Duplicate answers reject. `answering` means the native answer is pending an ACK; only the native established event reports `active` (or `held` when already remotely held). Engine lifetime
 belongs to the application, rather than either webview.
+
+All incoming “Ablehnen” controls in the main window, tray/application menu and
+native notification use the same guarded rejection operation. A delayed reject
+cannot end a call already accepted by another surface. “Auflegen” uses the same
+general termination operation in every non-idle state, including `answering`.
+Duplicate hangups already accepted into the native queue for the same closed
+generation are harmless; fresh calls still require their own token. An answer
+and a hangup can race: native execution order determines whether an answer is
+sent before termination, and termination releases the slot without restarting.
+A queued answer that runs after the same call already closed becomes an
+`invalidState` stale-action warning, rather than a misleading `nativeFailure`.
 
 ## Persistence and credential cleanup
 

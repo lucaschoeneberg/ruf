@@ -37,6 +37,13 @@ try {
     ),
     [],
   );
+  run(
+    join(
+      build,
+      windows ? "Release/call_actions_test.exe" : "call_actions_test",
+    ),
+    [],
+  );
 } finally {
   rmSync(build, { recursive: true, force: true });
 }

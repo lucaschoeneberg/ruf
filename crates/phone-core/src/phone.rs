@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{
+    fmt,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use ts_rs::TS;
+
+// Shared by desktop reads before native startup and across engine recreation.
+static NEXT_SNAPSHOT_REVISION: AtomicU64 = AtomicU64::new(1);
 
 /// Shared audio path for the native engine and all its SIP accounts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -327,7 +333,8 @@ pub struct CallerIdentity {
 #[derive(Debug, Clone, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSnapshot {
-    /// Process-monotonic read revision; ignore older IPC/event deliveries. Zero before native startup.
+    /// Process-monotonic read revision, including before native startup; ignore older deliveries.
+    /// Zero denotes default or unobserved state.
     #[ts(type = "number")]
     pub revision: u64,
     /// Registration of the selected outgoing account (compatibility projection).
@@ -420,6 +427,14 @@ impl AccountConfig {
 }
 
 impl EngineSnapshot {
+    /// Assign a fresh process-monotonic revision to an owned snapshot read.
+    /// Shared by pre-engine desktop reads and native reads across engine recreation.
+    /// Call while owning the state lock so revisions follow the observed state.
+    pub fn with_read_revision(mut self) -> Self {
+        self.revision = NEXT_SNAPSHOT_REVISION.fetch_add(1, Ordering::Relaxed);
+        self
+    }
+
     /// Select an existing outgoing account while idle, without changing registration.
     pub fn select_account(&mut self, id: u32) -> Result<(), PhoneError> {
         if self.call != CallState::Idle {

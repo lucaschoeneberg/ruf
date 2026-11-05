@@ -11,6 +11,7 @@
     getAppInfo,
     getEngineSnapshot,
     hangup,
+    reject,
   } from "./lib/api";
   import type {
     AppInfo,
@@ -550,7 +551,8 @@
         }}
         onhangup={() => {
           const callId = snapshot?.callId;
-          if (callId) void perform(() => hangup(callId));
+          const endCall = callState === "incoming" ? reject : hangup;
+          if (callId) void perform(() => endCall(callId));
         }}
       />
     {/if}

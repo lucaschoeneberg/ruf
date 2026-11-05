@@ -116,3 +116,11 @@ until a queued replacement is acknowledged. Native operation errno values are
 separate from SIP response codes. Local reject/cancel intent is recorded only
 when the native generation-guarded action was accepted. Observer panics are
 isolated from engine state. There is no second audio pipeline or SIP implementation.
+
+An incoming answer actually transmitted by native SIP that fails before ACK is
+recorded as `failed`, with no connection time or SIP status. An answer only queued
+in Rust followed by remote cancellation remains an unanswered incoming call.
+This distinction uses native evidence rather than the optimistic `answering`
+snapshot. Established calls ended by the media watchdog retain their observed
+connection duration and existing `completed` history classification; the current
+engine snapshot exposes the separate `nativeFailure` media error.

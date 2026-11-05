@@ -57,6 +57,7 @@ pub fn run() {
             commands::get_engine_snapshot,
             commands::dial,
             commands::answer,
+            commands::reject,
             commands::save_account,
             commands::select_account,
             commands::remove_account,

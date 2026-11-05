@@ -18,6 +18,30 @@ answer/hangup require a matching token before queueing. Answer reserves
 `answering` under the same lock until ACK/establishment, close, or an explicit
 native answer failure. Queue rejection restores `incoming` immediately.
 Engine callbacks copy numeric state/error information into a synchronized Rust snapshot.
+Incoming rejection uses the same generation checks plus native unanswered-offer
+validation. An already answered call cannot be ended by a stale reject control.
+Already queued hangups of the same closed generation are idempotent. An answer
+queued for an already closed call reports the existing stale-action event instead
+of EINVAL/nativeFailure. A failed dial emits only its attempt-scoped failure;
+it must not also publish a generic
+error against a different call that won the slot.
+
+Private event `EV_ANSWER_CLOSED` (34) uses the existing event payload: code zero,
+the owning account/generation and null borrowed text fields. It is emitted only
+when a successfully transmitted answer closes while still native `INCOMING`
+without a final SIP status, before establishment. This distinguishes missing ACK
+from remote CANCEL before native answering. Rust records a failed history outcome,
+reports `nativeFailure` with null SIP status, and clears the slot. Stale generations
+cannot close another call; the restricted diagnostic marker remains `event=closed`.
+The public DTO and error enum are unchanged.
+
+Ringing stops after native answer success; recoverable answer failure keeps the
+existing play object so the still-offered call remains audible. No hardware
+audio path is replaced. The existing RTP watchdog is configured to 60 seconds
+for established bidirectional media. Native hold suppresses receive checks;
+resume rearms the existing audio stream timer with the configured interval.
+This releases a lost-media call without a user hangup and lets idle transport
+recovery proceed. See [media-loss recovery](../../../docs/api/sip-events.md#media-loss-recovery).
 The private `sip_event` / repr(C) `NativeEvent` payload also borrows bounded caller
 arrays and, only for DTMF-start, a two-byte NUL-terminated digit array. Rust copies
 them synchronously; no native pointer escapes. Progress, hold/resume, DTMF and
@@ -28,6 +52,13 @@ The synchronous platform inventory callback copies device IDs, names and selecta
 
 The native singleton prevents conflicting process-global upstream state. Rust
 joins the native thread before destroying the handle and callback context.
+Account replacement/removal releases the old UA through its existing destructor.
+Do not call `ua_unregister` before releasing it: libre owns one pending REGISTER
+pointer per registration. Its destructor waits for that request to complete or
+time out, then unregisters a confirmed binding without overlapping requests.
+Retired UAs leave the engine account table immediately, so their late events
+cannot update the replacement account. A rejected replacement keeps the previous
+UA and its registration unchanged.
 Callbacks catch Rust unwinding; raw C pointers remain private. The workspace's
 unsafe-code exception applies only to this FFI module.
 
@@ -35,6 +66,13 @@ unsafe-code exception applies only to this FFI module.
 established call. Portable builds reject startup with `engineUnavailable`.
 Real lifecycle tests and the Asterisk tone-echo example exercise the actual
 library. Hardware devices and Windows runtime still require platform execution.
+
+`bun run test:network-roam` also builds the standalone `call_actions_test` target.
+It includes the production queue handler and uses real libre ringtone ownership;
+only `ua_answer` failure/success and external inventory/network effects are
+substituted. It does not open audio hardware. Actual UDP regressions separately
+verify successive incoming calls, pre-ACK termination, missing ACK, dropped
+signaling/registration packets, delayed old BYE transactions and media recovery.
 
 Sound routing/preview operations execute on the same event loop, acknowledge
 application/rejection, and recheck the single call slot. `audio_devices.c` reads
@@ -52,6 +90,17 @@ category (`tunnel`/`other` on macOS, otherwise `unknown`), peer address category
 and an INVITE Contact comparison against the packet sender. Only numeric Contact
 hosts are compared; DNS hosts remain `unknown`, without extra DNS requests.
 An address mismatch is legal SIP and must not trigger automatic rewriting.
+Successful REGISTER responses also report a bounded Contact count
+(`none`/`one`/`many`) and whether a numeric Contact without explicit zero expiry
+matches the endpoint described by the response Via (`present`/`missing`/`unknown`).
+This is a diagnostic comparison, not registrar authentication or a reachability
+guarantee. It prints no endpoint, account identity or expiry values.
+Successful received REGISTER responses additionally report a
+`register-via received=present|missing rport=valued|empty|missing` marker.
+Only parameter presence is exposed, never the parameter values, addresses or
+ports. This distinguishes complete initial mapping evidence from incomplete PBX
+refresh responses without raw packet capture. Presence alone does not validate
+an address or prove that a NAT mapping was renewed.
 The diagnostic decoder owns a bounded temporary copy and never mutates the
 original SIP packet. Each marker ends in `ms=<elapsed monotonic milliseconds>`
 and `call=<local call generation>`, with no SIP Call-ID or clock timestamp. It does

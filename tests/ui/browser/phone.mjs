@@ -61,6 +61,8 @@ export default async function phoneRegressions(page) {
       resolveSnapshot: null,
       holdSelect: false,
       resolveSelect: null,
+      failCallCommand: null,
+      nextCall: 1,
       emit(payload) {
         if (!payload) state.revision++;
 
@@ -127,14 +129,35 @@ export default async function phoneRegressions(page) {
             });
           return captured;
         }
-        if (command === "answer" || command === "hangup") {
+        if (command === "dial") {
+          if (state.call !== "idle")
+            throw { code: "busy", message: "Call already in progress" };
+          state.revision++;
+          Object.assign(state, {
+            call: "calling",
+            callId: `outgoing-${fixture.nextCall++}`,
+            callAccountId: state.selectedAccountId,
+            caller: null,
+            callerContact: null,
+            callConnectedAtMs: null,
+          });
+          return structuredClone(state);
+        }
+        if (["answer", "hangup", "reject"].includes(command)) {
           if (!args.callId || args.callId !== state.callId)
             throw { code: "invalidState", message: "Stale call" };
+          if (command !== "hangup" && state.call !== "incoming")
+            throw { code: "invalidState", message: "No incoming call" };
+          if (fixture.failCallCommand === command)
+            throw { code: "nativeFailure", message: "Synthetic call failure" };
           state.revision++;
           state.call = command === "answer" ? "answering" : "idle";
-          if (command === "hangup") {
+          if (command !== "answer") {
             state.callId = null;
             state.callAccountId = null;
+            state.caller = null;
+            state.callerContact = null;
+            state.callConnectedAtMs = null;
           }
           return structuredClone(state);
         }
@@ -160,6 +183,32 @@ export default async function phoneRegressions(page) {
         exact: true,
       })
       .waitFor();
+  }
+  async function offerCall(call) {
+    await page.evaluate((call) => {
+      const f = window.__phoneFixture;
+      Object.assign(f.state, {
+        call,
+        callId: "offered-call",
+        callAccountId: 2,
+        caller: { name: "Current caller", number: "1002" },
+      });
+      f.emit();
+    }, call);
+    await page.getByRole("region", { name: "Aktuelles Gespräch" }).waitFor();
+  }
+  async function dialNextCall() {
+    await page.getByRole("button", { name: "Anrufen", exact: true }).waitFor();
+    await page
+      .getByRole("textbox", { name: "Nummer oder Nebenstelle" })
+      .fill("1003");
+    await page.getByRole("button", { name: "Anrufen", exact: true }).click();
+    await page
+      .getByText("Verbindung wird aufgebaut …", { exact: true })
+      .waitFor();
+    await page.getByRole("heading", { name: "1003", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Auflegen", exact: true }).click();
+    await page.getByRole("button", { name: "Anrufen", exact: true }).waitFor();
   }
   await page.setViewportSize({ width: 340, height: 500 });
   await check(
@@ -661,6 +710,165 @@ export default async function phoneRegressions(page) {
       const alert = await page.getByRole("alert").textContent();
       if (!alert.includes("besetzt") || alert.includes("secret"))
         throw new Error("Remote SIP reason reached the error UI: " + alert);
+    },
+  );
+  await check(
+    "stale visible reject preserves a call answered by another surface",
+    async () => {
+      await fresh();
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.holdSnapshot = true;
+        Object.assign(f.state, {
+          call: "incoming",
+          callId: "external-answer-call",
+          callAccountId: 1,
+        });
+        f.emit();
+      });
+      await page
+        .getByRole("button", { name: "Ablehnen", exact: true })
+        .waitFor();
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.state.call = "active";
+        f.state.revision++;
+      });
+      await page.getByRole("button", { name: "Ablehnen", exact: true }).click();
+      const actual = await page.evaluate(
+        () => window.__phoneFixture.state.call,
+      );
+      if (actual !== "active")
+        throw new Error(
+          "Stale Ablehnen terminated externally answered call: " + actual,
+        );
+      await page.getByRole("alert").waitFor();
+      await page.evaluate(() => window.__phoneFixture.emit());
+      await page.getByRole("button", { name: "Auflegen", exact: true }).click();
+      await dialNextCall();
+    },
+  );
+  for (const call of [
+    "incoming",
+    "answering",
+    "calling",
+    "ringing",
+    "earlyMedia",
+    "active",
+    "held",
+  ])
+    await check(
+      `ending ${call} releases controls for the next call`,
+      async () => {
+        await fresh();
+        await offerCall(call);
+        await page
+          .getByRole("button", {
+            name: call === "incoming" ? "Ablehnen" : "Auflegen",
+            exact: true,
+          })
+          .click();
+        await dialNextCall();
+      },
+    );
+  for (const [command, call, action] of [
+    ["answer", "incoming", "Annehmen"],
+    ["reject", "incoming", "Ablehnen"],
+    ["hangup", "active", "Auflegen"],
+  ])
+    await check(
+      `failed ${command} leaves controls usable for retry and another call`,
+      async () => {
+        await fresh();
+        await offerCall(call);
+        await page.evaluate(
+          (command) => (window.__phoneFixture.failCallCommand = command),
+          command,
+        );
+        const button = page.getByRole("button", { name: action, exact: true });
+        await button.click();
+        await page.getByRole("alert").waitFor();
+        await page.waitForFunction(
+          (action) =>
+            [...document.querySelectorAll(".call-actions button")].some(
+              (button) =>
+                button.textContent.trim() === action && !button.disabled,
+            ),
+          action,
+        );
+        await page.evaluate(
+          () => (window.__phoneFixture.failCallCommand = null),
+        );
+        await button.click();
+        if (command === "answer") {
+          await page.getByText("Wird angenommen …", { exact: true }).waitFor();
+          await page
+            .getByRole("button", { name: "Auflegen", exact: true })
+            .click();
+        }
+        await dialNextCall();
+      },
+    );
+  for (const [call, action] of [
+    ["incoming", "Annehmen"],
+    ["incoming", "Ablehnen"],
+    ["active", "Auflegen"],
+  ])
+    await check(
+      `stale ${action} for call A preserves replacement call B`,
+      async () => {
+        await fresh();
+        await offerCall(call);
+        await page.evaluate(() => {
+          const f = window.__phoneFixture;
+          f.holdSnapshot = true;
+          Object.assign(f.state, {
+            call: "incoming",
+            callId: "replacement-call",
+          });
+          f.state.revision++;
+        });
+        await page.getByRole("button", { name: action, exact: true }).click();
+        await page.getByRole("alert").waitFor();
+        await page.evaluate(() => window.__phoneFixture.emit());
+        await page
+          .getByRole("button", { name: "Annehmen", exact: true })
+          .waitFor();
+        const actual = await page.evaluate(() => ({
+          call: window.__phoneFixture.state.call,
+          token: window.__phoneFixture.state.callId,
+        }));
+        if (actual.call !== "incoming" || actual.token !== "replacement-call")
+          throw new Error(
+            "Stale control changed replacement call: " + JSON.stringify(actual),
+          );
+        await page
+          .getByRole("button", { name: "Ablehnen", exact: true })
+          .click();
+        await dialNextCall();
+      },
+    );
+  await check(
+    "incoming call on another account can be answered while selected account has failed",
+    async () => {
+      await fresh();
+      await offerCall("incoming");
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.state.registration = "failed";
+        f.state.accounts[0].registration = "failed";
+        f.emit();
+      });
+      await page.getByRole("button", { name: "Annehmen", exact: true }).click();
+      await page.getByText("Wird angenommen …", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Auflegen", exact: true }).click();
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.state.registration = "registered";
+        f.state.accounts[0].registration = "registered";
+        f.emit();
+      });
+      await dialNextCall();
     },
   );
   await page.close();

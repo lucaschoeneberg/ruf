@@ -17,6 +17,7 @@ const OPEN: &str = "open-phone";
 const QUIT: &str = "quit-app";
 const SETTINGS: &str = "settings:";
 const ANSWER: &str = "answer:";
+const REJECT: &str = "reject:";
 const HANGUP: &str = "hangup:";
 const ACCOUNT: &str = "account:";
 
@@ -247,6 +248,8 @@ fn dispatch(app: &tauri::AppHandle, id: &str) {
         let result = desktop::with_session(&app, |session| {
             if let Some(call) = id.strip_prefix(ANSWER) {
                 session.engine()?.answer_call(call)?;
+            } else if let Some(call) = id.strip_prefix(REJECT) {
+                session.engine()?.reject_call(call)?;
             } else if let Some(call) = id.strip_prefix(HANGUP) {
                 session.engine()?.hangup_call(call)?;
             } else if let Some(account) =
@@ -306,7 +309,15 @@ fn call_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Su
     )?)?;
     call.append(&item(
         app,
-        &format!("{HANGUP}{}", state.call_id.as_deref().unwrap_or("")),
+        &format!(
+            "{}{}",
+            if state.call == CallState::Incoming {
+                REJECT
+            } else {
+                HANGUP
+            },
+            state.call_id.as_deref().unwrap_or("")
+        ),
         if state.call == CallState::Incoming {
             "Ablehnen"
         } else {

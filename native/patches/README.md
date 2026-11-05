@@ -26,9 +26,20 @@ The extension learns a **local** numeric SIP/UDP mapping from a successful
 REGISTER response accepted by the existing transaction layer. It also checks
 the expected source peer, actual destination socket, Call-ID, transmitted CSeq
 and echoed Via sent-by. `received` must be numeric, unicast and of the local
-address family; `rport` must be decimal in 1–65535. Missing/invalid data leaves
-the mapping unchanged. This is not server authentication or encryption: the
-underlying transport remains SIP/UDP.
+address family; `rport` must be decimal in 1–65535. Invalid data leaves the
+mapping unchanged. Initial discovery still requires both values.
+
+Some peers omit `received` on subsequent successful REGISTER responses. Although
+[RFC 3581 §4](https://www.rfc-editor.org/rfc/rfc3581.html#section-4) requires it
+when answering an `rport` request, the client permits a narrow compatibility
+renewal: an existing **live exact local-socket/peer-endpoint mapping** must equal
+the echoed numeric Via sent-by, and its port must equal the validated `rport`.
+The same transaction/source/destination/Call-ID/CSeq checks still apply. This
+cannot discover a new address, change an existing endpoint, revive an expired
+entry or reuse a different peer port's mapping for validation. A present but
+malformed/empty `received` never enters the compatibility path. Without a valid
+renewal, expiration and normal discovery remain unchanged. This is not server
+authentication or encryption: the underlying transport remains SIP/UDP.
 
 A changed mapping triggers re-registration with the previous Contact at
 `expires=0` and the new Contact, before registration success is published. Port
@@ -37,6 +48,24 @@ immediate mapping corrections; further instability fails with ELOOP and uses
 normal registration failure backoff. A subsequent fresh cycle can recover.
 Contact expiry selection matches the full numeric address and effective
 transport port, so another binding on the same IP cannot supply its expiry.
+
+A successful active registration also requires the response to confirm this
+client's own Contact with a positive expiry, using that same existing
+user/transport/address/port matcher. A 200 response alone is insufficient.
+During NAT correction, a response without the new active binding after the
+combined old-Contact deletion/new-Contact update triggers one immediate retry
+containing **only the new Contact**. No success callback is published before
+confirmation. If that retry is again empty, unrelated or expired, the SDK returns
+`EPROTO`, keeps registration false and uses its existing failure backoff.
+Ordinary active refreshes without an own active binding also fail instead of
+remaining green. This follows the complete-binding response semantics in
+[RFC 3261 §§10.2.3–10.3](https://www.rfc-editor.org/rfc/rfc3261.html#section-10.2.3).
+
+This compatibility retry is limited to once per fresh registration cycle and
+does not reset or increase the two-correction NAT rebind budget. A later fresh
+cycle may recover normally. Explicit unregister and terminated/retiring clients
+never enter this active-registration retry path; an empty successful unregister
+response remains successful. No wildcard Contact deletion is sent.
 
 Contact and request Via serialization use the learned address. The actual UDP
 socket, `sipreg_laddr()`, RTP address selection and remote dialog target remain
@@ -53,11 +82,16 @@ These C functions are internal to the statically linked SDK. They do not add
 frontend commands or DTOs. Call them only on the SIP event-loop thread. Addresses
 are copied by value; no caller pointers are retained.
 
-- `bool sip_nat_validate(local, peer, sentby, callid, cseq, msg, mapped)` takes
-  non-null expected transaction fields and a decoded response. Returns false on
-  invalid/unmatched data and leaves `mapped` untouched; true writes the numeric
-  observed endpoint. The SIP transaction layer must already have matched the Via
-  branch. No network or DNS operations occur.
+- `bool sip_nat_validate(sip, local, peer, sentby, callid, cseq, msg, mapped)`
+  takes the owning SDK SIP instance, non-null expected transaction fields and
+  a decoded response. All pointer arguments are required; `cseq` is the sequence
+  actually transmitted. Returns false on invalid/unmatched data and leaves
+  `mapped` untouched; true writes the numeric observed endpoint or the unchanged
+  live endpoint confirmed by the compatibility rule above. It does not mutate
+  the cache; the REGISTER handler renews the validated entry with `sip_nat_set`.
+  The SIP transaction layer must already have matched the Via branch. No network
+  or DNS operations occur. The added `sip` argument changes this private SDK C
+  signature; all SDK consumers must rebuild together, as enforced by sdk.json.
 - `int sip_nat_set(sip, local, peer, mapped, lifetime)` installs/refreshes an
   already validated mapping. All pointers are required. Lifetime is 1–604800
   seconds; invalid arguments return EINVAL, 32 live tuples return ENOSPC for a
@@ -77,9 +111,20 @@ peer/socket isolation, peer-port variation, exact-match precedence, ambiguous
 fallback suppression, expiration and bounded mapping storage. `test_sip_nat_registration`
 uses a real UDP registrar exchange: CSeq matching, port-only translation,
 obsolete Contact removal, another binding's differing expiry, bounded immediate
-retries, normal backoff and recovery after a fresh cycle. The test harness also
+retries, normal backoff and recovery after a fresh cycle. A successful refresh
+omitting `received` must preserve the mapped endpoint beyond the entry's prior
+expiry, including an incoming peer's alternate port lookup. Initial/incomplete
+discovery, malformed received/rport, unrelated tuples and expired entries stay
+rejected. The test harness also
 initializes memory-stat structures when Release builds do not supply statistics,
 and supports selecting a single test on Windows without getopt.
+
+The same UDP regression simulates a peer that responds to the combined
+delete/add with 200 and no remaining Contact. It requires the single-Contact
+retry before success; missing, unrelated and zero-expiry retry bindings must
+produce `EPROTO` and backoff, followed by recovery on a fresh cycle. It also
+rejects a normal active refresh with no own binding and verifies that explicit
+unregistration succeeds without triggering another registration.
 
 `bun run test:asterisk` adds authenticated outgoing and incoming calls through
 Docker's translated UDP path with account 1003 and `rewrite_contact=no`. Remote

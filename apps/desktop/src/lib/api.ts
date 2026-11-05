@@ -64,6 +64,8 @@ export const dial = (destination: string) =>
   desktopInvoke<EngineSnapshot>("dial", { destination });
 export const answer = (callId: string) =>
   desktopInvoke<EngineSnapshot>("answer", { callId });
+export const reject = (callId: string) =>
+  desktopInvoke<EngineSnapshot>("reject", { callId });
 export const hangup = (callId: string) =>
   desktopInvoke<EngineSnapshot>("hangup", { callId });
 

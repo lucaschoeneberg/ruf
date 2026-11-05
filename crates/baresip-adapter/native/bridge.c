@@ -36,7 +36,7 @@ struct sip_event {
 typedef void (*event_callback)(const struct sip_event *event, void *arg);
 enum { EV_READY=1, EV_REGISTERING, EV_REGISTERED, EV_REG_FAILED,
        EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE, EV_REMOVED, EV_REMOVE_FAILED, EV_ACCOUNT_APPLIED, EV_ACCOUNT_REJECTED, EV_AUDIO_APPLIED, EV_AUDIO_FAILED, EV_RING_STARTED, EV_RING_STOPPED, EV_ANSWER_FAILED, EV_BUSY_INCOMING, EV_DIAL_STARTED, EV_DIAL_FAILED, EV_LOCAL_END, EV_INTERRUPTING,
-       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT };
+       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED };
 enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE, OP_REJECT };
 
 struct request {
@@ -114,6 +114,20 @@ static const char *diagnostic_method(const struct pl *method) {
     return "other";
 }
 
+static bool diagnostic_contact_matches(const struct sip_hdr *header, const struct sip_msg *message, void *arg) {
+    struct sip_addr contact;
+    struct sa address;
+    struct pl expires;
+    (void)message;
+    if (sip_addr_decode(&contact, &header->val) ||
+        pl_strcasecmp(&contact.uri.scheme, "sip") ||
+        sa_set(&address, &contact.uri.host, sip_transp_port(SIP_TRANSP_UDP, contact.uri.port)))
+        return false;
+    if (!msg_param_decode(&contact.params, "expires", &expires) && !pl_u32(&expires))
+        return false;
+    return sa_cmp(&address, arg, SA_ALL);
+}
+
 static void diagnostic_packet(struct engine *e, bool tx, const struct sa *src, const struct sa *dst,
                               const uint8_t *packet, size_t length) {
     struct sip_msg *message = NULL;
@@ -153,6 +167,35 @@ static void diagnostic_packet(struct engine *e, bool tx, const struct sa *src, c
     unsigned status = message->scode >= 100 && message->scode <= 699 ? message->scode : 0;
     fprintf(stderr, "sip.diag packet=%s status=%u method=%s local=%s peer=%s contact=%s contact-match=%s ms=%" PRIu64 " call=%" PRIu64 "\n",
             tx ? "tx" : "rx", status, method, local, diagnostic_scope(tx ? dst : src), contact_scope, contact_match, tmr_jiffies() - e->diagnostic_started, e->call_generation);
+    if (!tx && status >= 200 && status < 300 && !strcmp(method, "REGISTER")) {
+        struct pl received = {0}, rport = {0};
+        bool has_received = !msg_param_exists(&message->via.params, "received", &received);
+        bool valued_received = !msg_param_decode(&message->via.params, "received", &received);
+        bool has_rport = !msg_param_exists(&message->via.params, "rport", &rport);
+        bool valued_rport = !msg_param_decode(&message->via.params, "rport", &rport);
+        /* Presence only: never export the Via host, source port or raw parameters. */
+        fprintf(stderr, "sip.diag register-via received=%s rport=%s ms=%" PRIu64 " call=%" PRIu64 "\n",
+                has_received ? "present" : "missing",
+                !has_rport ? "missing" : valued_rport ? "valued" : "empty",
+                tmr_jiffies() - e->diagnostic_started, e->call_generation);
+        struct sa mapped = message->via.addr;
+        const char *target = "unknown";
+        bool numeric_port = valued_rport && rport.l && rport.l <= 5;
+        for (size_t i = 0; numeric_port && i < rport.l; ++i)
+            if (rport.p[i] < '0' || rport.p[i] > '9') numeric_port = false;
+        uint32_t port = numeric_port ? pl_u32(&rport) : 0;
+        if (port && port <= 65535 &&
+            (!has_received || (valued_received && !sa_set(&mapped, &received, (uint16_t)port))) &&
+            sa_isset(&mapped, SA_ADDR)) {
+            sa_set_port(&mapped, (uint16_t)port);
+            target = sip_msg_hdr_apply(message, true, SIP_HDR_CONTACT,
+                                      diagnostic_contact_matches, &mapped) ? "present" : "missing";
+        }
+        uint32_t contacts = sip_msg_hdr_count(message, SIP_HDR_CONTACT);
+        fprintf(stderr, "sip.diag register-contacts count=%s mapped-target=%s ms=%" PRIu64 " call=%" PRIu64 "\n",
+                !contacts ? "none" : contacts == 1 ? "one" : "many", target,
+                tmr_jiffies() - e->diagnostic_started, e->call_generation);
+    }
     mem_deref(message);
     mem_deref(buffer);
 }
@@ -178,7 +221,7 @@ static void diagnostic_trace(bool tx, enum sip_transp tp, const struct sa *src,
 
 static void emit_account(struct engine *e, int kind, int code, uint32_t account_id) {
     if (e->diagnostics) {
-        const char *name = kind == EV_ACTIVE ? "active" : kind == EV_CLOSED ? "closed" : NULL;
+        const char *name = kind == EV_ACTIVE ? "active" : (kind == EV_CLOSED || kind == EV_ANSWER_CLOSED) ? "closed" : NULL;
         if (name) fprintf(stderr, "sip.diag event=%s ms=%" PRIu64 " call=%" PRIu64 "\n", name, tmr_jiffies() - e->diagnostic_started, e->call_generation);
     }
     const struct sip_event event = { kind, code, account_id, e->call_generation, NULL, NULL, NULL };
@@ -401,7 +444,14 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
     case BEVENT_CALL_RINGING: if (e->call == call) emit(e, EV_RINGING, 0); break;
     case BEVENT_CALL_PROGRESS: if (e->call == call) emit(e, EV_PROGRESS, 0); break;
     case BEVENT_CALL_HOLD: if (e->call == call) emit(e, EV_HOLD, 0); break;
-    case BEVENT_CALL_RESUME: if (e->call == call) emit(e, EV_RESUME, 0); break;
+    case BEVENT_CALL_RESUME:
+        if (e->call == call) {
+            /* Remote hold pauses receive checks; grant a fresh interval on
+               resume before the first returning RTP packet can arrive. */
+            stream_enable_rtp_timeout(audio_strm(call_audio(call)), conf_config()->avt.rtp_timeout * 1000);
+            emit(e, EV_RESUME, 0);
+        }
+        break;
     case BEVENT_CALL_DTMF_START:
         if (e->call == call) {
             const char *text = bevent_get_text(event);
@@ -428,7 +478,14 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
         break;
     case BEVENT_CALL_ESTABLISHED: if (e->call == call) { e->call_answered = true; stop_ring(e); emit(e, EV_ACTIVE, 0); } break;
     case BEVENT_CALL_CLOSED:
-        if (e->call == call) { stop_ring(e); e->call = NULL; e->call_ua = NULL; emit(e, EV_CLOSED, call_scode(call)); e->call_account_id = 0; }
+        if (e->call == call) {
+            /* A sent answer without ACK is a failed setup, unlike an unanswered
+             * remote CANCEL. Local hangup first marks the call terminated. */
+            bool answer_failed = e->call_answered && call_state(call) == CALL_STATE_INCOMING && !call_scode(call);
+            stop_ring(e); e->call = NULL; e->call_ua = NULL;
+            emit(e, answer_failed ? EV_ANSWER_CLOSED : EV_CLOSED, call_scode(call));
+            e->call_account_id = 0;
+        }
         break;
     case BEVENT_AUDIO_ERROR:
         if (e->diagnostics) fprintf(stderr, "sip.diag event=audio-error ms=%" PRIu64 " call=%" PRIu64 "\n", tmr_jiffies() - e->diagnostic_started, e->call_generation);
@@ -473,7 +530,6 @@ static void queue_handler(int id, void *data, void *arg) {
         if (error) { mem_deref(replacement); break; }
         struct ua *previous = account->ua;
         account->ua = NULL;
-        if (previous) ua_unregister(previous);
         char previous_registrar[256];
         str_ncpy(previous_registrar, account->registrar, sizeof(previous_registrar));
         account->id = r->account_id;
@@ -484,9 +540,10 @@ static void queue_handler(int id, void *data, void *arg) {
             account->ua = previous;
             str_ncpy(account->registrar, previous_registrar, sizeof(account->registrar));
             mem_deref(replacement);
-            if (previous) (void)ua_register(previous);
-            else memset(account, 0, sizeof(*account));
+            if (!previous) memset(account, 0, sizeof(*account));
         } else {
+            /* The UA destructor retires pending REGISTER before unregistering.
+               An explicit ua_unregister would overlap the owned request. */
             mem_deref(previous);
             emit_account(e, EV_ACCOUNT_APPLIED, 0, r->account_id);
         }
@@ -497,7 +554,7 @@ static void queue_handler(int id, void *data, void *arg) {
         if (account) {
             struct ua *previous = account->ua;
             memset(account, 0, sizeof(*account));
-            if (previous) { ua_unregister(previous); mem_deref(previous); }
+            mem_deref(previous);
         }
         emit_account(e, EV_REMOVED, 0, r->account_id);
         break;
@@ -523,14 +580,16 @@ static void queue_handler(int id, void *data, void *arg) {
         break;
     }
     case OP_ANSWER:
+        /* A queued hangup or remote cancellation may have already closed this
+         * generation. Report a stale action, rather than an audio/native error. */
+        if (!e->call) { emit(e, EV_STALE, 0); break; }
         if (!e->audio_mode) {
             error = sip_audio_device_available(e->input_device, 1);
             if (!error) error = sip_audio_device_available(e->output_device, 0);
             if (error) break;
         }
-        stop_ring(e);
         error = e->call ? ua_answer(e->call_ua, e->call, VIDMODE_OFF) : EINVAL;
-        if (!error) e->call_answered = true;
+        if (!error) { e->call_answered = true; stop_ring(e); }
         break;
     case OP_REJECT:
         if (!e->call || e->call_answered || call_state(e->call) != CALL_STATE_INCOMING) {
@@ -543,8 +602,9 @@ static void queue_handler(int id, void *data, void *arg) {
         break;
     case OP_HANGUP:
         stop_ring(e);
+        /* A second already-queued hangup of this generation is idempotent.
+         * A different live call was rejected by the generation guard above. */
         if (e->call) { emit(e, EV_LOCAL_END, 0); ua_hangup(e->call_ua, e->call, 0, NULL); }
-        else error = EINVAL;
         break;
     case OP_SOUND:
     case OP_SOUND_RESTORE:
@@ -578,7 +638,9 @@ static void queue_handler(int id, void *data, void *arg) {
         e->callback(&failed, e->callback_arg);
         if (!e->call) { e->call_ua = NULL; e->call_account_id = 0; }
     }
-    if (error) emit(e, r->operation == OP_ANSWER ? EV_ANSWER_FAILED : EV_ERROR, error);
+    /* Dial failures already carry the attempted generation above. A generic
+     * error would attach that failed attempt to an incoming call that won. */
+    if (error && r->operation != OP_DIAL) emit(e, r->operation == OP_ANSWER ? EV_ANSWER_FAILED : EV_ERROR, error);
     free_request(r);
 }
 
@@ -603,6 +665,9 @@ int sip_engine_run(void *handle) {
         "call_max_calls 1\n"
         "call_accept yes\n"
         "rtp_ports 40000-40100\n"
+        /* Release an established sendrecv call after sustained media loss.
+           Upstream suspends this watchdog while the peer holds the call. */
+        "rtp_timeout 60\n"
         /* Two 20 ms packets on stable paths; retain headroom for VPN jitter. */
         "audio_jitter_buffer_type adaptive\n"
         "audio_jitter_buffer_ms 40-200\n";

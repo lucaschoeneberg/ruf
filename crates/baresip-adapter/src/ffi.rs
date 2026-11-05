@@ -28,6 +28,7 @@ const EV_DTMF_START: i32 = 30;
 const EV_DTMF_END: i32 = 31;
 const EV_TRANSFER_FAILED: i32 = 32;
 const EV_REDIRECT: i32 = 33;
+const EV_ANSWER_CLOSED: i32 = 34;
 const CALL_EVENT_CAPACITY: usize = 64;
 
 /// Private ABI mirrored by bridge.c; every pointer is borrowed for the callback only.
@@ -153,18 +154,19 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 }
                 8 => engine.call_journal.connected(call_generation),
                 9 => engine.call_journal.finish(call_generation, code, false),
-                24 => engine.call_journal.finish(call_generation, code, true),
+                24 | EV_ANSWER_CLOSED => engine.call_journal.finish(call_generation, code, true),
                 25 => engine.call_journal.local_end(call_generation),
                 11 | 26 => engine.call_journal.interrupt(),
                 _ => {}
             }
-            if kind == 25 && engine.call_generation == call_generation {
+            if kind == 26 || (kind == 25 && engine.call_generation == call_generation) {
                 engine.local_ending = true;
             }
             if kind == 22 || kind == 25 || kind == 26 {
                 return;
             }
-            if (matches!(kind, 6 | 8 | 9 | 21) || (EV_PROGRESS..=EV_REDIRECT).contains(&kind))
+            if (matches!(kind, 6 | 8 | 9 | 21 | EV_ANSWER_CLOSED)
+                || (EV_PROGRESS..=EV_REDIRECT).contains(&kind))
                 && engine.call_generation != call_generation
             {
                 return;
@@ -287,14 +289,25 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     state.call_account_id = Some(account_id);
                     state.call_id = Some(call_generation.to_string());
                 }
-                9 | 24 => {
+                9 | 24 | EV_ANSWER_CLOSED => {
+                    let outgoing_setup = matches!(
+                        state.call,
+                        CallState::Calling | CallState::Ringing | CallState::EarlyMedia
+                    );
                     state.call = CallState::Idle;
                     state.call_account_id = None;
                     state.call_id = None;
                     state.caller = None;
                     state.caller_contact = None;
                     state.call_connected_at_ms = None;
-                    if kind == 24 && code != 0 {
+                    if kind == EV_ANSWER_CLOSED && !local_ending {
+                        state.last_error.get_or_insert_with(|| {
+                            PhoneError::new(
+                                ErrorCode::NativeFailure,
+                                "The incoming call ended before establishment after its answer was sent.",
+                            )
+                        });
+                    } else if kind == 24 && code != 0 {
                         state.last_error = Some(native_error(code));
                     } else if !local_ending
                         && let Ok(status) = u16::try_from(code)
@@ -304,6 +317,17 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     } else if !local_ending && code >= 700 {
                         // baresip uses internal non-SIP sentinels for native/media failures.
                         state.last_error = Some(native_error(code));
+                    } else if !local_ending
+                        && code == 0
+                        && outgoing_setup
+                        && state.last_error.is_none()
+                    {
+                        // Native decoder/transport failures may close setup without
+                        // a SIP status. Preserve that failure instead of silently idling.
+                        state.last_error = Some(PhoneError::new(
+                            ErrorCode::NativeFailure,
+                            "The outgoing call ended before establishment without a final SIP response.",
+                        ));
                     }
                 }
                 10 => state.last_error = Some(native_error(code)),
@@ -901,6 +925,81 @@ mod observation_tests {
     }
 
     #[test]
+    fn unestablished_outgoing_close_without_a_response_is_a_native_failure() {
+        for progress in [None, Some(6), Some(EV_PROGRESS)] {
+            let mut h = Harness::new();
+            h.event(5, 0, 10, "", "");
+            if let Some(progress) = progress {
+                h.event(progress, 0, 10, "", "");
+            }
+            h.event(9, 0, 10, "", "");
+            let state = h.context.snapshot.lock().unwrap();
+            let error = state.snapshot.last_error.as_ref().expect("setup failure");
+            assert_eq!(error.code, ErrorCode::NativeFailure);
+            assert_eq!(error.sip_status, None);
+            assert_eq!(state.snapshot.call, CallState::Idle);
+        }
+    }
+
+    #[test]
+    fn expected_zero_status_closures_do_not_invent_a_setup_failure() {
+        for (start, established, ending) in [
+            (7, false, None),     // Remote cancellation of an incoming offer.
+            (5, false, Some(25)), // Accepted local outgoing cancellation.
+            (5, false, Some(26)), // Engine shutdown interrupts a pending attempt.
+            (5, true, None),      // Remote termination of an established call.
+        ] {
+            let mut h = Harness::new();
+            h.event(start, 0, 10, "", "");
+            if established {
+                h.event(8, 0, 10, "", "");
+            }
+            if let Some(ending) = ending {
+                h.event(ending, 0, 10, "", "");
+            }
+            h.event(9, 0, 10, "", "");
+            let state = h.context.snapshot.lock().unwrap();
+            assert!(state.snapshot.last_error.is_none());
+            assert_eq!(state.snapshot.call, CallState::Idle);
+        }
+    }
+
+    #[test]
+    fn a_sent_answer_closure_reports_failure_but_a_queued_answer_cancellation_does_not() {
+        for (closed, expected_error) in [(9, false), (EV_ANSWER_CLOSED, true)] {
+            let mut h = Harness::new();
+            h.event(7, 0, 10, "", "100");
+            h.context.snapshot.lock().unwrap().snapshot.call = CallState::Answering;
+            h.event(closed, 0, 10, "", "");
+            let state = h.context.snapshot.lock().unwrap();
+            assert_eq!(state.snapshot.call, CallState::Idle);
+            assert_eq!(state.snapshot.last_error.is_some(), expected_error);
+            if let Some(error) = &state.snapshot.last_error {
+                assert_eq!(error.code, ErrorCode::NativeFailure);
+                assert_eq!(error.sip_status, None);
+            }
+            let events = h.events.lock().unwrap();
+            assert!(matches!(events.last().unwrap().kind,
+                ObservedCallKind::Finished { outcome, sip_status: None, .. }
+                if outcome == if expected_error { CallOutcome::Failed } else { CallOutcome::Missed }
+            ));
+        }
+    }
+
+    #[test]
+    fn an_old_failed_answer_cannot_close_a_new_offer() {
+        let mut h = Harness::new();
+        h.event(7, 0, 10, "", "100");
+        h.event(9, 0, 10, "", "");
+        h.event(7, 0, 11, "", "200");
+        h.event(EV_ANSWER_CLOSED, 0, 10, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        assert_eq!(state.snapshot.call, CallState::Incoming);
+        assert_eq!(state.snapshot.call_id.as_deref(), Some("11"));
+        assert!(state.snapshot.last_error.is_none());
+    }
+
+    #[test]
     fn native_call_close_failure_is_reported_without_claiming_a_sip_response() {
         let mut h = Harness::new();
         h.event(5, 0, 10, "", "");
@@ -990,6 +1089,7 @@ mod observation_tests {
         let state = h.context.snapshot.lock().unwrap();
         assert_eq!(state.snapshot.call, CallState::Incoming);
         assert_eq!(state.call_generation, 10);
+        assert!(state.snapshot.last_error.is_none());
         let events = h.events.lock().unwrap();
         assert!(
             matches!(&events[1].kind, ObservedCallKind::Started { direction: CallDirection::Outgoing, number: Some(number), .. } if number == "4321")
@@ -1003,6 +1103,18 @@ mod observation_tests {
             }
         ));
     }
+    #[test]
+    fn a_failed_current_dial_still_reports_its_native_error() {
+        let mut h = Harness::new();
+        h.event(23, 0, 10, "", "4321");
+        h.event(24, 16, 10, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        assert_eq!(state.snapshot.call, CallState::Idle);
+        let error = state.snapshot.last_error.as_ref().expect("dial failure");
+        assert_eq!(error.code, ErrorCode::NativeFailure);
+        assert_eq!(error.sip_status, None);
+    }
+
     #[test]
     fn unaccepted_stale_action_cannot_change_a_remote_cancel_to_local_rejection() {
         let mut h = Harness::new();

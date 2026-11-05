@@ -125,7 +125,21 @@ pub async fn answer(
     .await
 }
 
-/// Reject or end the current call; completion follows through native state.
+/// Reject only the offered incoming call; an already answered call rejects with InvalidState.
+#[tauri::command]
+pub async fn reject(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.reject_call(&call_id)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// End the current call in any non-idle state; completion follows through native state.
 #[tauri::command]
 pub async fn hangup(
     app: tauri::AppHandle,

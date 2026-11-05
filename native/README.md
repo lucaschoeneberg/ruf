@@ -73,7 +73,16 @@ SIP/UDP address from validated REGISTER responses and uses it for Contact/Via,
 without changing socket or RTP binding. It re-registers and removes the previous
 Contact after address/port translation changes. The Docker/Asterisk regression
 disables server Contact rewriting and requires both call directions to terminate
-remotely. Real UniFi Talk over Tailscale still needs deployment verification;
+remotely. Successful refreshes omitting `received` can renew only a live exact
+mapping whose advertised endpoint and numeric `rport` still match; initial
+discovery and malformed data remain strictly rejected. See the
+[SDK validation contract](patches/README.md#libre-nat-patch).
+An active registration is reported only after a matching own Contact with
+positive expiry is confirmed. If a combined old/new Contact correction receives
+200 without that binding, one immediate retry sends only the new Contact; another
+unconfirmed response fails with the existing registration backoff. Explicit
+unregister/retirement never takes that recovery path.
+Real UniFi Talk over Tailscale still needs deployment verification;
 the automated result is not a blanket certification of VPN/NAT interoperability.
 
 The client configures the existing adaptive audio jitter buffer with a 40–200 ms

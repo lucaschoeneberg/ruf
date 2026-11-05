@@ -37,6 +37,7 @@ struct Lab {
     peer: UdpSocket,
     local: SocketAddr,
     target: String,
+    incoming_sequence: u32,
 }
 
 impl Lab {
@@ -45,6 +46,18 @@ impl Lab {
     }
 
     fn registration_response(label: &str, status: &str) -> Self {
+        let (lab, registration) = Self::pending_registration(label);
+        lab.reply(&registration, status, "", "");
+        let expected = if status.starts_with("200 ") {
+            RegistrationState::Registered
+        } else {
+            RegistrationState::Failed
+        };
+        lab.wait(|s| s.registration == expected);
+        lab
+    }
+
+    fn pending_registration(label: &str) -> (Self, String) {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_millis(20)))
             .unwrap();
@@ -76,15 +89,9 @@ impl Lab {
             peer,
             local,
             target,
+            incoming_sequence: 0,
         };
-        lab.reply(&registration, status, "", "");
-        let expected = if status.starts_with("200 ") {
-            RegistrationState::Registered
-        } else {
-            RegistrationState::Failed
-        };
-        lab.wait(|s| s.registration == expected);
-        lab
+        (lab, registration)
     }
 
     fn read(socket: &UdpSocket) -> Option<(String, SocketAddr)> {
@@ -178,15 +185,21 @@ impl Lab {
         }
     }
 
-    fn incoming(&mut self) -> String {
+    fn offer(&mut self) -> String {
+        self.incoming_sequence += 1;
+        let sequence = self.incoming_sequence;
         let endpoint = self.peer.local_addr().unwrap();
         let body = sdp(1, "sendrecv");
         self.send(&format!(
-            "INVITE {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKevent-initial;rport\r\nMax-Forwards: 70\r\nFrom: \"Event Caller\" <sip:12345@lab>;tag=caller\r\nTo: <{}>\r\nCall-ID: synthetic-events-incoming\r\nCSeq: 1 INVITE\r\nContact: <sip:caller@{endpoint}>\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}",
+            "INVITE {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKevent-initial-{sequence};rport\r\nMax-Forwards: 70\r\nFrom: \"Event Caller\" <sip:12345@lab>;tag=caller\r\nTo: <{}>\r\nCall-ID: synthetic-events-incoming-{sequence}\r\nCSeq: 1 INVITE\r\nContact: <sip:caller@{endpoint}>\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}",
             self.target, self.target, body.len(),
         ));
         self.wait(|s| s.call == CallState::Incoming);
-        self.receive("incoming ringing", |p| p.starts_with("SIP/2.0 180"));
+        self.receive("incoming ringing", |p| p.starts_with("SIP/2.0 180"))
+    }
+
+    fn incoming(&mut self) -> String {
+        self.offer();
         self.engine.answer().unwrap();
         let response = self.response(200, "1 INVITE");
         self.request(&response, "ACK", 1, "", "");
@@ -197,8 +210,9 @@ impl Lab {
 
     fn request(&self, dialog: &str, method: &str, sequence: u32, extra: &str, body: &str) {
         let endpoint = self.peer.local_addr().unwrap();
+        let dialog_id = header(dialog, "Call-ID:");
         self.send(&format!(
-            "{method} {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKevent-{method}-{sequence};rport\r\nMax-Forwards: 70\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: {sequence} {method}\r\nContact: <sip:caller@{endpoint}>\r\n{extra}Content-Length: {}\r\n\r\n{body}",
+            "{method} {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKevent-{method}-{sequence}-{dialog_id};rport\r\nMax-Forwards: 70\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: {sequence} {method}\r\nContact: <sip:caller@{endpoint}>\r\n{extra}Content-Length: {}\r\n\r\n{body}",
             uri(header(dialog, "Contact:")),
             header(dialog, "From:"),
             header(dialog, "To:"),
@@ -363,6 +377,27 @@ fn outgoing_provisional_sdp_reports_early_media_before_establishment() {
 }
 
 #[test]
+fn invalid_provisional_sdp_reports_a_native_failure_before_establishment() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut lab = Lab::new("invalid-sdp");
+    let invite = lab.outgoing();
+    // baresip closes the session with a local decoder error, without a final
+    // SIP response. Losing that error makes a failed attempt look like idle.
+    lab.reply(&invite, "183 Session Progress", "", "v=invalid\r\n");
+    let state = lab.wait(|s| s.call == CallState::Idle);
+    let error = state
+        .last_error
+        .expect("native setup failure must be visible");
+    assert_eq!(error.code, ErrorCode::NativeFailure);
+    assert_eq!(error.sip_status, None);
+    assert!(state.call_id.is_none());
+    assert!(state.call_connected_at_ms.is_none());
+    lab.engine.shutdown().unwrap();
+}
+
+#[test]
 fn outgoing_final_responses_preserve_sip_status_and_classify_errors() {
     let _guard = crate::NATIVE_TEST_LOCK
         .lock()
@@ -476,4 +511,290 @@ fn terminal_registration_failures_preserve_sip_status_and_error_classification()
         assert_eq!(error.sip_status, Some(status));
         lab.engine.shutdown().unwrap();
     }
+}
+
+#[test]
+fn retiring_accounts_finish_pending_register_before_unregistering() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for replace in [false, true] {
+        let (mut lab, pending) = Lab::pending_registration("retire-pending");
+        let id = lab.engine.snapshot().unwrap().selected_account_id.unwrap();
+        lab.engine.wait_account_update(id).unwrap();
+        if replace {
+            lab.engine
+                .save_account(
+                    Some(id),
+                    "Replacement",
+                    &AccountConfig {
+                        registrar: lab.peer.local_addr().unwrap().to_string(),
+                        username: "replacement-test".into(),
+                        password: "synthetic-only".into(),
+                        audio_mode: AudioMode::TestTone,
+                    },
+                )
+                .unwrap();
+            lab.engine.wait_account_update(id).unwrap();
+        } else {
+            lab.engine.remove_account(id).unwrap();
+            lab.engine.wait_account_removed(id).unwrap();
+        }
+
+        // Another UA may register, but the retired UA must keep its one request
+        // until completion. Overwriting that request's owner leaves a dangling
+        // callback after the unregister response frees the registration.
+        let until = Instant::now() + Duration::from_millis(150);
+        while Instant::now() < until {
+            if let Some((packet, _)) = Lab::read(&lab.peer) {
+                assert!(
+                    header(&packet, "Call-ID:") != header(&pending, "Call-ID:")
+                        || header(&packet, "CSeq:") == header(&pending, "CSeq:"),
+                    "retired account sent overlapping REGISTER/unregister"
+                );
+                if header(&packet, "Call-ID:") != header(&pending, "Call-ID:") {
+                    lab.reply(&packet, "200 OK", "", "");
+                }
+            }
+        }
+
+        lab.reply(&pending, "200 OK", "", "");
+        let unregister = lab.receive("retired account unregister", |packet| {
+            packet.starts_with("REGISTER ")
+                && header(packet, "Call-ID:") == header(&pending, "Call-ID:")
+                && header(packet, "Contact:").contains("expires=0")
+        });
+        lab.reply(&unregister, "200 OK", "", "");
+        // Duplicate final responses must not revive the retired account.
+        lab.reply(&pending, "200 OK", "", "");
+        lab.settle();
+        lab.wait(|s| {
+            if replace {
+                s.accounts.len() == 1
+                    && s.accounts[0].username == "replacement-test"
+                    && s.registration == RegistrationState::Registered
+            } else {
+                s.accounts.is_empty() && s.registration == RegistrationState::Unconfigured
+            }
+        });
+        lab.engine.shutdown().unwrap();
+    }
+}
+
+#[test]
+fn retired_register_timeout_preserves_replacement_registration() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let (mut lab, pending) = Lab::pending_registration("retire-timeout");
+    let id = lab.engine.snapshot().unwrap().selected_account_id.unwrap();
+    lab.engine.wait_account_update(id).unwrap();
+    lab.engine
+        .save_account(
+            Some(id),
+            "Replacement",
+            &AccountConfig {
+                registrar: lab.peer.local_addr().unwrap().to_string(),
+                username: "events-test".into(),
+                password: "replacement-synthetic-only".into(),
+                audio_mode: AudioMode::TestTone,
+            },
+        )
+        .unwrap();
+    lab.engine.wait_account_update(id).unwrap();
+
+    // libre's UDP transaction timeout is 64 * T1 = 32 seconds. Keep the
+    // original unanswered while servicing the replacement's real requests.
+    let until = Instant::now() + Duration::from_secs(33);
+    while Instant::now() < until {
+        if let Some((packet, _)) = Lab::read(&lab.peer) {
+            if header(&packet, "Call-ID:") == header(&pending, "Call-ID:") {
+                assert_eq!(header(&packet, "CSeq:"), header(&pending, "CSeq:"));
+            } else {
+                lab.service(&packet);
+            }
+        }
+    }
+    let state = lab.engine.snapshot().unwrap();
+    assert_eq!(state.accounts.len(), 1);
+    assert_eq!(state.accounts[0].id, id);
+    assert_eq!(state.accounts[0].name, "Replacement");
+    assert_eq!(state.registration, RegistrationState::Registered);
+    assert!(state.accounts[0].last_error.is_none());
+    lab.engine.shutdown().unwrap();
+}
+
+#[test]
+fn incoming_answer_without_ack_reports_failure_and_releases_slot_for_next_offer() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut lab = Lab::new("missing-ack");
+    lab.offer();
+    lab.engine.answer().unwrap();
+    lab.response(200, "1 INVITE");
+    assert_eq!(lab.engine.snapshot().unwrap().call, CallState::Answering);
+    // The real pinned UDP 2xx retransmission deadline is 64 * T1 = 32 seconds.
+    // Keep registrations and the timeout's BYE serviced, but deliberately omit ACK.
+    let until = Instant::now() + Duration::from_secs(35);
+    let state = loop {
+        if let Some((packet, _)) = Lab::read(&lab.peer) {
+            lab.service(&packet);
+        }
+        let state = lab.engine.snapshot().unwrap();
+        if state.call == CallState::Idle {
+            break state;
+        }
+        assert!(
+            Instant::now() < until,
+            "unacknowledged answer retained its slot"
+        );
+    };
+    let error = state
+        .last_error
+        .expect("failed incoming answer must be visible");
+    assert_eq!(error.code, ErrorCode::NativeFailure);
+    assert_eq!(error.sip_status, None);
+    assert!(state.call_id.is_none());
+    assert!(state.call_connected_at_ms.is_none());
+    let next = lab.incoming();
+    assert!(lab.engine.snapshot().unwrap().last_error.is_none());
+    lab.end_incoming(&next, 2);
+    lab.engine.shutdown().unwrap();
+}
+
+#[test]
+fn local_hangup_while_answering_releases_slot_without_setup_failure() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut lab = Lab::new("answer-hangup");
+    for _ in 0..3 {
+        lab.offer();
+        lab.engine.answer().unwrap();
+        let response = lab.response(200, "1 INVITE");
+        assert_eq!(lab.engine.snapshot().unwrap().call, CallState::Answering);
+        lab.engine.hangup().unwrap();
+        lab.wait(|s| s.call == CallState::Idle);
+        lab.request(&response, "ACK", 1, "", "");
+        lab.settle();
+        let state = lab.engine.snapshot().unwrap();
+        assert_eq!(state.call, CallState::Idle);
+        assert!(
+            state.last_error.is_none(),
+            "local hangup reported a setup failure"
+        );
+    }
+    let next = lab.incoming();
+    lab.end_incoming(&next, 2);
+    lab.engine.shutdown().unwrap();
+}
+
+#[test]
+fn remote_cancellation_and_local_rejection_leave_subsequent_incoming_calls_usable() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut lab = Lab::new("cancel-reject-repeat");
+    for reject in [false, true, false, true] {
+        let ringing = lab.offer();
+        if reject {
+            let token = lab.engine.snapshot().unwrap().call_id.unwrap();
+            lab.engine.reject_call(&token).unwrap();
+            lab.response(486, "1 INVITE");
+        } else {
+            let endpoint = lab.peer.local_addr().unwrap();
+            let sequence = lab.incoming_sequence;
+            lab.send(&format!(
+                "CANCEL {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKevent-initial-{sequence};rport\r\nMax-Forwards: 70\r\nFrom: {}\r\nTo: <{}>\r\nCall-ID: {}\r\nCSeq: 1 CANCEL\r\nContent-Length: 0\r\n\r\n",
+                lab.target, header(&ringing, "From:"), lab.target, header(&ringing, "Call-ID:"),
+            ));
+            lab.response(200, "1 CANCEL");
+            lab.response(487, "1 INVITE");
+        }
+        lab.wait(|s| s.call == CallState::Idle);
+        assert!(lab.engine.snapshot().unwrap().last_error.is_none());
+    }
+    let next = lab.incoming();
+    lab.end_incoming(&next, 2);
+    lab.engine.shutdown().unwrap();
+}
+
+#[test]
+fn simultaneous_answer_and_hangup_release_the_slot_and_preserve_future_incoming_calls() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut lab = Lab::new("simultaneous-actions");
+    for _ in 0..12 {
+        lab.offer();
+        let token = lab.engine.snapshot().unwrap().call_id.unwrap();
+        let (answer, hangup) = {
+            // Desktop actions share an exclusive engine/session lock. Release
+            // both callers together, without waiting for any native response.
+            let engine = std::sync::Mutex::new(&mut lab.engine);
+            let barrier = std::sync::Barrier::new(3);
+            thread::scope(|scope| {
+                let answer = scope.spawn(|| {
+                    barrier.wait();
+                    engine.lock().unwrap().answer_call(&token)
+                });
+                let hangup = scope.spawn(|| {
+                    barrier.wait();
+                    engine.lock().unwrap().hangup_call(&token)
+                });
+                barrier.wait();
+                (answer.join().unwrap(), hangup.join().unwrap())
+            })
+        };
+        if let Err(error) = answer {
+            assert_eq!(error.code, ErrorCode::InvalidState);
+        }
+        hangup.unwrap();
+        lab.wait(|s| s.call == CallState::Idle);
+        // Complete the winning action's real SIP transaction, then observe any
+        // queued losing action rather than immediately clearing it with a call.
+        let until = Instant::now() + Duration::from_millis(150);
+        while Instant::now() < until {
+            if let Some((packet, _)) = Lab::read(&lab.peer) {
+                if packet.starts_with("SIP/2.0 ") && header(&packet, "CSeq:") == "1 INVITE" {
+                    if packet.starts_with("SIP/2.0 200 ") {
+                        lab.request(&packet, "ACK", 1, "", "");
+                    } else {
+                        lab.send(&format!(
+                            "ACK {} SIP/2.0\r\nVia: {}\r\nMax-Forwards: 70\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: 1 ACK\r\nContent-Length: 0\r\n\r\n",
+                            lab.target, header(&packet, "Via:"), header(&packet, "From:"),
+                            header(&packet, "To:"), header(&packet, "Call-ID:"),
+                        ));
+                    }
+                } else {
+                    lab.service(&packet);
+                }
+            }
+        }
+        let idle = lab.engine.snapshot().unwrap();
+        assert_eq!(idle.call, CallState::Idle);
+        assert!(idle.call_id.is_none());
+        assert!(
+            idle.last_error
+                .as_ref()
+                .is_none_or(|error| error.code == ErrorCode::InvalidState),
+            "competing local actions produced a native failure: {:?}",
+            idle.last_error,
+        );
+        let next = lab.incoming();
+        let current = lab.engine.snapshot().unwrap().call_id.unwrap();
+        assert_ne!(current, token);
+        assert_eq!(
+            lab.engine.answer_call(&token).unwrap_err().code,
+            ErrorCode::InvalidState
+        );
+        assert_eq!(
+            lab.engine.hangup_call(&token).unwrap_err().code,
+            ErrorCode::InvalidState
+        );
+        assert_eq!(lab.engine.snapshot().unwrap().call, CallState::Active);
+        lab.end_incoming(&next, 2);
+    }
+    lab.engine.shutdown().unwrap();
 }

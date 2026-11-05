@@ -75,13 +75,23 @@ assert.match(
   /sip\.diag packet=rx status=200 method=INVITE .*contact=loopback contact-match=yes/,
   "Lab PBX contact must match its published signaling source",
 );
+assert.match(
+  output,
+  /sip\.diag register-via received=present rport=valued ms=[0-9]+ call=[0-9]+/,
+  "Successful registration must expose only Via parameter presence for NAT diagnostics",
+);
+assert.match(
+  output,
+  /sip\.diag register-contacts count=one mapped-target=present ms=[0-9]+ call=[0-9]+/,
+  "Registration diagnostics must show whether the returned contacts include the mapped endpoint",
+);
 const lines = output
   .split(/\r?\n/)
   .filter((line) => line.startsWith("sip.diag "));
 for (const line of lines) {
   assert.match(
     line,
-    /^sip\.diag (?:[rt]x=(?:BYE|CANCEL|ACK|INVITE|response)|event=(?:active|closed|audio-error)|packet=(?:rx|tx) status=(?:0|[1-6][0-9]{2}) method=(?:INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|UPDATE|PRACK|other) local=(?:tunnel|other|unknown) peer=(?:loopback|private|shared|other-ipv4|ipv6|unknown) contact=(?:none|loopback|private|shared|other-ipv4|ipv6|unknown) contact-match=(?:yes|no|unknown)) ms=[0-9]+ call=[0-9]+$/,
+    /^sip\.diag (?:[rt]x=(?:BYE|CANCEL|ACK|INVITE|response)|event=(?:active|closed|audio-error)|register-via received=(?:present|missing) rport=(?:valued|empty|missing)|register-contacts count=(?:none|one|many) mapped-target=(?:present|missing|unknown)|packet=(?:rx|tx) status=(?:0|[1-6][0-9]{2}) method=(?:INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|UPDATE|PRACK|other) local=(?:tunnel|other|unknown) peer=(?:loopback|private|shared|other-ipv4|ipv6|unknown) contact=(?:none|loopback|private|shared|other-ipv4|ipv6|unknown) contact-match=(?:yes|no|unknown)) ms=[0-9]+ call=[0-9]+$/,
   );
 }
 assert.ok(!run(false).includes("sip.diag "), "Diagnostics must be opt-in");

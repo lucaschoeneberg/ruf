@@ -2,15 +2,11 @@ use phone_core::{
     AccountConfig, AccountSnapshot, AudioMode, CallState, EngineSnapshot, ErrorCode, PhoneError,
     RegistrationState, SoundSettings,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-
-// Shared across engine recreation; a delayed delivery can never appear newer than a replacement engine.
-static NEXT_SNAPSHOT_REVISION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
 pub(crate) struct EngineState {
@@ -69,11 +65,7 @@ impl Engine {
     pub fn snapshot(&self) -> Result<EngineSnapshot, PhoneError> {
         self.snapshot
             .lock()
-            .map(|s| {
-                let mut snapshot = s.snapshot.clone();
-                snapshot.revision = NEXT_SNAPSHOT_REVISION.fetch_add(1, Ordering::Relaxed);
-                snapshot
-            })
+            .map(|s| s.snapshot.clone().with_read_revision())
             .map_err(|_| state_error())
     }
 
@@ -704,6 +696,58 @@ mod interop_tests {
 
     #[test]
     #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
+    fn initial_registration_accepts_incoming_before_any_outgoing_call() {
+        let _guard = crate::NATIVE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let mut engine = Engine::start(
+            AudioMode::TestTone,
+            Some(std::env::temp_dir().join("sip-startup-incoming.wav")),
+        )
+        .unwrap();
+        engine
+            .configure_account(&AccountConfig {
+                registrar: "127.0.0.1:5070".into(),
+                username: "1003".into(),
+                password: std::env::var("SIP_TEST_PASSWORD").expect("synthetic lab password"),
+                audio_mode: AudioMode::TestTone,
+            })
+            .unwrap();
+        wait(&engine, |s| s.registration == RegistrationState::Registered);
+        assert_eq!(engine.snapshot().unwrap().call, CallState::Idle);
+        // This account disables server Contact rewriting. No outgoing call is
+        // allowed to prime signaling/media routes before the first inbound one.
+        let lab = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/interop/asterisk/compose.yml");
+        assert!(
+            std::process::Command::new("docker")
+                .args(["compose", "-f"])
+                .arg(lab)
+                .args([
+                    "exec",
+                    "-T",
+                    "asterisk",
+                    "asterisk",
+                    "-rx",
+                    "channel originate PJSIP/1003 application Wait 1"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        wait(&engine, |s| s.call == CallState::Incoming);
+        let incoming = engine.snapshot().unwrap();
+        assert!(incoming.call_id.is_some());
+        assert!(incoming.call_account_id.is_some());
+        engine.answer().unwrap();
+        wait(&engine, |s| s.call == CallState::Active);
+        wait(&engine, |s| s.call == CallState::Idle);
+        assert!(engine.snapshot().unwrap().last_error.is_none());
+        engine.shutdown().unwrap();
+    }
+
+    #[test]
+    #[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
     fn remote_hangup_releases_outgoing_and_incoming_calls() {
         let _guard = crate::NATIVE_TEST_LOCK
             .lock()
@@ -957,6 +1001,15 @@ mod action_tests {
             audio: AudioMode::TestTone,
         }
     }
+    #[test]
+    fn engine_and_uninitialized_reads_share_the_same_revision_sequence() {
+        let before_engine = EngineSnapshot::default().with_read_revision();
+        let engine = incoming().snapshot().unwrap();
+        let after_engine = EngineSnapshot::default().with_read_revision();
+        assert!(before_engine.revision < engine.revision);
+        assert!(engine.revision < after_engine.revision);
+    }
+
     #[test]
     fn stale_frontend_tokens_are_rejected_before_native_queue() {
         let mut engine = incoming();

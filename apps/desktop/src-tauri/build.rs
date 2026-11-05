@@ -21,6 +21,7 @@ fn main() {
             "get_engine_snapshot",
             "dial",
             "answer",
+            "reject",
             "hangup",
             "save_account",
             "select_account",

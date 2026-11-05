@@ -161,7 +161,8 @@ removing: boolean, };
 
 export type EngineSnapshot = {
 /**
- * Process-monotonic read revision; ignore older IPC/event deliveries. Zero before native startup.
+ * Process-monotonic read revision, including before native startup; ignore older deliveries.
+ * Zero denotes default or unobserved state.
  */
 revision: number,
 /**

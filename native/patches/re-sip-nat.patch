@@ -1,5 +1,5 @@
 diff --git a/include/re_sip.h b/include/re_sip.h
-index bd3c4c9..1e58716 100644
+index bd3c4c9..94679f1 100644
 --- a/include/re_sip.h
 +++ b/include/re_sip.h
 @@ -332,6 +332,16 @@ void sip_transp_rmladdr(struct sip *sip, const struct sa *laddr);
@@ -8,7 +8,7 @@ index bd3c4c9..1e58716 100644
  
 +/* Local SDK extension: mapped SIP addresses never change socket/media binding.
 + * All functions run on the SIP event-loop thread. */
-+bool sip_nat_validate(const struct sa *local, const struct sa *peer,
++bool sip_nat_validate(const struct sip *sip, const struct sa *local, const struct sa *peer,
 +                      const struct sa *sentby, const char *callid, uint32_t cseq,
 +                      const struct sip_msg *msg, struct sa *mapped);
 +int sip_nat_set(struct sip *sip, const struct sa *local, const struct sa *peer,
@@ -20,7 +20,7 @@ index bd3c4c9..1e58716 100644
  int sip_request(struct sip_request **reqp, struct sip *sip, bool stateful,
  		const char *met, int metl, const char *uri, int uril,
 diff --git a/src/sip/contact.c b/src/sip/contact.c
-index 6703384..dd4cb50 100644
+index 6703384..5adfd4f 100644
 --- a/src/sip/contact.c
 +++ b/src/sip/contact.c
 @@ -12,6 +12,8 @@
@@ -32,7 +32,7 @@ index 6703384..dd4cb50 100644
  
  
  /**
-@@ -55,3 +57,81 @@ int sip_contact_print(struct re_printf *pf, const struct sip_contact *contact)
+@@ -55,3 +57,99 @@ int sip_contact_print(struct re_printf *pf, const struct sip_contact *contact)
  				  contact->addr,
  				  sip_transp_param(contact->tp));
  }
@@ -41,27 +41,45 @@ index 6703384..dd4cb50 100644
 +/* Only a successful response to this exact REGISTER may supply a local mapping.
 + * The transaction layer has already matched the unpredictable Via branch.
 + * This is not server authentication: SIP/UDP remains an unencrypted transport. */
-+bool sip_nat_validate(const struct sa *local, const struct sa *peer,
++bool sip_nat_validate(const struct sip *sip, const struct sa *local, const struct sa *peer,
 +                      const struct sa *sentby, const char *callid, uint32_t cseq,
 +                      const struct sip_msg *msg, struct sa *mapped)
 +{
 + struct pl received, rport;
 + uint32_t port = 0;
 + struct sa candidate;
-+ if (!local || !peer || !sentby || !callid || !msg || !mapped ||
++ if (!sip || !local || !peer || !sentby || !callid || !msg || !mapped ||
 +     msg->req || msg->tp != SIP_TRANSP_UDP || msg->scode < 200 ||
 +     msg->scode >= 300 || pl_strcmp(&msg->cseq.met, "REGISTER") ||
 +     pl_strcmp(&msg->callid, callid) || msg->cseq.num != cseq ||
 +     !sa_cmp(&msg->src, peer, SA_ALL) || !sa_cmp(&msg->dst, local, SA_ALL) ||
 +     !sa_cmp(&msg->via.addr, sentby, SA_ALL)) return false;
-+ if (msg_param_decode(&msg->via.params, "received", &received) ||
-+     msg_param_decode(&msg->via.params, "rport", &rport) ||
++ if (msg_param_decode(&msg->via.params, "rport", &rport) ||
 +     !rport.l || rport.l > 5) return false;
 + for (size_t i = 0; i < rport.l; ++i) {
 +  if (rport.p[i] < '0' || rport.p[i] > '9') return false;
 +  port = port * 10 + (uint32_t)(rport.p[i] - '0');
 + }
-+ if (!port || port > 65535 || sa_set(&candidate, &received, (uint16_t)port) ||
++ if (!port || port > 65535) return false;
++ if (msg_param_decode(&msg->via.params, "received", &received)) {
++  struct pl parameter;
++  /* Compatibility with peers omitting received on refresh: this can only
++   * reaffirm a live exact mapping, never infer or resurrect an address.
++   * A present but malformed received parameter must not use this path. */
++  if (!msg_param_exists(&msg->via.params, "received", &parameter)) return false;
++  const uint64_t now = tmr_jiffies();
++  for (size_t i = 0; i < 32; ++i) {
++   const struct sip_nat_mapping *entry = &sip->nat[i];
++   if (entry->until <= now || !sa_cmp(&entry->local, local, SA_ALL) ||
++       !sa_cmp(&entry->peer, peer, SA_ALL) ||
++       !sa_cmp(&entry->mapped, sentby, SA_ALL) || sa_port(&entry->mapped) != port)
++    continue;
++   *mapped = entry->mapped;
++   return true;
++  }
++  return false;
++ }
++ if (sa_set(&candidate, &received, (uint16_t)port) ||
 +     sa_af(&candidate) != sa_af(local) || sa_is_any(&candidate) ||
 +     sa_is_multicast(&candidate) ||
 +     (sa_is_loopback(&candidate) && !sa_is_loopback(local)) ||
@@ -159,7 +177,7 @@ index 9f19383..d664b98 100644
  	struct list lsnrl;
  	struct list reql;
 diff --git a/src/sipreg/reg.c b/src/sipreg/reg.c
-index a7cd5fa..1a9ec14 100644
+index a7cd5fa..2e25a71 100644
 --- a/src/sipreg/reg.c
 +++ b/src/sipreg/reg.c
 @@ -28,6 +28,10 @@ enum {
@@ -167,7 +185,7 @@ index a7cd5fa..1a9ec14 100644
  	struct sip_loopstate ls;
  	struct sa laddr;
 +	struct sa peer, advertised, old_contact;
-+	bool remove_old;
++ bool remove_old, binding_retry;
 +	unsigned nat_retries;
 +	uint32_t sent_cseq;
  	struct tmr tmr;
@@ -187,13 +205,21 @@ index a7cd5fa..1a9ec14 100644
  		return false;
  
  	err = uri_param_get(&c.auri, &transp, &pval);
-@@ -210,6 +214,30 @@ static void response_handler(int err, const struct sip_msg *msg, void *arg)
- 				  reg);
- 		reg->registered = reg->wait > 0;
- 		reg->pexpires = reg->wait;
+@@ -206,10 +210,47 @@ static void response_handler(int err, const struct sip_msg *msg, void *arg)
+ 	}
+ 	else if (msg->scode < 300) {
+ 		reg->wait = reg->expires;
+-		sip_msg_hdr_apply(msg, true, SIP_HDR_CONTACT, contact_handler,
+-				  reg);
+-		reg->registered = reg->wait > 0;
+-		reg->pexpires = reg->wait;
++		const struct sip_hdr *contact = sip_msg_hdr_apply(msg, true,
++				  SIP_HDR_CONTACT, contact_handler, reg);
++		reg->registered = contact && reg->wait > 0;
++		reg->pexpires = reg->registered ? reg->wait : 0;
 +		if (reg->expires && !reg->terminated) {
 +   struct sa mapped;
-+   if (sip_nat_validate(&reg->laddr, &reg->peer, &reg->advertised,
++   if (sip_nat_validate(reg->sip, &reg->laddr, &reg->peer, &reg->advertised,
 +                       sip_dialog_callid(reg->dlg), reg->sent_cseq,
 +                       msg, &mapped)) {
 +    uint32_t lifetime = reg->pexpires > 302400 ? 604800 : reg->pexpires * 2;
@@ -204,6 +230,8 @@ index a7cd5fa..1a9ec14 100644
 +    err = sip_nat_set(reg->sip, &reg->laddr, &reg->peer, &mapped, lifetime);
 +    if (err) goto nat_failed;
 +    if (!sa_cmp(&mapped, &reg->advertised, SA_ALL)) {
++     reg->registered = false;
++     reg->pexpires = 0;
 +     reg->old_contact = reg->advertised;
 +     reg->remove_old = true;
 +     ++reg->nat_retries;
@@ -212,13 +240,24 @@ index a7cd5fa..1a9ec14 100644
 +     goto nat_failed;
 +    }
 +   }
++   if (!reg->registered) {
++    /* Some peers apply a combined delete/add as deletion. Retry only the
++     * new Contact once, and never publish success without its binding. */
++    if (reg->remove_old && !reg->binding_retry) {
++     reg->remove_old = false;
++     reg->binding_retry = true;
++     err = request(reg, false);
++     if (!err) return;
++    } else err = EPROTO;
++    goto nat_failed;
++   }
 +   reg->remove_old = false;
 +   reg->nat_retries = 0;
 +  }
  		reg->wait *= reg->rwait * (1000 / 100);
  		reg->failc = 0;
  
-@@ -263,6 +291,12 @@ static void response_handler(int err, const struct sip_msg *msg, void *arg)
+@@ -263,6 +304,12 @@ static void response_handler(int err, const struct sip_msg *msg, void *arg)
  
  	++reg->failc;
  
@@ -231,7 +270,7 @@ index a7cd5fa..1a9ec14 100644
   out:
  	if (!reg->expires) {
  		if (msg && msg->scode >= 400 && msg->scode < 500)
-@@ -308,8 +342,14 @@ static int send_handler(enum sip_transp tp, struct sa *src,
+@@ -308,8 +355,14 @@ static int send_handler(enum sip_transp tp, struct sa *src,
  		sa_set_port(src, reg->srcport);
  
  	reg->laddr = *src;
@@ -248,10 +287,11 @@ index a7cd5fa..1a9ec14 100644
  			  reg->cparams ? ";" : "",
  			  reg->cparams ? reg->cparams : "",
  			  reg->expires,
-@@ -330,9 +370,11 @@ static int request(struct sipreg *reg, bool reset_ls)
+@@ -330,9 +383,12 @@ static int request(struct sipreg *reg, bool reset_ls)
  		reg->expires = 0;
  
  	if (reset_ls) {
++		reg->binding_retry = false;
 +		reg->nat_retries = 0;
  		sip_loopstate_reset(&reg->ls);
  	}
@@ -377,10 +417,10 @@ index 5b26f53..c3aead0 100644
  
  	/* Initialise debugging */
 diff --git a/test/sip.c b/test/sip.c
-index 31ec2f7..e53b41f 100644
+index 31ec2f7..ee673b2 100644
 --- a/test/sip.c
 +++ b/test/sip.c
-@@ -1232,3 +1232,212 @@ int test_sip_transp_wss_verify_host(void)
+@@ -1232,3 +1232,327 @@ int test_sip_transp_wss_verify_host(void)
  	return err;
  }
  #endif
@@ -408,20 +448,20 @@ index 31ec2f7..e53b41f 100644
 + mb->pos = 0;
 + NAT_ERR(sip_msg_decode(&msg, mb));
 + msg->src = peer; msg->dst = local; msg->tp = SIP_TRANSP_UDP;
-+ TEST_ASSERT(sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &mapped));
++ TEST_ASSERT(sip_nat_validate(sip, &local, &peer, &local, "nat-test", 7, msg, &mapped));
 + TEST_ASSERT(sa_port(&mapped) == 51000);
 + NAT_ERR(sa_set_str(&other, "192.168.50.2", 51000));
 + TEST_ASSERT(sa_cmp(&mapped, &other, SA_ALL));
-+ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "wrong", 7, msg, &result));
-+ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 8, msg, &result));
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "wrong", 7, msg, &result));
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "nat-test", 8, msg, &result));
 + msg->scode = 401;
-+ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "nat-test", 7, msg, &result));
 + msg->scode = 200; msg->src = mapped;
-+ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "nat-test", 7, msg, &result));
 + msg->src = peer; msg->dst = mapped;
-+ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "nat-test", 7, msg, &result));
 + msg->dst = local; msg->tp = SIP_TRANSP_TCP;
-+ TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "nat-test", 7, msg, &result));
 + msg->tp = SIP_TRANSP_UDP;
 + const char *invalid[] = {
 +  ";received=192.168.50.2;rport=0", ";received=192.168.50.2;rport=65536",
@@ -433,9 +473,32 @@ index 31ec2f7..e53b41f 100644
 + };
 + for (size_t i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i) {
 +  pl_set_str(&msg->via.params, invalid[i]);
-+  TEST_ASSERT(!sip_nat_validate(&local, &peer, &local, "nat-test", 7, msg, &result));
++  TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "nat-test", 7, msg, &result));
 + }
 + NAT_ERR(sip_nat_set(sip, &local, &peer, &mapped, 120));
++ /* Missing received may only confirm the exact live endpoint already learned.
++  * It must not infer a mapping from an initial/local Via or another tuple. */
++ pl_set_str(&msg->via.params, ";rport=51000");
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &local, "nat-test", 7, msg, &result));
++ msg->via.addr = mapped;
++ TEST_ASSERT(sip_nat_validate(sip, &local, &peer, &mapped, "nat-test", 7, msg, &result));
++ TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
++ const char *invalid_refresh[] = {
++  ";rport=51001", ";rport=0", ";rport=65536", ";rport=abc", "",
++  ";received;rport=51000", ";received=;rport=51000",
++  ";received=attacker.example;rport=51000"
++ };
++ for (size_t i = 0; i < sizeof(invalid_refresh)/sizeof(invalid_refresh[0]); ++i) {
++  pl_set_str(&msg->via.params, invalid_refresh[i]);
++  TEST_ASSERT(!sip_nat_validate(sip, &local, &peer, &mapped, "nat-test", 7, msg, &result));
++ }
++ pl_set_str(&msg->via.params, ";rport=51000");
++ other = peer; sa_set_port(&other, 5061); msg->src = other;
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &other, &mapped, "nat-test", 7, msg, &result));
++ msg->src = peer;
++ other = local; sa_set_port(&other, 50001); msg->dst = other;
++ TEST_ASSERT(!sip_nat_validate(sip, &other, &peer, &mapped, "nat-test", 7, msg, &result));
++ msg->dst = local;
 + sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &peer, &result);
 + TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
 + sip_nat_addr(sip, SIP_TRANSP_TCP, &local, &peer, &result);
@@ -457,6 +520,10 @@ index 31ec2f7..e53b41f 100644
 + sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &peer, &result);
 + TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
 + sys_msleep(1100);
++ /* An expired tuple cannot be resurrected by an incomplete refresh. */
++ msg->src = peer; sa_set_port(&msg->src, 5062); msg->via.addr = conflicting;
++ pl_set_str(&msg->via.params, ";rport=52000");
++ TEST_ASSERT(!sip_nat_validate(sip, &local, &msg->src, &conflicting, "nat-test", 7, msg, &result));
 + sip_nat_addr(sip, SIP_TRANSP_UDP, &local, &other, &result);
 + TEST_ASSERT(sa_cmp(&result, &mapped, SA_ALL));
 + other = local; sa_set_port(&other, 50001);
@@ -486,7 +553,8 @@ index 31ec2f7..e53b41f 100644
 + struct tmr stop;
 + unsigned requests, removals, completed;
 + uint16_t port;
-+ bool bounce;
++ bool bounce, omit_received, delete_combined, binding_deleted;
++ unsigned single_contact;
 + int error;
 +};
 +
@@ -514,6 +582,7 @@ index 31ec2f7..e53b41f 100644
 + struct le *le;
 + struct sip_addr contact;
 + struct pl expires;
++ bool removal = false;
 + int error = sip_msg_decode(&request_msg, mb);
 + if (error) goto done;
 + ++test->requests;
@@ -521,21 +590,31 @@ index 31ec2f7..e53b41f 100644
 + LIST_FOREACH(&request_msg->hdrl, le) {
 +  const struct sip_hdr *header = le->data;
 +  if (header->id != SIP_HDR_CONTACT || sip_addr_decode(&contact, &header->val)) continue;
-+  if (!msg_param_decode(&contact.params, "expires", &expires) && pl_u32(&expires) == 0)
++  if (!msg_param_decode(&contact.params, "expires", &expires) && pl_u32(&expires) == 0) {
 +   ++test->removals;
-+  else active = header;
++   removal = true;
++  } else active = header;
 + }
-+ if (!active) { error = EBADMSG; goto done; }
++ if (!active && !removal) { error = EBADMSG; goto done; }
 + reply = mbuf_alloc(1024);
 + if (!reply) { error = ENOMEM; goto done; }
++ if (test->delete_combined && removal) test->binding_deleted = true;
 + error = mbuf_printf(reply,
-+  "SIP/2.0 200 OK\r\nVia: SIP/2.0/UDP %r;branch=%r;received=127.0.0.1;rport=%u\r\n"
-+  "From: %r\r\nTo: %r;tag=server\r\nCall-ID: %r\r\nCSeq: %u REGISTER\r\n"
-+  "Contact: <sip:nat-test@127.0.0.1:%u>;expires=999\r\n"
-+  "Contact: %r\r\nContent-Length: 0\r\n\r\n",
-+  &request_msg->via.sentby, &request_msg->via.branch, test->port,
++  "SIP/2.0 200 OK\r\nVia: SIP/2.0/UDP %r;branch=%r%s;rport=%u\r\n"
++  "From: %r\r\nTo: %r;tag=server\r\nCall-ID: %r\r\nCSeq: %u REGISTER\r\n",
++  &request_msg->via.sentby, &request_msg->via.branch,
++  test->omit_received || test->binding_deleted ? "" : ";received=127.0.0.1", test->port,
 +  &request_msg->from.val, &request_msg->to.val, &request_msg->callid,
-+  request_msg->cseq.num, (unsigned)(test->port+1), &active->val);
++  request_msg->cseq.num);
++ if (active && !(test->binding_deleted && (removal || test->single_contact == 1))) {
++  error |= mbuf_printf(reply, "Contact: <sip:nat-test@127.0.0.1:%u>;expires=999\r\n",
++                       (unsigned)(test->port+1));
++  if (test->binding_deleted && test->single_contact == 3)
++   error |= mbuf_printf(reply, "Contact: <sip:nat-test@127.0.0.1:%u>;expires=0\r\n", test->port);
++  else if (!(test->binding_deleted && test->single_contact == 2))
++   error |= mbuf_printf(reply, "Contact: %r\r\n", &active->val);
++ }
++ error |= mbuf_write_str(reply, "Content-Length: 0\r\n\r\n");
 + if (!error) {
 +  reply->pos = 0;
 +  error = udp_send(test->server, src, reply);
@@ -548,7 +627,7 @@ index 31ec2f7..e53b41f 100644
 +int test_sip_nat_registration(void)
 +{
 + struct nat_registration_test test = {0};
-+ struct sa local, peer;
++ struct sa local, peer, mapped, advertised, other_peer;
 + char registrar[128];
 + int err = 0;
 + #define NAT_REG_ERR(call) do { err = (call); TEST_ERR(err); } while (0)
@@ -569,6 +648,26 @@ index 31ec2f7..e53b41f 100644
 + TEST_ASSERT(sipreg_registered(test.reg));
 + TEST_ASSERT(sipreg_proxy_expires(test.reg) == 60);
 + TEST_ASSERT(sa_port(sipreg_laddr(test.reg)) != test.port);
++ /* A refresh may omit received once the advertised Via host already
++  * matches the observed source. It must renew the mapping, not merely keep
++  * registration green while Contact falls back after the original expiry. */
++ mapped = *sipreg_laddr(test.reg);
++ sa_set_port(&mapped, test.port);
++ NAT_REG_ERR(sip_nat_set(test.sip, sipreg_laddr(test.reg), &peer, &mapped, 1));
++ test.omit_received = true; test.completed = 0; test.requests = 0;
++ NAT_REG_ERR(sipreg_send(test.reg));
++ NAT_REG_ERR(re_main_timeout(3000));
++ NAT_REG_ERR(test.error);
++ TEST_ASSERT(test.completed == 1 && test.requests == 1);
++ TEST_ASSERT(sipreg_registered(test.reg));
++ sys_msleep(1100);
++ sip_nat_addr(test.sip, SIP_TRANSP_UDP, sipreg_laddr(test.reg), &peer, &advertised);
++ TEST_ASSERT(sa_cmp(&advertised, &mapped, SA_ALL));
++ other_peer = peer;
++ sa_set_port(&other_peer, sa_port(&peer) == 65535 ? 65534 : sa_port(&peer) + 1);
++ sip_nat_addr(test.sip, SIP_TRANSP_UDP, sipreg_laddr(test.reg), &other_peer, &advertised);
++ TEST_ASSERT(sa_cmp(&advertised, &mapped, SA_ALL));
++ test.omit_received = false;
 + /* Rebinding must converge within the budget, then fail with normal backoff. */
 + test.bounce = true; test.completed = 0; test.requests = 0;
 + NAT_REG_ERR(sipreg_send(test.reg));
@@ -586,6 +685,62 @@ index 31ec2f7..e53b41f 100644
 + TEST_ASSERT(test.requests == 2 && test.completed == 1);
 + TEST_ASSERT(sipreg_registered(test.reg));
 + TEST_ASSERT(sipreg_proxy_expires(test.reg) == 60);
++ /* Some peers treat combined old-delete/new-add as deletion. Their 200 has
++  * no binding. Recover once with only the new Contact, never report success
++  * for an empty, unrelated or expired binding after that single retry. */
++ for (unsigned mode = 0; mode < 4; ++mode) {
++  test.delete_combined = true; test.binding_deleted = false;
++  test.single_contact = mode; test.port = (uint16_t)(14000 + mode);
++  test.error = 0; test.completed = 0; test.requests = 0; test.removals = 0;
++  NAT_REG_ERR(sipreg_send(test.reg));
++  NAT_REG_ERR(re_main_timeout(3000));
++  TEST_EQUALS(3, test.requests);
++  TEST_EQUALS(1, test.removals);
++  TEST_EQUALS(1, test.completed);
++  if (!mode) {
++   NAT_REG_ERR(test.error);
++   TEST_ASSERT(sipreg_registered(test.reg));
++   TEST_ASSERT(sipreg_proxy_expires(test.reg) == 60);
++  } else {
++   TEST_ASSERT(test.error == EPROTO && !sipreg_registered(test.reg));
++   tmr_start(&test.stop, 300, nat_reg_stop, NULL);
++   NAT_REG_ERR(re_main_timeout(1000));
++   TEST_ASSERT(test.requests == 3 && test.completed == 1);
++   /* A fresh cycle may recover; no old Contact deletion is repeated. */
++   test.delete_combined = false; test.binding_deleted = false;
++   test.error = 0; test.completed = 0; test.requests = 0; test.removals = 0;
++   NAT_REG_ERR(sipreg_send(test.reg));
++   NAT_REG_ERR(re_main_timeout(3000));
++   NAT_REG_ERR(test.error);
++   TEST_ASSERT(test.requests == 1 && !test.removals && test.completed == 1);
++   TEST_ASSERT(sipreg_registered(test.reg));
++  }
++ }
++ /* A normal active refresh also cannot succeed without its own binding. */
++ test.delete_combined = false; test.binding_deleted = true; test.single_contact = 1;
++ test.error = 0; test.completed = 0; test.requests = 0;
++ NAT_REG_ERR(sipreg_send(test.reg));
++ NAT_REG_ERR(re_main_timeout(3000));
++ TEST_EQUALS(1, test.requests);
++ TEST_ASSERT(test.error == EPROTO && !sipreg_registered(test.reg));
++ test.binding_deleted = false;
++ test.error = 0; test.completed = 0; test.requests = 0;
++ NAT_REG_ERR(sipreg_send(test.reg));
++ NAT_REG_ERR(re_main_timeout(3000));
++ NAT_REG_ERR(test.error);
++ TEST_EQUALS(1, test.requests);
++ TEST_ASSERT(sipreg_registered(test.reg));
++ /* An explicit unregister with no remaining binding is successful and must
++  * never trigger the active-registration compatibility retry. */
++ test.error = 0; test.completed = 0; test.requests = 0; test.removals = 0;
++ sipreg_unregister(test.reg);
++ NAT_REG_ERR(re_main_timeout(3000));
++ NAT_REG_ERR(test.error);
++ TEST_ASSERT(!sipreg_registered(test.reg));
++ TEST_ASSERT(test.requests == 1 && test.removals == 1 && test.completed == 1);
++ tmr_start(&test.stop, 300, nat_reg_stop, NULL);
++ NAT_REG_ERR(re_main_timeout(1000));
++ TEST_ASSERT(test.requests == 1 && test.completed == 1);
 + out:
 + tmr_cancel(&test.stop);
 + mem_deref(test.reg);

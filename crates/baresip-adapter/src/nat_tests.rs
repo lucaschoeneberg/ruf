@@ -4,6 +4,7 @@ use phone_core::{
     AccountConfig, AudioMode, CallState, EngineSnapshot, ErrorCode, RegistrationState,
 };
 use std::{
+    io::ErrorKind,
     net::{SocketAddr, UdpSocket},
     thread,
     time::{Duration, Instant},
@@ -75,6 +76,9 @@ impl Lab {
         socket
     }
     fn register(engine: &mut Engine) -> Self {
+        Self::register_with_expiry(engine, 60)
+    }
+    fn register_with_expiry(engine: &mut Engine, expires: u32) -> Self {
         let registrar = Self::socket();
         let incoming = Self::socket();
         let mapped = Self::socket();
@@ -100,14 +104,13 @@ impl Lab {
                 .unwrap();
             target = uri(contact).to_owned();
             let response = format!(
-                "SIP/2.0 200 OK\r\nVia: {};received=127.0.0.1;rport={}\r\nFrom: {}\r\nTo: {};tag=registrar\r\nCall-ID: {}\r\nCSeq: {}\r\nContact: {}\r\nContent-Length: 0\r\n\r\n",
+                "SIP/2.0 200 OK\r\nVia: {};received=127.0.0.1;rport={}\r\nFrom: {}\r\nTo: {};tag=registrar\r\nCall-ID: {}\r\nCSeq: {}\r\nContact: <{target}>;expires={expires}\r\nContent-Length: 0\r\n\r\n",
                 header(&packet, "Via:"),
                 mapped.local_addr().unwrap().port(),
                 header(&packet, "From:"),
                 header(&packet, "To:"),
                 header(&packet, "Call-ID:"),
-                header(&packet, "CSeq:"),
-                contact
+                header(&packet, "CSeq:")
             );
             registrar.send_to(response.as_bytes(), local).unwrap();
         }
@@ -207,6 +210,187 @@ impl Lab {
             .send_to(forwarded.as_bytes(), self.local)
             .unwrap();
     }
+
+    fn register_response(&mut self, packet: &str) {
+        let contact = packet
+            .lines()
+            .filter_map(|line| line.strip_prefix("Contact: "))
+            .find(|value| !value.contains("expires=0"))
+            .expect("live synthetic registration binding");
+        self.target = uri(contact).to_owned();
+        let response = format!(
+            "SIP/2.0 200 OK\r\nVia: {};received=127.0.0.1;rport={}\r\nFrom: {}\r\nTo: {};tag=registrar\r\nCall-ID: {}\r\nCSeq: {}\r\nContact: <{}>;expires=60\r\nContent-Length: 0\r\n\r\n",
+            header(packet, "Via:"),
+            self.mapped.local_addr().unwrap().port(),
+            header(packet, "From:"),
+            header(packet, "To:"),
+            header(packet, "Call-ID:"),
+            header(packet, "CSeq:"),
+            self.target
+        );
+        self.registrar
+            .send_to(response.as_bytes(), self.local)
+            .unwrap();
+    }
+}
+
+fn read_if_available(socket: &UdpSocket) -> Option<String> {
+    let mut data = [0; 8192];
+    match socket.recv_from(&mut data) {
+        Ok((size, _)) => Some(String::from_utf8(data[..size].to_vec()).unwrap()),
+        Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => None,
+        Err(error) => panic!("synthetic SIP datagram failed: {error}"),
+    }
+}
+
+#[test]
+fn signaling_blackout_times_out_then_reregisters_and_accepts_a_new_call() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut engine = Engine::start(
+        AudioMode::TestTone,
+        Some(std::env::temp_dir().join("sip-blackout-recovery.wav")),
+    )
+    .unwrap();
+    // The registrar's short lifetime causes a real refresh during the blackout.
+    // Keep every socket bound: dropping datagrams, rather than closing a port,
+    // exercises SIP timers instead of immediate ICMP connection refusal.
+    let mut lab = Lab::register_with_expiry(&mut engine, 2);
+    lab.registrar
+        .set_read_timeout(Some(Duration::from_millis(20)))
+        .unwrap();
+    engine.dial("4321").unwrap();
+    let until = Instant::now() + Duration::from_secs(45);
+    let mut dropped_invites = 0;
+    let mut dropped_registers = 0;
+    loop {
+        if let Some(packet) = read_if_available(&lab.registrar) {
+            dropped_invites += usize::from(packet.starts_with("INVITE "));
+            dropped_registers += usize::from(packet.starts_with("REGISTER "));
+        }
+        let state = engine.snapshot().unwrap();
+        if state.call == CallState::Idle && state.registration == RegistrationState::Failed {
+            assert!(state.call_id.is_none());
+            assert!(state.call_account_id.is_none());
+            assert!(state.last_error.is_some());
+            assert!(state.accounts[0].last_error.is_some());
+            break;
+        }
+        assert!(
+            Instant::now() < until,
+            "blackout did not time out: {state:?}"
+        );
+    }
+    assert!(dropped_invites >= 2, "INVITE retransmissions were not lost");
+    assert!(
+        dropped_registers >= 2,
+        "REGISTER retransmissions were not lost"
+    );
+
+    // Restore the same transport and let libre's normal randomized retry run;
+    // no save-account, reconnect command or engine recreation is involved.
+    let until = Instant::now() + Duration::from_secs(75);
+    loop {
+        if let Some(packet) = read_if_available(&lab.registrar)
+            && packet.starts_with("REGISTER ")
+        {
+            lab.register_response(&packet);
+        }
+        let state = engine.snapshot().unwrap();
+        if state.registration == RegistrationState::Registered {
+            assert!(state.accounts[0].last_error.is_none());
+            break;
+        }
+        assert!(
+            Instant::now() < until,
+            "registration did not recover: {state:?}"
+        );
+    }
+    lab.invite(70);
+    wait(&engine, |s| s.call == CallState::Incoming);
+    assert!(engine.snapshot().unwrap().last_error.is_none());
+    engine.answer().unwrap();
+    let response = lab.response("SIP/2.0 200");
+    lab.in_dialog(&response, "ACK");
+    wait(&engine, |s| s.call == CallState::Active);
+    lab.in_dialog(&response, "BYE");
+    lab.response("SIP/2.0 200");
+    wait(&engine, |s| s.call == CallState::Idle);
+    assert!(engine.snapshot().unwrap().last_error.is_none());
+    engine.shutdown().unwrap();
+}
+
+#[test]
+fn lost_bye_response_releases_local_call_and_keeps_the_next_incoming_call() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut engine = Engine::start(
+        AudioMode::TestTone,
+        Some(std::env::temp_dir().join("sip-lost-bye-recovery.wav")),
+    )
+    .unwrap();
+    let lab = Lab::register(&mut engine);
+    lab.invite(80);
+    wait(&engine, |s| s.call == CallState::Incoming);
+    engine.answer().unwrap();
+    let response = lab.response("SIP/2.0 200");
+    lab.in_dialog(&response, "ACK");
+    wait(&engine, |s| s.call == CallState::Active);
+    let old_token = engine.snapshot().unwrap().call_id.unwrap();
+    engine.hangup_call(&old_token).unwrap();
+    loop {
+        let (packet, _) = receive(&lab.incoming);
+        if packet.starts_with("BYE ") {
+            break; // The network drops the peer's response to this BYE.
+        }
+    }
+    wait(&engine, |s| s.call == CallState::Idle);
+    assert!(engine.snapshot().unwrap().last_error.is_none());
+    lab.invite(81);
+    wait(&engine, |s| s.call == CallState::Incoming);
+    let new_token = engine.snapshot().unwrap().call_id.unwrap();
+    assert_ne!(old_token, new_token);
+    assert_eq!(
+        engine.hangup_call(&old_token).unwrap_err().code,
+        ErrorCode::InvalidState
+    );
+    engine.answer_call(&new_token).unwrap();
+    let response = lab.response("SIP/2.0 200");
+    lab.in_dialog(&response, "ACK");
+    wait(&engine, |s| s.call == CallState::Active);
+    lab.incoming
+        .set_read_timeout(Some(Duration::from_millis(20)))
+        .unwrap();
+    // Cross the old BYE's real 32-second transaction timeout while a different
+    // call owns the slot: its late teardown must not clear the replacement.
+    let until = Instant::now() + Duration::from_secs(35);
+    let mut old_bye_retransmitted = false;
+    while Instant::now() < until {
+        if let Some(packet) = read_if_available(&lab.incoming)
+            && packet.starts_with("BYE ")
+            && header(&packet, "Call-ID:") == "synthetic-80"
+        {
+            old_bye_retransmitted = true;
+        }
+        let state = engine.snapshot().unwrap();
+        assert_eq!(state.call, CallState::Active);
+        assert_eq!(state.call_id.as_deref(), Some(new_token.as_str()));
+        assert!(state.last_error.is_none());
+    }
+    assert!(
+        old_bye_retransmitted,
+        "old BYE transaction was not still pending"
+    );
+    lab.incoming
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    lab.in_dialog(&response, "BYE");
+    lab.response("SIP/2.0 200");
+    wait(&engine, |s| s.call == CallState::Idle);
+    assert!(engine.snapshot().unwrap().last_error.is_none());
+    engine.shutdown().unwrap();
 }
 
 #[test]
@@ -435,4 +619,174 @@ fn incoming_nat_peer_port_variation_routes_ack_and_bye() {
     }
     engine.shutdown().unwrap();
     assert!(engine.snapshot().unwrap().caller.is_none());
+}
+
+#[test]
+fn media_blackout_releases_call_without_user_action_and_preserves_remote_hold() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let recording = std::env::temp_dir().join("sip-media-blackout.wav");
+    let mut engine = Engine::start(AudioMode::TestTone, Some(recording.clone())).unwrap();
+    let mut lab = Lab::register(&mut engine);
+    lab.invite(20);
+    wait(&engine, |s| s.call == CallState::Incoming);
+    engine.answer().unwrap();
+    let dialog = lab.response("SIP/2.0 200");
+    lab.in_dialog(&dialog, "ACK");
+    wait(&engine, |s| s.call == CallState::Active);
+    let media_port: u16 = dialog
+        .lines()
+        .find_map(|line| line.strip_prefix("m=audio "))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let rtp = UdpSocket::bind("127.0.0.1:0").unwrap();
+    lab.incoming.set_nonblocking(true).unwrap();
+    lab.registrar.set_nonblocking(true).unwrap();
+    // Feed real PCMU to the native pipeline, and finish initial SIP media
+    // updates before simulating a total loss of the peer's network path.
+    for sequence in 0_u16..150 {
+        let mut packet = [0x80_u8; 172];
+        packet[0] = 0x80;
+        packet[1] = 0;
+        packet[2..4].copy_from_slice(&sequence.to_be_bytes());
+        packet[4..8].copy_from_slice(&(u32::from(sequence) * 160).to_be_bytes());
+        packet[8..12].copy_from_slice(&1_u32.to_be_bytes());
+        rtp.send_to(&packet, (std::net::Ipv4Addr::LOCALHOST, media_port))
+            .unwrap();
+        service_media_peer(&mut lab);
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        std::fs::metadata(&recording).unwrap().len() > 4096,
+        "native receive recording must prove media flowed before the blackout"
+    );
+    assert_eq!(engine.snapshot().unwrap().call, CallState::Active);
+
+    // No BYE, RTP, REGISTER replies or user hangup: the media watchdog must
+    // release the global slot by itself. Real upstream timers are unchanged.
+    let until = Instant::now() + Duration::from_secs(65);
+    while engine.snapshot().unwrap().call != CallState::Idle && Instant::now() < until {
+        thread::sleep(Duration::from_millis(20));
+    }
+    let ended = engine.snapshot().unwrap();
+    assert_eq!(
+        ended.call,
+        CallState::Idle,
+        "lost network must not reserve the only call slot forever"
+    );
+    assert_eq!(ended.last_error.unwrap().code, ErrorCode::NativeFailure);
+    assert!(ended.call_id.is_none());
+    service_media_peer(&mut lab);
+    lab.incoming.set_nonblocking(false).unwrap();
+    lab.invite(21);
+    wait(&engine, |s| s.call == CallState::Incoming);
+    assert!(engine.snapshot().unwrap().last_error.is_none());
+    engine.answer().unwrap();
+    let held_dialog = lab.response("SIP/2.0 200");
+    lab.in_dialog(&held_dialog, "ACK");
+    wait(&engine, |s| s.call == CallState::Active);
+    let endpoint = lab.incoming.local_addr().unwrap();
+    let hold_sdp = "v=0\r\no=lab 1 2 IN IP4 127.0.0.1\r\ns=synthetic\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio 9000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\na=sendonly\r\n";
+    let hold = format!(
+        "INVITE {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKmedia-hold;rport\r\nMax-Forwards: 70\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: 2 INVITE\r\nContact: <sip:caller@{endpoint}>\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{hold_sdp}",
+        lab.target,
+        header(&held_dialog, "From:"),
+        header(&held_dialog, "To:"),
+        header(&held_dialog, "Call-ID:"),
+        hold_sdp.len()
+    );
+    lab.incoming.send_to(hold.as_bytes(), lab.local).unwrap();
+    let held_response = lab.response("SIP/2.0 200");
+    let hold_ack = format!(
+        "ACK {} SIP/2.0\r\nVia: SIP/2.0/UDP {endpoint};branch=z9hG4bKmedia-hold-ack;rport\r\nMax-Forwards: 70\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: 2 ACK\r\nContent-Length: 0\r\n\r\n",
+        lab.target,
+        header(&held_response, "From:"),
+        header(&held_response, "To:"),
+        header(&held_response, "Call-ID:")
+    );
+    lab.incoming
+        .send_to(hold_ack.as_bytes(), lab.local)
+        .unwrap();
+    wait(&engine, |s| s.call == CallState::Held);
+    let token = engine.snapshot().unwrap().call_id.unwrap();
+    lab.incoming.set_nonblocking(true).unwrap();
+    let until = Instant::now() + Duration::from_secs(65);
+    while Instant::now() < until {
+        service_media_peer(&mut lab);
+        let state = engine.snapshot().unwrap();
+        assert_eq!(
+            state.call,
+            CallState::Held,
+            "remote hold must not time out for missing RTP"
+        );
+        assert_eq!(state.call_id.as_deref(), Some(token.as_str()));
+        thread::sleep(Duration::from_millis(20));
+    }
+    lab.incoming.set_nonblocking(false).unwrap();
+    let resume = hold
+        .replace("media-hold", "media-resume")
+        .replace("CSeq: 2 INVITE", "CSeq: 3 INVITE")
+        .replace("o=lab 1 2", "o=lab 1 3")
+        .replace("sendonly", "sendrecv");
+    lab.incoming.send_to(resume.as_bytes(), lab.local).unwrap();
+    lab.response("SIP/2.0 200");
+    let resume_ack = hold_ack
+        .replace("media-hold-ack", "media-resume-ack")
+        .replace("CSeq: 2 ACK", "CSeq: 3 ACK");
+    lab.incoming
+        .send_to(resume_ack.as_bytes(), lab.local)
+        .unwrap();
+    wait(&engine, |s| s.call == CallState::Active);
+    lab.incoming.set_nonblocking(true).unwrap();
+    // Long hold must not consume the resumed call's media recovery interval.
+    let until = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < until {
+        service_media_peer(&mut lab);
+        assert_eq!(engine.snapshot().unwrap().call, CallState::Active);
+        thread::sleep(Duration::from_millis(20));
+    }
+    engine.hangup_call(&token).unwrap();
+    wait(&engine, |s| s.call == CallState::Idle);
+    engine.shutdown().unwrap();
+}
+
+fn service_media_peer(lab: &mut Lab) {
+    while let Some(packet) = read_if_available(&lab.registrar) {
+        if packet.starts_with("REGISTER ") {
+            lab.register_response(&packet);
+        }
+    }
+    while let Some(packet) = read_if_available(&lab.incoming) {
+        if !packet.starts_with("INVITE ") && !packet.starts_with("BYE ") {
+            continue;
+        }
+        let body = if packet.starts_with("INVITE ") {
+            "v=0\r\no=lab 1 3 IN IP4 127.0.0.1\r\ns=synthetic\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio 9000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n"
+        } else {
+            ""
+        };
+        let content_type = if body.is_empty() {
+            ""
+        } else {
+            "Content-Type: application/sdp\r\n"
+        };
+        let response = format!(
+            "SIP/2.0 200 OK\r\nVia: {}\r\nFrom: {}\r\nTo: {}\r\nCall-ID: {}\r\nCSeq: {}\r\nContact: <sip:caller@{}>\r\n{content_type}Content-Length: {}\r\n\r\n{body}",
+            header(&packet, "Via:"),
+            header(&packet, "From:"),
+            header(&packet, "To:"),
+            header(&packet, "Call-ID:"),
+            header(&packet, "CSeq:"),
+            lab.incoming.local_addr().unwrap(),
+            body.len()
+        );
+        lab.incoming
+            .send_to(response.as_bytes(), lab.local)
+            .unwrap();
+    }
 }

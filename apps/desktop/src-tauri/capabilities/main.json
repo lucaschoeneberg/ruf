@@ -21,6 +21,7 @@
     "allow-get-engine-snapshot",
     "allow-dial",
     "allow-answer",
+    "allow-reject",
     "allow-hangup",
     "allow-select-account",
     "allow-open-settings",
