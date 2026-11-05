@@ -71,6 +71,10 @@ outgoing-digit history was added. Queue acceptance does not prove IVR delivery.
 | Type generation twice with SHA-256 comparison                                          | Stable generated contract after the deliberate DTO changes.                                                          |
 | Native production desktop prebuild, `--features native --no-bundle`                    | Passed, no test-hook feature selected.                                                                               |
 
+`bun run format:check`, Cargo formatting and `git diff --check` also passed.
+The final production bundle command, `bun run desktop:build --features native
+--bundles app`, passed and produced Ruf.app (21.12 MiB).
+
 The new Asterisk extension 605 only plays an 880 Hz tone after receiving `5`
 terminated by `#`. The test queues both keys rapidly through the real engine and
 measures 16,000 returned samples at 880.0 Hz, RMS 5102. It also rejects malformed
@@ -97,6 +101,26 @@ compact design. Synthetic captures at 340×500 and 320×440 were inspected; nume
 suggestions and the scrolled in-call keypad remain usable. The detector was run
 once on the changed interface and reported no findings. Captures/build output and
 temporary test recordings are ignored and not committed.
+
+## Final production artifact
+
+The final package was built from clean implementation commit
+`84d20b1ec34c1f9bf634ad5e9088369ef41d87d3` on `main`, with only `native` enabled.
+Its local path is
+`target/aarch64-apple-darwin/release/bundle/macos/Ruf.app`. The executable in the
+signed bundle exports the same CycloneDX inventory as the raw release executable.
+The build manifest matches the raw executable and inventory hashes. The final
+feature graph excludes `native-test-hooks`; both symbol tables exclude
+`sip_engine_set_test_ca` and `sip_engine_set_test_dns`. Local
+`codesign --verify --deep --strict` succeeded. A hash snapshot of all 396 tracked
+files was retained outside Git for local source binding. This verification text
+was subsequently extended without changing the implementation or app assets.
+
+| Artifact                       | SHA-256                                                            |
+| ------------------------------ | ------------------------------------------------------------------ |
+| Raw release executable         | `b23ae32ce71adb3c8d21bc8e2d6ae83065f1758e74b4858a3ee1c2c9dc8ff03e` |
+| Bundled signed executable      | `7d49ef9fc8647ae47f370b9afd7c80bd8a0727be8eee8fb1209e0a75ad61ee69` |
+| Exported native CycloneDX SBOM | `f454afff9a802bcd54a5395bce21c4e1702baf5489fbb7042ea022032a1d2c80` |
 
 ## Limits
 
