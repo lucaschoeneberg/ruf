@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { compile } from "svelte/compiler";
 import { render } from "svelte/server";
-import type { ErrorCode } from "../../apps/desktop/src/lib/generated/AppInfo";
+import type {
+  CallSnapshot,
+  CallState,
+  ErrorCode,
+} from "../../apps/desktop/src/lib/generated/AppInfo";
 
 Bun.plugin({
   name: "svelte-server-components",
@@ -19,8 +23,67 @@ Bun.plugin({
 const { default: CallPanel } =
   await import("../../apps/desktop/src/lib/components/CallPanel.svelte");
 
+function renderCall({
+  props,
+}: {
+  props: {
+    state: CallState;
+    peer: string;
+    number?: string | null;
+    elapsed: string;
+    busy: boolean;
+    compact: boolean;
+    receivedDtmf?: string;
+    onanswer: () => void;
+    onhangup: () => void;
+  };
+}) {
+  const call: CallSnapshot = {
+    id: "test-call",
+    accountId: 1,
+    state: props.state,
+    destination: null,
+    caller: { name: props.peer, number: props.number ?? null },
+    connectedAtMs: 1000,
+    muted: false,
+    localHeld: false,
+    remoteHeld: props.state === "held",
+    holdPending: false,
+    transfer: "idle",
+    consultation: false,
+    events: [],
+    eventsDropped: 0,
+    lastError: null,
+    security: {
+      signalingTransport: null,
+      tlsPeerVerified: false,
+      media: "unknown",
+    },
+  };
+  return render(CallPanel, {
+    props: {
+      call,
+      elapsed: props.elapsed,
+      busy: props.busy,
+      compact: props.compact,
+      receivedDtmf: props.receivedDtmf,
+      onanswer: props.onanswer,
+      onhangup: props.onhangup,
+      async onmute() {
+        return true;
+      },
+      onhold() {},
+      ontransfer() {},
+      onconsult() {},
+      onswitch() {},
+      oncancelconsult() {},
+      oncompletetransfer() {},
+    },
+  });
+}
+
 test("incoming caller name and number are shown as plain text", () => {
-  const { body } = render(CallPanel, {
+  const { body } = renderCall({
     props: {
       state: "incoming",
       peer: "Ada <Büro>",
@@ -40,7 +103,7 @@ test("incoming caller name and number are shown as plain text", () => {
 });
 
 test("an answering call remains visible without another answer action", () => {
-  const { body } = render(CallPanel, {
+  const { body } = renderCall({
     props: {
       state: "answering",
       peer: "Anruf für Büro",
@@ -61,7 +124,7 @@ for (const [state, label] of [
   ["held", "Gegenstelle hält das Gespräch"],
 ] as const)
   test(`${state} remains visible with guarded hangup and escaped identity`, () => {
-    const { body } = render(CallPanel, {
+    const { body } = renderCall({
       props: {
         state,
         peer: '<img src=x onerror="alert(1)">',

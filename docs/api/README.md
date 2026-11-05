@@ -18,7 +18,7 @@ Additional settings contracts: [notifications](notifications.md),
 [local preferences](preferences.md), [native audio diagnostics](audio-diagnostics.md)
 and [account activation](account-activation.md).
 
-Native Rust controls and per-dialog DTO additions: [call controls and consultation](call-controls.md).
+Desktop/Rust controls and per-dialog DTO additions: [call controls and consultation](call-controls.md).
 
 ## Windows and permissions
 
@@ -87,8 +87,12 @@ Save, removal and outgoing selection require an idle call. The native event-loop
 thread rechecks mutations against incoming calls, preserving the old account
 metadata and UA when configuration is rejected.
 
-Currently SIP/UDP, G.711 and one global call are supported. No silent fallback from
-encrypted transport. Use the development build in an isolated test network.
+SIP UDP/TCP/TLS and G.711 support one ordinary call plus one explicitly requested
+consultation, with one audible dialog. Account security fields and observed
+per-dialog security are documented in [account security](account-security.md).
+Required SDES-SRTP requires TLS and never falls back to plaintext. Incoming REFER
+remains rejected. Use the preview in an isolated test network; full expanded
+interop and platform/hardware verification remain separate.
 Test-tone recordings overwrite the previous received.wav and remain in the cache;
 do not use this mode for private calls. The upstream path limit is 127 UTF-8 bytes.
 

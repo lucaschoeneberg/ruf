@@ -97,6 +97,13 @@ pub fn run() {
             commands::settings_ready,
             commands::quit_app,
             commands::save_desktop_settings,
+            commands::set_call_muted,
+            commands::set_call_held,
+            commands::transfer_call,
+            commands::start_consultation,
+            commands::switch_call,
+            commands::cancel_consultation,
+            commands::complete_transfer,
             commands::hangup
         ])
         .build(tauri::generate_context!())

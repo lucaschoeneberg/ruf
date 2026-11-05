@@ -3,11 +3,19 @@
 Schlankes SIP-Softphone für macOS und Windows mit Rust, Tauri 2 und Svelte.
 Eigener Code steht unter der [MIT-Lizenz](LICENSE).
 
-**Stand: 0.1.0-Vorschau für isolierte Testnetze.** SIP/UDP und G.711-RTP sind
-unverschlüsselt. Bis zu acht gespeicherte Konten können unabhängig registriert
-sein; ein Gespräch ist gleichzeitig möglich. Passwörter liegen im
-macOS-Schlüsselbund bzw. Windows Credential Manager. Der lokale Asterisk-Echotest
-prüft Anmeldung, Gesprächsaufbau und zurückkehrendes Audio.
+**Stand: 0.1.0-Vorschau für isolierte Testnetze.** Bis zu acht gespeicherte
+Konten können unabhängig registriert sein. Gespräche bieten Stummschaltung,
+lokales Halten, direkte Vermittlung und eine Rückfrage mit Wechsel, Rückkehr und
+Vermittlungsabschluss; höchstens zwei zugehörige Dialoge und ein hörbares Gespräch.
+Konten unterstützen UDP/TCP/TLS sowie erforderliches SDES-SRTP mit TLS.
+UDP/TCP und gewöhnliches RTP sind unverschlüsselt. TLS prüft Serverzertifikat und
+Host über die Betriebssystem-Vertrauensregeln; es gibt keinen automatischen
+Klartext-Rückfall. Die Gesprächsanzeige folgt beobachtetem Schutz, nicht der
+Kontoeinstellung. Schutz bis zur Telefonanlage garantiert keine Ende-zu-Ende-Verschlüsselung.
+Passwörter liegen im macOS-Schlüsselbund bzw. Windows Credential Manager.
+Der bestehende lokale Asterisk-Echotest prüft Anmeldung, Gesprächsaufbau und
+zurückkehrendes Audio; erweiterte Vermittlungs-/TLS-/SRTP-Interoperabilität und
+Hardware-/Windows-Laufzeit bleiben gesondert zu verifizieren.
 
 Die dunkle Desktop-Oberfläche startet mit 340 × 500 Pixeln. Sie bietet Wähltastatur,
 macOS-Kontakte nach ausdrücklicher Freigabe, Favoriten und einen lokalen
@@ -17,7 +25,7 @@ Anruferdetails in Mitteilungen lassen sich ausblenden; der Diagnosebericht enth�
 keine persönlichen Daten. Kontaktanzeige und Verlaufsspeicherung lassen sich anpassen; abgeschlossene
 Verlaufseinträge können nach einer gewählten Frist gelöscht werden. [Produktumfang](apps/desktop/PRODUCT.md),
 [Designregeln](apps/desktop/DESIGN.md) und [Release-Notizen](docs/releases/0.1.0.md)
-beschreiben die Vorschau. Windows-Kontakte, Kalender, TLS/SRTP und automatische
+beschreiben die Vorschau. Windows-Kontakte, Kalender und automatische
 Updates sind noch nicht verfügbar.
 
 Release-Ziele sind macOS 14+ auf Apple Silicon und Windows 11 x64. Die Pakete

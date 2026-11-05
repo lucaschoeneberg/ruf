@@ -25,9 +25,18 @@ export default async function layoutRegressions(page) {
         if (command === "plugin:event|listen") return next++;
         if (command === "get_engine_snapshot")
           return {
+            revision: 1,
+            callEvents: [],
+            callEventsDropped: 0,
+            callConnectedAtMs: null,
+            caller: null,
+            callerContact: null,
+            historyError: null,
             registration: "registered",
             call: "idle",
             callId: null,
+            calls: [],
+            lastCallFailure: null,
             lastError: null,
             accounts: Array.from(
               { length: location.search.includes("many-accounts") ? 8 : 1 },
@@ -35,6 +44,10 @@ export default async function layoutRegressions(page) {
                 id: index + 1,
                 name: index === 0 ? "Büro" : `Konto ${index + 1}`,
                 username: "1000",
+                transport: "udp",
+                mediaSecurity: "disabled",
+                authUsername: null,
+                outboundProxy: null,
                 registrar: "pbx.example.test",
                 registration: "registered",
                 removing: false,

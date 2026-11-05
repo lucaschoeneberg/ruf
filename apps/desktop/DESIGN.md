@@ -49,6 +49,12 @@ typography:
     lineHeight: 1.4
     fontFeature: '"tnum"'
     fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  call-timer-compact:
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.4
+    fontFeature: '"tnum"'
+    fontFamily: '"SIP UI", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
   introduction:
     fontSize: "18px"
     fontWeight: 600
@@ -371,8 +377,31 @@ Removal requires inline confirmation and deletes the stored password. Account mu
 are disabled during calls or busy operations. Browser and portable modes explain
 unavailable native operations. Datenschutz contains storage and permission
 information; Diagnose & Hilfe holds health checks, help and developer audio.
-About retains version/changelog, SIP/UDP limits, authorship, links and the
+About retains version/changelog, preview/transport limits, authorship, links and the
 collapsed software/license inventory.
+
+### Native call controls and security
+
+The existing call panel holds labelled mute, local hold and transfer controls;
+local hold and remote hold are independent. Pending negotiation/recovery uses an
+honest generic status, keeping mute and hangup available. No optimistic confirmed
+state or transfer-cancellation action is invented. Two compact conversation rows
+show distinct parties and ownership; switch selects a target token, while return
+and attended completion always use the consultation child token. The transfer
+number draft belongs to the original conversation and survives switching/failure.
+An inline destination form accepts a number or a canonical number from already
+authorized contacts, without prompting for contact permission.
+
+A compact security disclosure reports native signaling/media observations,
+including unknown, verified TLS with plaintext audio, and verified TLS plus SRTP.
+Account transport and required SRTP live under SIP-Konten with optional digest
+identity/proxy under a native disclosure; all participate in draft/discard guards
+and search. TLS with required SRTP is the recommended configuration, not evidence
+of observed media. Trust uses OS settings; there is no per-account CA or bypass.
+Owner-tagged terminal call failures remain dismissible after a background dialog
+closes. Native terminal transfer-success events can confirm completion after both
+dialogs disappear. Existing dark tokens, typography, compact and scroll behavior
+remain the visual authority at 340×500 and the 320×440 minimum.
 
 ### Sound
 
@@ -438,5 +467,5 @@ come from `zed-industries/zed` commit
 
 - **Don't** introduce a separate settings palette or font stack.
 - **Don't** populate contacts or history before their data exists.
-- **Don't** add unsupported call controls such as mute, hold or transfer.
+- **Don't** show confirmed call security or control outcomes from configured preferences or queue acceptance.
 - **Don't** replace native window controls or expand the utility into a dashboard.

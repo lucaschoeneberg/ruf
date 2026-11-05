@@ -11,6 +11,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import callControls from "../tests/ui/browser/call-controls.mjs";
 import phone from "../tests/ui/browser/phone.mjs";
 import settings from "../tests/ui/browser/settings.mjs";
 import layout from "../tests/ui/browser/layout.mjs";
@@ -124,6 +125,7 @@ try {
     ["contacts", contacts],
     ["history", history],
     ["phone", phone],
+    ["call-controls", callControls],
     ["settings", settings],
     ["layout", layout],
   ]) {
@@ -131,7 +133,7 @@ try {
     const path = join(temporary, `${name}.js`);
     writeFileSync(
       path,
-      `async (page) => { const result = await (${test.toString()})(page, new URL(page.url()).origin); if (result && result.passed === false) throw new Error(JSON.stringify(result)); return result ?? { passed: true }; }`,
+      `async (page) => { const result = await (${test.toString()})(page, new URL(page.url()).origin, ${process.env.SIP_UI_CAPTURE === "1"}); if (result && result.passed === false) throw new Error(JSON.stringify(result)); return result ?? { passed: true }; }`,
     );
     const result = run("run-code", `--filename=${path}`);
     console.log(`UI_FLOW_OK ${name}`);

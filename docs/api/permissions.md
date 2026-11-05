@@ -7,7 +7,12 @@ capabilities reject before dispatch. There are no HTTP status codes.
 
 Main may read `get_preferences`, `get_desktop_settings` and
 `get_notification_permission` for contact presentation and the notification hint.
-It retains existing call controls and outgoing account selection. It cannot save
+It retains outgoing account selection and the seven explicit call-control
+capabilities: `set_call_muted`, `set_call_held`, `transfer_call`,
+`start_consultation`, `switch_call`, `cancel_consultation`, `complete_transfer`.
+Each is separately registered/granted; settings has none. All require opaque live
+call tokens; consultation cancellation/completion require the child token even
+when its original is selected. It cannot save
 application preferences, run audio/notification tests, copy diagnostics, toggle
 saved account activation or request microphone permission.
 

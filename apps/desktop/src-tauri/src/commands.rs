@@ -190,6 +190,124 @@ pub async fn hangup(
     .await
 }
 
+/// Set outgoing mute for one established dialog; native snapshots confirm application.
+/// Required opaque call_id rejects stale dialogs; mute remains available during renegotiation.
+/// Returns queue-accepted state, not protocol completion. See docs/api/call-controls.md.
+#[tauri::command]
+pub async fn set_call_muted(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+    muted: bool,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.set_call_muted(&call_id, muted)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// Request local hold/resume; native negotiation and recovery may remain pending.
+/// Required opaque call_id rejects stale dialogs; conflicting operations return Busy.
+/// Returns queue-accepted state, not protocol completion. See docs/api/call-controls.md.
+#[tauri::command]
+pub async fn set_call_held(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+    held: bool,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.set_call_held(&call_id, held)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// Send blind REFER to a validated number on the dialog owner; final NOTIFY confirms success.
+/// Required opaque call_id rejects stale dialogs; conflicting operations return Busy.
+/// Returns queue-accepted state, not protocol completion. See docs/api/call-controls.md.
+#[tauri::command]
+pub async fn transfer_call(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+    destination: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.transfer_call(&call_id, &destination)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// Hold the original, then dial one consultation on its owning account.
+/// Required opaque call_id rejects stale dialogs; conflicting operations return Busy.
+/// Returns queue-accepted state, not protocol completion. See docs/api/call-controls.md.
+#[tauri::command]
+pub async fn start_consultation(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+    destination: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session
+            .engine()?
+            .start_consultation(&call_id, &destination)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// Select the target dialog after native hold/resume sequencing.
+/// Required opaque call_id rejects stale dialogs; conflicting operations return Busy.
+/// Returns queue-accepted state, not protocol completion. See docs/api/call-controls.md.
+#[tauri::command]
+pub async fn switch_call(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.switch_call(&call_id)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// Cancel using the consultation child token, even when the original is selected.
+/// Required opaque call_id rejects stale dialogs; conflicting operations return Busy.
+/// Returns queue-accepted state, not protocol completion. See docs/api/call-controls.md.
+#[tauri::command]
+pub async fn cancel_consultation(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.cancel_consultation(&call_id)?;
+        session.snapshot()
+    })
+    .await
+}
+
+/// Complete REFER/Replaces using the established consultation child token.
+/// Required opaque call_id rejects stale dialogs; conflicting operations return Busy.
+/// Returns queue-accepted state, not protocol completion. See docs/api/call-controls.md.
+#[tauri::command]
+pub async fn complete_transfer(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.complete_transfer(&call_id)?;
+        session.snapshot()
+    })
+    .await
+}
+
 /// Open or focus the single settings window. Async avoids Windows WebView2 deadlocks.
 #[tauri::command]
 pub async fn open_settings(

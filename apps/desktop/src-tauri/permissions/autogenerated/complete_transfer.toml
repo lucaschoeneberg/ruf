@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-complete-transfer"
+description = "Enables the complete_transfer command without any pre-configured scope."
+commands.allow = ["complete_transfer"]
+
+[[permission]]
+identifier = "deny-complete-transfer"
+description = "Denies the complete_transfer command without any pre-configured scope."
+commands.deny = ["complete_transfer"]

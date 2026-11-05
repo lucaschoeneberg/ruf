@@ -87,6 +87,21 @@ export const reject = (callId: string) =>
 export const hangup = (callId: string) =>
   desktopInvoke<EngineSnapshot>("hangup", { callId });
 
+export const setCallMuted = (callId: string, muted: boolean) =>
+  desktopInvoke<EngineSnapshot>("set_call_muted", { callId, muted });
+export const setCallHeld = (callId: string, held: boolean) =>
+  desktopInvoke<EngineSnapshot>("set_call_held", { callId, held });
+export const transferCall = (callId: string, destination: string) =>
+  desktopInvoke<EngineSnapshot>("transfer_call", { callId, destination });
+export const startConsultation = (callId: string, destination: string) =>
+  desktopInvoke<EngineSnapshot>("start_consultation", { callId, destination });
+export const switchCall = (callId: string) =>
+  desktopInvoke<EngineSnapshot>("switch_call", { callId });
+export const cancelConsultation = (callId: string) =>
+  desktopInvoke<EngineSnapshot>("cancel_consultation", { callId });
+export const completeTransfer = (callId: string) =>
+  desktopInvoke<EngineSnapshot>("complete_transfer", { callId });
+
 export function errorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error) {
     switch (error.code) {
@@ -110,6 +125,12 @@ export function errorMessage(error: unknown): string {
         return "Die Kontoänderung ist gespeichert. Ein altes Passwort konnte noch nicht aus dem Schlüsselbund gelöscht werden. Erlaube den Zugriff und starte die App erneut, damit die Löschung wiederholt wird.";
       case "storageFailure":
         return "Die Einstellungen konnten nicht gespeichert oder geladen werden. Prüfe den Zugriff auf den App-Datenordner und versuche es erneut.";
+      case "certificateRejected":
+        return "Das TLS-Zertifikat oder der Servername wurde nicht bestätigt. Prüfe SIP-Server und Proxy. Private Telefonanlagen-Zertifikate müssen bewusst in den Vertrauenseinstellungen des Betriebssystems freigegeben sein.";
+      case "transportFailure":
+        return "Der gewählte SIP-Transport konnte nicht sicher verbunden werden. Prüfe Server, Port und Transport beim Anbieter. Ruf wechselt nicht automatisch auf eine unverschlüsselte Verbindung.";
+      case "mediaSecurityRequired":
+        return "Die erforderliche SRTP-Audioverschlüsselung konnte nicht bestätigt werden. Prüfe TLS und die SRTP-Unterstützung der Telefonanlage. Ruf lässt kein unverschlüsseltes Audio zu.";
       case "sipRedirect":
         return "Der Anruf soll umgeleitet werden. Ruf wählt das neue Ziel nicht automatisch. Prüfe die Zielnummer.";
       case "sipAuthenticationFailed":
@@ -125,7 +146,7 @@ export function errorMessage(error: unknown): string {
       case "sipBusy":
         return "Die Gegenstelle ist besetzt. Versuche es später erneut.";
       case "sipNotAcceptable":
-        return "Die Gegenstelle unterstützt die angebotenen Audioformate nicht. Prüfe die Audioeinstellungen oder den SIP-Anbieter.";
+        return "Die Gegenstelle akzeptiert die angebotenen Audioformate oder Sicherheitseinstellungen nicht. Prüfe Audio, TLS und SRTP beim SIP-Anbieter.";
       case "sipRejected":
         return "Der Anruf wurde von der Gegenstelle abgelehnt.";
       case "sipFailure":

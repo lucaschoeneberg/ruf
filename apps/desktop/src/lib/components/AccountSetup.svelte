@@ -63,7 +63,11 @@
       : (Object.keys(errors) as AccountField[])[0];
     if (first) {
       await tick();
-      (form.elements.namedItem(first) as HTMLInputElement | null)?.focus();
+      const control = form.elements.namedItem(first) as
+        HTMLInputElement | HTMLSelectElement | null;
+      const details = control?.closest("details");
+      if (details) details.open = true;
+      control?.focus();
       return;
     }
     await onconfigure(normalized, name.trim());
@@ -99,7 +103,7 @@
         ? `${account.username}@${account.registrar}`
         : existing
           ? `${existing.username}@${existing.registrar}`
-          : "Alle Felder sind erforderlich. Die Zugangsdaten erhältst du von deiner Telefonanlage oder deinem SIP-Anbieter."}
+          : "Server, Benutzername und Passwort erhältst du von deiner Telefonanlage oder deinem SIP-Anbieter. Weitere Angaben sind optional."}
     </p>
   </div>
   {#if existing}<span
@@ -229,6 +233,128 @@
           </p>{/if}
       </div>
     </div>
+    <svelte:element this={embedded ? "h3" : "h2"} class="settings-group"
+      >Verbindung & Sicherheit</svelte:element
+    >
+    <div class="setting-row">
+      <div class="setting-description">
+        <label for="transport">SIP-Transport</label>
+        <p id="transport-help">
+          TLS prüft das Zertifikat und den Servernamen. Ruf wechselt nicht
+          automatisch auf eine unverschlüsselte Verbindung.
+        </p>
+      </div>
+      <div class="setting-control">
+        <select
+          id="transport"
+          name="transport"
+          bind:value={account.transport}
+          aria-describedby="transport-help"
+          ><option value="udp">UDP</option><option value="tcp">TCP</option
+          ><option value="tls">TLS</option></select
+        >
+      </div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-description">
+        <label for="media-security">Audioschutz</label>
+        <p id="media-security-help">
+          Empfohlen: TLS mit erforderlichem SRTP, sofern deine Telefonanlage es
+          unterstützt. Schutz bis zur Anlage, keine Garantie für
+          Ende-zu-Ende-Verschlüsselung.
+        </p>
+      </div>
+      <div class="setting-control">
+        <select
+          id="media-security"
+          name="mediaSecurity"
+          bind:value={account.mediaSecurity}
+          aria-invalid={!!errors.mediaSecurity}
+          aria-describedby={errors.mediaSecurity
+            ? "media-security-error"
+            : "media-security-help"}
+          ><option value="disabled">Deaktiviert</option><option value="required"
+            >SRTP erforderlich</option
+          ></select
+        >{#if errors.mediaSecurity}<p
+            id="media-security-error"
+            class="field-error"
+          >
+            {errors.mediaSecurity}
+          </p>{/if}
+      </div>
+    </div>
+    <p class="settings-trust-note">
+      Private Telefonanlagen: Vertraue deren Zertifikaten bewusst über die
+      Vertrauenseinstellungen deines Betriebssystems. Ruf verwendet diese
+      Systemfreigaben; die Zertifikatsprüfung bleibt aktiv.
+    </p>
+    <details class="account-advanced">
+      <summary>Weitere Verbindungsangaben</summary>
+      <div class="setting-row">
+        <div class="setting-description">
+          <label for="auth-username">Separate Anmeldekennung</label>
+          <p id="auth-username-help">
+            Optional für die Authentifizierung. Leer verwendet den
+            SIP-Benutzernamen.
+          </p>
+        </div>
+        <div class="setting-control">
+          <input
+            id="auth-username"
+            name="authUsername"
+            value={account.authUsername ?? ""}
+            oninput={(event) =>
+              (account.authUsername = event.currentTarget.value || null)}
+            maxlength="80"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            aria-invalid={!!errors.authUsername}
+            aria-describedby={errors.authUsername
+              ? "auth-username-error"
+              : "auth-username-help"}
+          />{#if errors.authUsername}<p
+              id="auth-username-error"
+              class="field-error"
+            >
+              {errors.authUsername}
+            </p>{/if}
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-description">
+          <label for="outbound-proxy">Outbound-Proxy</label>
+          <p id="outbound-proxy-help">
+            Optional: Serveradresse mit optionalem Port. Ohne sip:, Pfad oder
+            Parameter.
+          </p>
+        </div>
+        <div class="setting-control">
+          <input
+            id="outbound-proxy"
+            name="outboundProxy"
+            value={account.outboundProxy ?? ""}
+            oninput={(event) =>
+              (account.outboundProxy = event.currentTarget.value || null)}
+            placeholder="proxy.firma.de:5061"
+            maxlength="255"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            aria-invalid={!!errors.outboundProxy}
+            aria-describedby={errors.outboundProxy
+              ? "outbound-proxy-error"
+              : "outbound-proxy-help"}
+          />{#if errors.outboundProxy}<p
+              id="outbound-proxy-error"
+              class="field-error"
+            >
+              {errors.outboundProxy}
+            </p>{/if}
+        </div>
+      </div>
+    </details>
     <div class="settings-form-actions settings-save-bar">
       <p>Änderungen werden mit dem Speichern übernommen.</p>
       <button class="primary-button" type="submit"

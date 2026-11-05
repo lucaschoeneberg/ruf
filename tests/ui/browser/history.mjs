@@ -6,12 +6,57 @@ export default async function historyRegressions(page) {
   await page.addInitScript(() => {
     window.isTauri = !location.search.includes("preview");
     localStorage.setItem("sip.introduction.v1", "seen");
+
+    const syncDialogs = (snapshot) => {
+      snapshot.lastCallFailure ??= null;
+      if (snapshot.call === "idle" || !snapshot.callId) snapshot.calls = [];
+      else {
+        const previous = snapshot.calls?.find(
+          (call) => call.id === snapshot.callId,
+        );
+        const selected = {
+          id: snapshot.callId,
+          accountId: snapshot.callAccountId,
+          state: snapshot.call,
+          destination: snapshot.caller
+            ? null
+            : (snapshot.destination ?? previous?.destination ?? "1234"),
+          caller: snapshot.caller ?? null,
+          connectedAtMs: snapshot.callConnectedAtMs ?? null,
+          muted: false,
+          localHeld: false,
+          remoteHeld: snapshot.call === "held",
+          holdPending: false,
+          transfer: "idle",
+          consultation: false,
+          events: snapshot.callEvents ?? [],
+          eventsDropped: 0,
+          lastError: null,
+          security: {
+            signalingTransport: null,
+            tlsPeerVerified: false,
+            media: "unknown",
+          },
+          ...previous,
+          state: snapshot.call,
+          caller: snapshot.caller ?? null,
+          connectedAtMs: snapshot.callConnectedAtMs ?? null,
+          events: snapshot.callEvents ?? [],
+        };
+        snapshot.calls = [selected];
+      }
+      return snapshot;
+    };
     const callbacks = new Map();
     const listeners = new Map();
     let next = 1;
     const account = {
       id: 1,
       name: "Aktuelles Konto",
+      transport: "udp",
+      mediaSecurity: "disabled",
+      authUsername: null,
+      outboundProxy: null,
       registrar: "pbx.example.test",
       username: "1000",
       registration: "registered",
@@ -119,7 +164,9 @@ export default async function historyRegressions(page) {
               id,
               event,
               payload:
-                event === "phone-state-changed" ? structuredClone(state) : null,
+                event === "phone-state-changed"
+                  ? structuredClone(syncDialogs(state))
+                  : null,
             });
       },
     };
@@ -161,7 +208,8 @@ export default async function historyRegressions(page) {
           return null;
         if (command === "get_app_info")
           return { version: "0.1.0", telephony: "linked" };
-        if (command === "get_engine_snapshot") return structuredClone(state);
+        if (command === "get_engine_snapshot")
+          return structuredClone(syncDialogs(state));
         if (command === "get_contacts") {
           const response = {
             permission: fixture.contactsAuthorized ? "authorized" : "denied",
@@ -236,7 +284,7 @@ export default async function historyRegressions(page) {
             callId: "synthetic-callback",
             callAccountId: entry.callbackAccountId,
           });
-          return structuredClone(state);
+          return structuredClone(syncDialogs(state));
         }
         if (command === "delete_history_entry") {
           if (fixture.failDelete)

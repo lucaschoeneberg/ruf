@@ -1,6 +1,13 @@
 import type { AccountConfig } from "./generated/AppInfo";
 
-export type AccountField = "registrar" | "username" | "password";
+export type AccountField =
+  | "registrar"
+  | "username"
+  | "password"
+  | "transport"
+  | "mediaSecurity"
+  | "authUsername"
+  | "outboundProxy";
 export type AccountErrors = Partial<Record<AccountField, string>>;
 const INTRODUCTION_KEY = "sip.introduction.v1";
 
@@ -10,6 +17,8 @@ export function normalizeAccount(account: AccountConfig): AccountConfig {
     ...account,
     registrar: account.registrar.trim(),
     username: account.username.trim(),
+    authUsername: account.authUsername?.trim() || null,
+    outboundProxy: account.outboundProxy?.trim() || null,
   };
 }
 
@@ -19,30 +28,20 @@ export function validateAccount(
   keepSavedPassword = false,
 ): AccountErrors {
   const errors: AccountErrors = {};
-  const [host = "", port, ...extra] = account.registrar.split(":");
-  const validHost =
-    host.length > 0 &&
-    host.length <= 253 &&
-    host
-      .split(".")
-      .every(
-        (label) =>
-          label.length > 0 &&
-          label.length <= 63 &&
-          !label.startsWith("-") &&
-          !label.endsWith("-") &&
-          /^[a-z0-9-]+$/i.test(label),
-      );
-  if (
-    !validHost ||
-    account.registrar.length > 255 ||
-    extra.length > 0 ||
-    (port !== undefined &&
-      (!/^[0-9]+$/.test(port) || Number(port) < 1 || Number(port) > 65535))
-  ) {
+  if (!validServer(account.registrar))
     errors.registrar =
       "Gib die Serveradresse an, optional mit :Port. Ohne sip:, Leerzeichen oder Pfad.";
-  }
+  if (account.outboundProxy != null && !validServer(account.outboundProxy))
+    errors.outboundProxy =
+      "Gib einen Proxy als Serveradresse an, optional mit :Port. Ohne sip:, Parameter oder Pfad.";
+  if (
+    account.authUsername != null &&
+    !/^[a-z0-9_.+-]{1,80}$/i.test(account.authUsername)
+  )
+    errors.authUsername =
+      "Nutze 1–80 Buchstaben, Ziffern oder _ . + - für die separate Anmeldekennung.";
+  if (account.mediaSecurity === "required" && account.transport !== "tls")
+    errors.mediaSecurity = "SRTP erforderlich benötigt TLS als SIP-Transport.";
   if (!/^[a-z0-9_.+-]{1,80}$/i.test(account.username)) {
     errors.username =
       "Nutze den SIP-Benutzernamen aus deinen Zugangsdaten (max. 80 Zeichen), keine E-Mail-Adresse.";
@@ -74,4 +73,27 @@ export function rememberIntroduction(storage: Pick<Storage, "setItem">): void {
   } catch {
     /* Session dismissal still applies. */
   }
+}
+
+/** Shared restricted DNS/IPv4 host[:port] syntax for registrar and outbound proxy. */
+function validServer(value: string): boolean {
+  const [host = "", port, ...extra] = value.split(":");
+  return (
+    value.length <= 255 &&
+    host.length > 0 &&
+    host.length <= 253 &&
+    host
+      .split(".")
+      .every(
+        (label) =>
+          label.length > 0 &&
+          label.length <= 63 &&
+          !label.startsWith("-") &&
+          !label.endsWith("-") &&
+          /^[a-z0-9-]+$/i.test(label),
+      ) &&
+    extra.length === 0 &&
+    (port === undefined ||
+      (/^[0-9]+$/.test(port) && Number(port) >= 1 && Number(port) <= 65535))
+  );
 }

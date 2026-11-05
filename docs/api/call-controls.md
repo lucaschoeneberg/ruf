@@ -28,6 +28,44 @@ when executing accepted commands. A racing rejected command reports a safe error
 without clearing another operation's pending state. Hangup is available during
 pending controls and supports either dialog's token.
 
+## Desktop IPC
+
+All seven controls are exposed as main-window-only Tauri commands with exactly
+these required camelCase inputs and a password-free `EngineSnapshot` result:
+
+| Command               | Input                                                         |
+| --------------------- | ------------------------------------------------------------- |
+| `set_call_muted`      | `{callId: string, muted: boolean}`                            |
+| `set_call_held`       | `{callId: string, held: boolean}`                             |
+| `transfer_call`       | `{callId: string, destination: string}`                       |
+| `start_consultation`  | `{callId: string, destination: string}`                       |
+| `switch_call`         | `{callId: string}`                                            |
+| `cancel_consultation` | `{callId: string}` — the child consultation token             |
+| `complete_transfer`   | `{callId: string}` — the established child consultation token |
+
+No optional control input or HTTP status codes exist. Deserialization rejects
+missing arguments and invalid types; Engine/native guards enforce token ownership,
+1–64 numeric/`+*#` destinations and establishment/conflict rules described above.
+Handlers reuse `with_session` and `PhoneState::execute` on the blocking session
+worker, enrich the returned snapshot, and never expose handles or SIP headers.
+Errors use existing `PhoneError` classifications above. Settings has no capability
+for these controls. Acceptance only queues work; confirmed state arrives through
+snapshots/events. There is no API to cancel a submitted REFER.
+
+The UI keeps a conversation-owned destination draft through queue acceptance,
+rejection, timeout and switches. Mute has a per-token pending acknowledgment guard
+against repeated stale clicks; errors/call changes release that guard without
+inventing confirmation. `holdPending` does not expose desired direction or a
+precise recovery phase, so UI status remains generic. `lastCallFailure` is rendered
+with its own account owner, independently of a surviving selected dialog, and can
+be dismissed for that exact failure. A retained `transferSucceeded` event confirms
+terminal success even if both dialogs disappear between reads.
+
+Contact targets use read-only already-authorized `get_contacts` results and exact
+non-null `ContactPhone.destination`; opening the form never requests permission.
+Native [account security](account-security.md) observations alone drive the call
+badge; saved preferences and registration cannot prove encrypted media.
+
 ## Snapshot additions
 
 `EngineSnapshot.calls` is a required array containing zero, one or two live

@@ -53,6 +53,30 @@ const fields: SettingResult[] = [
     terms: "zugangsdaten schlüsselbund kennwort passwort",
   },
   {
+    section: "accounts",
+    target: "transport",
+    label: "SIP-Transport",
+    terms: "udp tcp tls verschlüsselung zertifikat verbindung",
+  },
+  {
+    section: "accounts",
+    target: "media-security",
+    label: "Audioschutz",
+    terms: "srtp sdes sicherheit verschlüsselung tls",
+  },
+  {
+    section: "accounts",
+    target: "auth-username",
+    label: "Separate Anmeldekennung",
+    terms: "auth username digest authentifizierung benutzername",
+  },
+  {
+    section: "accounts",
+    target: "outbound-proxy",
+    label: "Outbound-Proxy",
+    terms: "proxy server routing verbindung",
+  },
+  {
     section: "audio",
     target: "inputDevice",
     label: "Mikrofon",

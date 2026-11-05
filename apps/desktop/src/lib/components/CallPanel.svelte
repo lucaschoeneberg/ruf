@@ -1,10 +1,23 @@
 <script lang="ts">
-  import type { CallState } from "../generated/AppInfo";
+  import { onMount, tick } from "svelte";
+  import { isTauri } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import type {
+    CallSnapshot,
+    CallState,
+    AccountSnapshot,
+    ContactReference,
+    ContactsSnapshot,
+  } from "../generated/AppInfo";
+  import { errorMessage } from "../api";
+  import { getContacts } from "../contacts-api";
+  import { searchContacts } from "../contacts";
   import Icon from "./Icon.svelte";
   let {
-    state,
-    peer,
-    number = null,
+    call,
+    calls = [call],
+    callerContact = null,
+    accounts = [],
     elapsed,
     busy,
     compact,
@@ -13,18 +26,33 @@
     receivedDtmf = null,
     onanswer,
     onhangup,
+    onmute,
+    onhold,
+    ontransfer,
+    onconsult,
+    onswitch,
+    oncancelconsult,
+    oncompletetransfer,
   }: {
-    state: CallState;
-    peer: string;
-    number?: string | null;
+    call: CallSnapshot;
+    calls?: readonly CallSnapshot[];
+    callerContact?: ContactReference | null;
+    accounts?: readonly AccountSnapshot[];
     elapsed: string;
     busy: boolean;
     compact: boolean;
     testAudio?: boolean;
     audioUnknown?: boolean;
     receivedDtmf?: string | null;
-    onanswer: () => void;
-    onhangup: () => void;
+    onanswer: (id: string) => void;
+    onhangup: (id: string) => void;
+    onmute: (id: string, muted: boolean) => Promise<boolean>;
+    onhold: (id: string, held: boolean) => void;
+    ontransfer: (id: string, destination: string) => void;
+    onconsult: (id: string, destination: string) => void;
+    onswitch: (id: string) => void;
+    oncancelconsult: (id: string) => void;
+    oncompletetransfer: (id: string) => void;
   } = $props();
   const labels: Record<CallState, string> = {
     idle: "Kein Gespräch",
@@ -36,27 +64,240 @@
     active: "Gespräch läuft",
     held: "Gegenstelle hält das Gespräch",
   };
+  const established = (item: CallSnapshot) =>
+    item.state === "active" || item.state === "held";
+  const peer = (item: CallSnapshot) =>
+    item.destination ??
+    item.caller?.name ??
+    item.caller?.number ??
+    "Unbekannter Anrufer";
+  const selectedPeer = $derived(
+    call.caller ? (callerContact?.name ?? peer(call)) : peer(call),
+  );
+  const pending = $derived(
+    calls.some((item) => item.holdPending || item.transfer === "pending"),
+  );
+  const child = $derived(calls.find((item) => item.consultation));
+  const canChange = $derived(!busy && !audioUnknown && !pending);
+  const securityLabel = $derived.by(() => {
+    const security = call.security;
+    const signaling =
+      security.signalingTransport === "tls"
+        ? security.tlsPeerVerified
+          ? "TLS geprüft"
+          : "TLS nicht bestätigt"
+        : security.signalingTransport?.toUpperCase();
+    const media =
+      security.media === "sdesSrtp"
+        ? "SRTP"
+        : security.media === "unprotected"
+          ? "Audio unverschlüsselt"
+          : "Audioschutz unbekannt";
+    return signaling
+      ? `${signaling} · ${media}`
+      : "Sicherheit noch nicht bestätigt";
+  });
+  let muteRequest = $state<{
+    id: string;
+    desired: boolean;
+    priorError: string;
+  } | null>(null);
+  const mutePending = $derived(muteRequest?.id === call.id);
+  $effect(() => {
+    const request = muteRequest;
+    if (
+      request &&
+      (call.id !== request.id ||
+        call.muted === request.desired ||
+        (call.lastError !== null &&
+          JSON.stringify(call.lastError) !== request.priorError))
+    )
+      muteRequest = null;
+  });
+  async function toggleMute() {
+    if (busy || audioUnknown || mutePending) return;
+    const request = {
+      id: call.id,
+      desired: !call.muted,
+      priorError: JSON.stringify(call.lastError),
+    };
+    muteRequest = request;
+    if (
+      !(await onmute(request.id, request.desired)) &&
+      muteRequest?.id === request.id
+    )
+      muteRequest = null;
+  }
+  let transferOpen = $state(false);
+  let target = $state("");
+  let targetError = $state("");
+  let targetInput = $state<HTMLInputElement>();
+  let transferButton = $state<HTMLButtonElement>();
+  let contactsOpen = $state(false);
+  let contacts = $state<ContactsSnapshot | null>(null);
+  let contactsLoading = $state(false);
+  let contactsError = $state("");
+  let query = $state("");
+  let mounted = false;
+  let contactsRequest = 0;
+  const results = $derived(
+    searchContacts(
+      contacts?.permission === "authorized" ? contacts.contacts : [],
+      query,
+    ).slice(0, 30),
+  );
+  async function refreshContacts() {
+    const request = ++contactsRequest;
+    contactsLoading = true;
+    contactsError = "";
+    try {
+      const next = await getContacts();
+      if (mounted && request === contactsRequest)
+        contacts =
+          next.permission === "authorized" ? next : { ...next, contacts: [] };
+    } catch {
+      if (mounted && request === contactsRequest) {
+        contacts = null;
+        contactsError =
+          "Kontakte konnten nicht gelesen werden. Gib die Zielnummer ein.";
+      }
+    } finally {
+      if (mounted && request === contactsRequest) contactsLoading = false;
+    }
+  }
+  onMount(() => {
+    mounted = true;
+    let unlisten: UnlistenFn | undefined;
+    const refresh = () => {
+      if (contactsOpen) void refreshContacts();
+    };
+    window.addEventListener("focus", refresh);
+    if (isTauri())
+      void listen("contacts-changed", refresh)
+        .then((next) => {
+          if (mounted) unlisten = next;
+          else next();
+        })
+        .catch(() => {
+          /* Focus refresh also revalidates OS authorization. */
+        });
+    return () => {
+      mounted = false;
+      ++contactsRequest;
+      unlisten?.();
+      window.removeEventListener("focus", refresh);
+    };
+  });
+  function openTransfer() {
+    transferOpen = true;
+    void tick().then(() => targetInput?.focus());
+  }
+  function closeTransfer() {
+    transferOpen = false;
+    void tick().then(() => transferButton?.focus());
+  }
+  function submitTarget(consult: boolean) {
+    if (!canChange || !established(call) || calls.length !== 1) return;
+    if (!/^[0-9+*#]{1,64}$/.test(target)) {
+      targetError = "Gib 1–64 Ziffern oder + * # ein. Keine SIP-Adresse.";
+      targetInput?.focus();
+      return;
+    }
+    targetError = "";
+    // Queue acceptance is not a native outcome. Preserve the draft through failure.
+    (consult ? onconsult : ontransfer)(call.id, target);
+  }
 </script>
 
 <section
   class="call-panel"
   class:compact-call={compact}
+  class:has-controls={established(call) || calls.length > 1}
   aria-label="Aktuelles Gespräch"
 >
-  <div class="call-details" role="status" aria-live="polite">
-    <div class="call-symbol">
-      <Icon name="phone" size={compact ? 16 : 22} />
+  {#if calls.length > 1}
+    <div class="conversation-list" aria-label="Gespräche">
+      {#each calls as item (item.id)}
+        <div
+          class="conversation-row"
+          class:selected-conversation={item.id === call.id}
+        >
+          <div class="conversation-copy">
+            <strong>{item.id === call.id ? selectedPeer : peer(item)}</strong>
+            <span
+              >{item.consultation ? "Rückfrage" : "Ursprüngliches Gespräch"} · {accounts.find(
+                (account) => account.id === item.accountId,
+              )?.name ?? "SIP-Konto"}</span
+            >
+            <span
+              >{item.id === call.id
+                ? "Aktuelles Gespräch"
+                : labels[item.state]}{item.localHeld
+                ? " · Von dir gehalten"
+                : ""}{item.remoteHeld
+                ? " · Gegenstelle hält das Gespräch"
+                : ""}</span
+            >
+          </div>
+          {#if item.id !== call.id}<button
+              class="secondary-button"
+              type="button"
+              disabled={!canChange || !established(item)}
+              onclick={() => onswitch(item.id)}
+              aria-label={`Zu ${peer(item)} wechseln`}>Wechseln</button
+            >{/if}
+        </div>
+      {/each}
     </div>
-    <p class="call-state">{labels[state]}</p>
-    <h1 class="call-peer">{peer}</h1>
-    {#if number && number !== peer}<p class="call-number">{number}</p>{/if}
-  </div>
-  {#if state === "active" || state === "held"}<p
-      class="call-timer"
-      aria-label="Gesprächsdauer"
-    >
+  {:else}
+    <div class="call-details" role="status" aria-live="polite">
+      <div class="call-symbol">
+        <Icon name="phone" size={compact ? 16 : 22} />
+      </div>
+      <p class="call-state">
+        <span>{labels[call.state]}</span>{accounts.find(
+          (account) => account.id === call.accountId,
+        )?.name
+          ? ` · ${accounts.find((account) => account.id === call.accountId)?.name}`
+          : ""}
+      </p>
+      <h1 class="call-peer">{selectedPeer}</h1>
+      {#if call.caller?.number && call.caller.number !== selectedPeer}<p
+          class="call-number"
+        >
+          {call.caller.number}
+        </p>{/if}
+    </div>
+  {/if}
+  {#if established(call)}<p class="call-timer" aria-label="Gesprächsdauer">
       {elapsed}
     </p>{/if}
+  <div class="call-status" role="status" aria-live="polite">
+    {#if call.localHeld && calls.length === 1}<p>Von dir gehalten</p>{/if}
+    {#if call.remoteHeld && call.state !== "held" && calls.length === 1}<p>
+        Gegenstelle hält das Gespräch
+      </p>{/if}
+    {#if pending}<p>
+        {calls.some((item) => item.transfer === "pending")
+          ? "Vermittlung läuft …"
+          : "Gesprächsänderung wird abgestimmt …"}
+      </p>{/if}
+    {#if mutePending}<p>Stummschaltung wird bestätigt …</p>{/if}
+    {#if call.transfer === "failed"}<p>
+        Vermittlung fehlgeschlagen. Das Gespräch bleibt bestehen.
+      </p>{/if}
+    {#if call.transfer === "succeeded"}<p>Vermittlung bestätigt.</p>{/if}
+    {#if call.lastError}<p class="call-error">
+        {errorMessage(call.lastError)}
+      </p>{/if}
+  </div>
+  <details class="call-security">
+    <summary>{securityLabel}</summary>
+    <p>
+      Schutz bis zur Telefonanlage; keine Garantie für
+      Ende-zu-Ende-Verschlüsselung. Die Anzeige folgt den nativen Beobachtungen.
+    </p>
+  </details>
   {#if receivedDtmf}<p class="call-test-note">
       Empfangene Wähltaste: {receivedDtmf}
     </p>{/if}
@@ -68,15 +309,153 @@
       Testton · empfangenes Audio wird aufgezeichnet
     </p>{/if}
   <div class="call-actions">
-    {#if state === "incoming"}<button
+    {#if call.state === "incoming"}<button
         class="primary-button"
         disabled={busy || audioUnknown}
-        onclick={onanswer}><Icon name="phone" size={18} />Annehmen</button
+        onclick={() => onanswer(call.id)}
+        ><Icon name="phone" size={18} />Annehmen</button
       >{/if}
-    <button class="danger-button" disabled={busy} onclick={onhangup}
-      ><Icon name="endCall" size={20} />{state === "incoming"
+    {#if established(call)}
+      <button
+        class="secondary-button"
+        type="button"
+        disabled={busy || audioUnknown || mutePending}
+        aria-pressed={call.muted}
+        aria-busy={mutePending}
+        onclick={toggleMute}
+        >{call.muted ? "Mikrofon einschalten" : "Stummschalten"}</button
+      >
+      <button
+        class="secondary-button"
+        type="button"
+        disabled={!canChange}
+        aria-pressed={call.localHeld}
+        onclick={() => onhold(call.id, !call.localHeld)}
+        >{call.localHeld ? "Fortsetzen" : "Halten"}</button
+      >
+      {#if calls.length === 1}<button
+          bind:this={transferButton}
+          class="secondary-button"
+          type="button"
+          disabled={!canChange}
+          aria-expanded={transferOpen}
+          onclick={openTransfer}>Vermitteln …</button
+        >{/if}
+    {/if}
+    <button
+      class="danger-button"
+      disabled={busy}
+      onclick={() => onhangup(call.id)}
+      ><Icon name="endCall" size={20} />{call.state === "incoming"
         ? "Ablehnen"
         : "Auflegen"}</button
     >
   </div>
+  {#if child && calls.length === 2}
+    <div class="consultation-actions">
+      <button
+        class="secondary-button"
+        type="button"
+        disabled={!canChange}
+        onclick={() => oncancelconsult(child.id)}
+        >Rückfrage abbrechen & zurück</button
+      >
+      <button
+        class="primary-button"
+        type="button"
+        disabled={!canChange || !calls.every(established)}
+        onclick={() => oncompletetransfer(child.id)}
+        >Vermittlung abschließen</button
+      >
+    </div>
+  {/if}
+  {#if transferOpen && calls.length === 1}
+    <form class="transfer-form" onsubmit={(event) => event.preventDefault()}>
+      <label for="transfer-target">Zielnummer</label>
+      <input
+        bind:this={targetInput}
+        id="transfer-target"
+        name="transfer-target"
+        type="tel"
+        inputmode="tel"
+        maxlength="64"
+        autocomplete="off"
+        bind:value={target}
+        aria-invalid={!!targetError}
+        aria-describedby={targetError ? "transfer-error" : "transfer-help"}
+        disabled={!canChange}
+      />
+      <p id="transfer-help">
+        Direkt vermitteln oder zuerst mit dem Ziel sprechen.
+      </p>
+      {#if targetError}<p id="transfer-error" class="field-error">
+          {targetError}
+        </p>{/if}
+      <button
+        class="text-button"
+        type="button"
+        aria-expanded={contactsOpen}
+        onclick={() => {
+          contactsOpen = !contactsOpen;
+          if (contactsOpen) void refreshContacts();
+        }}>Kontakt auswählen</button
+      >
+      {#if contactsOpen}
+        <div class="transfer-contacts">
+          {#if contactsLoading}<p role="status">Kontakte werden gelesen …</p>
+          {:else if contactsError}<p role="status">{contactsError}</p>
+          {:else if contacts?.permission !== "authorized"}<p>
+              Kontakte sind nicht freigegeben. Gib die Zielnummer ein; Freigaben
+              findest du in den Einstellungen.
+            </p>
+          {:else}
+            <label class="sr-only" for="transfer-contact-search"
+              >Kontakt suchen</label
+            >
+            <input
+              id="transfer-contact-search"
+              type="search"
+              placeholder="Name oder Nummer suchen"
+              bind:value={query}
+            />
+            <ul>
+              {#each results as contact (contact.id)}{#each contact.phones as phone}<li
+                  >
+                    <button
+                      class="text-button"
+                      type="button"
+                      disabled={!phone.destination || !canChange}
+                      onclick={() => {
+                        if (phone.destination) {
+                          target = phone.destination;
+                          targetError = "";
+                          targetInput?.focus();
+                        }
+                      }}>{contact.name} · {phone.label}: {phone.number}</button
+                    >
+                  </li>{/each}{/each}
+            </ul>
+            {#if !results.length}<p>Kein passender Kontakt.</p>{/if}
+          {/if}
+        </div>
+      {/if}
+      <div class="transfer-actions">
+        <button
+          class="secondary-button"
+          type="button"
+          disabled={!canChange}
+          onclick={() => submitTarget(false)}>Direkt vermitteln</button
+        >
+        <button
+          class="primary-button"
+          type="button"
+          disabled={!canChange}
+          onclick={() => submitTarget(true)}>Rückfrage starten</button
+        >
+        <button class="text-button" type="button" onclick={closeTransfer}
+          >Schließen</button
+        >
+      </div>
+    </form>
+  {/if}
 </section>

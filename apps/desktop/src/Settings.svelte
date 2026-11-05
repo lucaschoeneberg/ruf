@@ -152,6 +152,10 @@
           registrar: account.registrar,
           username: account.username,
           password: account.password,
+          transport: account.transport,
+          mediaSecurity: account.mediaSecurity,
+          authUsername: account.authUsername,
+          outboundProxy: account.outboundProxy,
         }),
   );
   const dirty = $derived(
@@ -202,6 +206,10 @@
       registrar: account.registrar,
       username: account.username,
       password: account.password,
+      transport: account.transport,
+      mediaSecurity: account.mediaSecurity,
+      authUsername: account.authUsername,
+      outboundProxy: account.outboundProxy,
     });
     feedback = "";
   }
@@ -332,7 +340,11 @@
       else if (
         name !== updated.name ||
         account.registrar !== updated.registrar ||
-        account.username !== updated.username
+        account.username !== updated.username ||
+        account.transport !== updated.transport ||
+        account.mediaSecurity !== updated.mediaSecurity ||
+        account.authUsername !== updated.authUsername ||
+        account.outboundProxy !== updated.outboundProxy
       )
         edit(updated.id);
     }

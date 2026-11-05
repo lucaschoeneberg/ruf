@@ -15,6 +15,13 @@
     getEngineSnapshot,
     hangup,
     reject,
+    setCallMuted,
+    setCallHeld,
+    transferCall,
+    startConsultation,
+    switchCall,
+    cancelConsultation,
+    completeTransfer,
   } from "./lib/api";
   import type {
     AppInfo,
@@ -53,7 +60,7 @@
     contactFocusId = contact.id;
     selectView("contacts");
   }
-  async function returnCall(id: string, number: string | null) {
+  async function returnCall(id: string) {
     if (
       await perform(() =>
         callbackHistory(id).catch((reason: unknown) => {
@@ -70,7 +77,6 @@
         }),
       )
     ) {
-      lastDialed = number ?? "";
       selectView("dialer");
     }
   }
@@ -128,6 +134,35 @@
         notificationPermission === "notDetermined"),
   );
   let lastNativeError: string | null = null;
+  let dismissedFailure = $state<string | null>(null);
+  let dismissedTransfer = $state<string | null>(null);
+  const currentCall = $derived(
+    snapshot?.calls.find((call) => call.id === snapshot?.callId) ?? null,
+  );
+  const conversationKey = $derived(
+    snapshot?.calls.find((call) => !call.consultation)?.id ??
+      currentCall?.id ??
+      "idle",
+  );
+  const callFailure = $derived(snapshot?.lastCallFailure ?? null);
+  const failureKey = $derived(callFailure ? JSON.stringify(callFailure) : null);
+  const failureOwner = $derived(
+    snapshot?.accounts.find((account) => account.id === callFailure?.accountId)
+      ?.name,
+  );
+  const transferSuccess = $derived(
+    snapshot?.call === "idle"
+      ? snapshot.callEvents
+          .slice()
+          .reverse()
+          .find((event) => event.event.kind === "transferSucceeded")
+      : null,
+  );
+  const transferSuccessKey = $derived(
+    transferSuccess
+      ? `${transferSuccess.callId}:${transferSuccess.sequence}`
+      : null,
+  );
   let operationEpoch = 0;
   let mounted = false;
   let introductionSeen = true;
@@ -143,19 +178,7 @@
     snapshot?.accounts.find((a) => a.id === snapshot?.callAccountId),
   );
   const accountName = $derived((callAccount ?? selectedAccount)?.name ?? "Ruf");
-  const incomingPeer = $derived(
-    snapshot?.callerContact?.name ??
-      snapshot?.caller?.name ??
-      snapshot?.caller?.number ??
-      "Unbekannter Anrufer",
-  );
   let destination = $state("");
-  let lastDialed = $state("");
-  const incoming = $derived(
-    !!snapshot?.caller ||
-      snapshot?.call === "incoming" ||
-      snapshot?.call === "answering",
-  );
   const connectedAt = $derived(snapshot?.callConnectedAtMs ?? 0);
   const receivedDtmf = $derived(
     snapshot?.callEvents
@@ -266,9 +289,15 @@
       (snapshot?.registration !== "registered" ||
         snapshot?.selectedAccountId !== next.selectedAccountId);
     now = Date.now();
-    const nextError = next.lastError
-      ? `${next.lastError.code}:${next.lastError.sipStatus}:${next.lastError.message}`
-      : null;
+    const selected = next.calls.find((call) => call.id === next.callId);
+    const sameError = (other: unknown) =>
+      other && JSON.stringify(other) === JSON.stringify(next.lastError);
+    const nextError =
+      next.lastError &&
+      !sameError(selected?.lastError) &&
+      !sameError(next.lastCallFailure?.error)
+        ? `${next.lastError.code}:${next.lastError.sipStatus}:${next.lastError.message}`
+        : null;
     if (
       nextError &&
       nextError !== lastNativeError &&
@@ -484,7 +513,6 @@
     if (!canCall || busy) return;
     const target = destination;
     if (await perform(() => dial(target))) {
-      lastDialed = target;
       firstCallHint = false;
     }
   }
@@ -607,30 +635,70 @@
       >
     </div>{/if}
 
+  {#if callFailure && failureKey !== dismissedFailure}
+    <div class="error-notice owned-call-failure">
+      <p role="alert">
+        Anruffehler{failureOwner ? ` · ${failureOwner}` : ""}: {errorMessage(
+          callFailure.error,
+        )}
+      </p>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Anruffehler schließen"
+        onclick={() => (dismissedFailure = failureKey)}
+        ><Icon name="close" size={15} /></button
+      >
+    </div>
+  {/if}
+  {#if transferSuccessKey && transferSuccessKey !== dismissedTransfer}
+    <div class="transfer-success" role="status">
+      <p>Vermittlung bestätigt.</p>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Vermittlungsmeldung schließen"
+        onclick={() => (dismissedTransfer = transferSuccessKey)}
+        ><Icon name="close" size={15} /></button
+      >
+    </div>
+  {/if}
+
   <main class="phone-content" class:in-call={!callIdle}>
     {#if !callIdle}
-      <CallPanel
-        state={callState}
-        peer={incoming ? incomingPeer : lastDialed || "Aktueller Anruf"}
-        number={incoming ? (snapshot?.caller?.number ?? null) : null}
-        elapsed={elapsedLabel}
-        receivedDtmf={receivedDtmf?.kind === "dtmfStart"
-          ? receivedDtmf.digit
-          : null}
-        busy={busy || !snapshot?.callId}
-        testAudio={sessionAudio === "testTone"}
-        {audioUnknown}
-        compact={view !== "dialer"}
-        onanswer={() => {
-          const callId = snapshot?.callId;
-          if (!audioUnknown && callId) void perform(() => answer(callId));
-        }}
-        onhangup={() => {
-          const callId = snapshot?.callId;
-          const endCall = callState === "incoming" ? reject : hangup;
-          if (callId) void perform(() => endCall(callId));
-        }}
-      />
+      {#if currentCall}{#key conversationKey}
+          <CallPanel
+            call={currentCall}
+            calls={snapshot?.calls ?? []}
+            callerContact={snapshot?.callerContact ?? null}
+            accounts={snapshot?.accounts ?? []}
+            elapsed={elapsedLabel}
+            receivedDtmf={receivedDtmf?.kind === "dtmfStart"
+              ? receivedDtmf.digit
+              : null}
+            {busy}
+            testAudio={sessionAudio === "testTone"}
+            {audioUnknown}
+            compact={view !== "dialer"}
+            onanswer={(id) => {
+              if (!audioUnknown) void perform(() => answer(id));
+            }}
+            onhangup={(id) => {
+              const end = currentCall?.state === "incoming" ? reject : hangup;
+              void perform(() => end(id));
+            }}
+            onmute={(id, muted) => perform(() => setCallMuted(id, muted))}
+            onhold={(id, held) => void perform(() => setCallHeld(id, held))}
+            ontransfer={(id, target) =>
+              void perform(() => transferCall(id, target))}
+            onconsult={(id, target) =>
+              void perform(() => startConsultation(id, target))}
+            onswitch={(id) => void perform(() => switchCall(id))}
+            oncancelconsult={(id) => void perform(() => cancelConsultation(id))}
+            oncompletetransfer={(id) =>
+              void perform(() => completeTransfer(id))}
+          />
+        {/key}{/if}
     {/if}
 
     {#if view === "start"}
@@ -693,7 +761,7 @@
     {:else}
       <HistoryPanel
         canDial={nativeAvailable && !audioUnknown && callIdle && !busy}
-        oncallback={(id, number) => void returnCall(id, number)}
+        oncallback={(id) => void returnCall(id)}
         oncontact={showHistoryContact}
         contactScope={historyScope}
         onclearscope={clearHistoryScope}

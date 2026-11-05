@@ -153,8 +153,11 @@
   <div class="setting-description">
     <h3>Telefonie</h3>
     <p>
-      Derzeit SIP/UDP ohne Verschlüsselung und G.711. Nutze diese
-      Entwicklungsversion nur im isolierten Testnetz. Ein Gespräch gleichzeitig.
+      G.711 mit SIP über UDP, TCP oder geprüftes TLS; erforderliches SRTP
+      benötigt TLS. UDP/TCP und normales RTP sind unverschlüsselt. Eine
+      Rückfrage erlaubt zwei zugehörige Dialoge mit einem hörbaren Gespräch.
+      Nutze diese Vorschau im isolierten Testnetz; Anbieter- und Plattformtests
+      bleiben erforderlich.
     </p>
   </div>
 </div>

@@ -14,8 +14,13 @@ and Svelte. The application is named Ruf. Original application code is MIT licen
 ## Operating Context
 
 The current verified telephony milestone is a local Asterisk test environment:
-up to eight saved SIP accounts, one SIP/UDP call, G.711, per-account registration/call state,
-answer, reject and hangup. Native audio stays in baresip. Bun owns JavaScript tooling.
+up to eight saved SIP accounts, G.711, per-account registration/call state,
+answer, reject and hangup. Native controls now expose per-dialog mute, local hold,
+blind transfer and one consultation with switching, cancellation and attended
+transfer; at most two related dialogs share one audible conversation. UDP/TCP/TLS
+and optional required SDES-SRTP account policies are implemented. Full expanded
+Asterisk media/transfer interoperability and Windows/hardware runtime still need
+separate observed verification. Native audio stays in baresip. Bun owns JavaScript tooling.
 
 ## Capabilities and Constraints
 
@@ -26,8 +31,13 @@ answer, reject and hangup. Native audio stays in baresip. Bun owns JavaScript to
   with name/company/number search, multiple numbers, local favorite IDs and calls
   through the selected SIP account. Windows and other sources remain deferred.
 - History records observed native calls locally with outcomes, duration, original account, search/filter/pagination, contact links, safe callback and deletion. Startup marks unfinished records interrupted without invented duration. Collection can be disabled for future calls; optional 30/90/365-day retention removes completed rows only, with confirmation before destructive shortening.
-- Do not imply that mute, hold, transfer, DTMF or immediate contact push sync
-  exist when no corresponding native API exists.
+- Mute/hold state and transfer outcomes follow native snapshots, not queue acceptance.
+  Pending hold includes uncertain recovery; mute/hangup remain reachable. Incoming
+  REFER instructions are rejected. In-call DTMF transmission remains deferred.
+- TLS/required SDES-SRTP is the recommended encrypted configuration; required media
+  needs TLS and cannot downgrade. Private PBX certificates use intentional OS trust,
+  with no per-account CA or verification bypass. Observed per-call security is
+  separate from configuration and does not claim end-to-end encryption.
 - Native Windows runtime and hardware audio still require platform tests.
 
 ## Brand Commitments

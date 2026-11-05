@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-consultation"
+description = "Enables the cancel_consultation command without any pre-configured scope."
+commands.allow = ["cancel_consultation"]
+
+[[permission]]
+identifier = "deny-cancel-consultation"
+description = "Denies the cancel_consultation command without any pre-configured scope."
+commands.deny = ["cancel_consultation"]

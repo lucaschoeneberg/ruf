@@ -2,6 +2,10 @@
 
 ## 0.1.0 · Vorschau
 
+- Gespräche nativ stummschalten und lokal halten; Halten durch die Gegenstelle und noch ausstehende Änderungen getrennt sehen.
+- Direkt vermitteln oder eine Rückfrage starten, zwischen beiden Gesprächen wechseln, zur ursprünglichen Gegenstelle zurückkehren und die Vermittlung abschließen. Erfolg folgt der nativen Bestätigung; eingehende REFER-Anweisungen bleiben abgelehnt.
+- SIP-Transport UDP/TCP/TLS, erforderliches SDES-SRTP mit TLS, separate Anmeldekennung und Outbound-Proxy pro Konto speichern. Serverprüfung nutzt Betriebssystem-Vertrauen ohne automatischen Klartext-Rückfall. Angezeigter Gesprächsschutz folgt nativen Beobachtungen und garantiert keine Ende-zu-Ende-Verschlüsselung.
+
 - Bis zu acht Telefonkonten verwalten, einzeln aktivieren oder deaktivieren und das Konto für ausgehende Anrufe auswählen.
 - Acht Einstellungsbereiche mit Feldsuche, Tastaturbedienung und Schutz vor dem Verlust ungespeicherter Änderungen nutzen.
 - Gespeicherte Konten nach einer ausstehenden Schlüsselbundfreigabe über „Erneut verbinden“ neu anmelden.

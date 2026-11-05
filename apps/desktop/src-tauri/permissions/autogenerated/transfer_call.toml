@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-transfer-call"
+description = "Enables the transfer_call command without any pre-configured scope."
+commands.allow = ["transfer_call"]
+
+[[permission]]
+identifier = "deny-transfer-call"
+description = "Denies the transfer_call command without any pre-configured scope."
+commands.deny = ["transfer_call"]
