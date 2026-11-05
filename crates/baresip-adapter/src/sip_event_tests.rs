@@ -1640,3 +1640,134 @@ fn consultation_queued_resume_has_bounded_failure_and_allows_later_retry() {
     lab.engine.hangup_call(&original).unwrap();
     lab.settle();
 }
+
+fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut lab = Lab::new(label);
+    let recording = std::env::temp_dir().join(format!("sip-events-{label}.wav"));
+    let dialog = lab.incoming();
+    let port: u16 = dialog
+        .lines()
+        .find_map(|l| l.strip_prefix("m=audio "))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let rtp = UdpSocket::bind("127.0.0.1:9000").unwrap();
+    let mut sequence = 0_u16;
+    let mut send_audio = || {
+        let mut next = Instant::now();
+        for _ in 0..120 {
+            let mut packet = vec![0x80, 0];
+            packet.extend_from_slice(&sequence.to_be_bytes());
+            packet.extend_from_slice(&(u32::from(sequence) * 160).to_be_bytes());
+            packet.extend_from_slice(&1234_u32.to_be_bytes());
+            // Known nonzero 500 Hz PCMU square wave; no microphone/hardware.
+            packet.extend((0..160).map(|i| if i % 16 < 8 { 0x9c } else { 0x1c }));
+            rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
+            sequence = sequence.wrapping_add(1);
+            next += Duration::from_millis(20);
+            thread::sleep(next.saturating_duration_since(Instant::now()));
+        }
+    };
+    let assert_tone = |bytes: &[u8], phase: &str| {
+        assert!(
+            bytes.len() >= 16000,
+            "{status} {phase}: need >=1s fresh PCM, got {} bytes",
+            bytes.len()
+        );
+        // Inspect the newest full second, excluding headers, startup and stale audio.
+        let samples: Vec<i16> = bytes[bytes.len() - 16000..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| i16::from_le_bytes(*b))
+            .collect();
+        let rms = (samples.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>()
+            / samples.len() as f64)
+            .sqrt();
+        let crossings = samples.windows(2).filter(|p| p[0] < 0 && p[1] >= 0).count();
+        let frequency = crossings as f64 * 8000.0 / samples.len() as f64;
+        assert!(rms > 500.0, "{status} {phase}: silent PCM RMS={rms}");
+        assert!(
+            (480.0..520.0).contains(&frequency),
+            "{status} {phase}: expected 500 Hz, got {frequency}"
+        );
+        println!(
+            "{status} {phase}: fresh PCM={} RMS={rms:.0} frequency={frequency:.1}Hz",
+            samples.len()
+        );
+    };
+    send_audio();
+    assert_tone(&std::fs::read(&recording).unwrap(), "baseline");
+    let id = lab.engine.snapshot().unwrap().call_id.unwrap();
+    lab.engine.set_call_muted(&id, true).unwrap();
+    lab.wait(|s| s.calls[0].muted);
+    lab.engine.set_call_held(&id, true).unwrap();
+    let offer = lab.receive("hold offer", |p| p.starts_with("INVITE "));
+    lab.reply(&offer, status, "", "");
+    let state = lab.wait(|s| !s.calls[0].hold_pending && s.calls[0].last_error.is_some());
+    assert!(!state.calls[0].local_held);
+    assert!(state.calls[0].muted);
+    // Restarting aufile can truncate its file. Measure the new pipeline only.
+    let baseline = std::fs::metadata(&recording).unwrap().len();
+    send_audio();
+    let bytes = std::fs::read(&recording).unwrap();
+    let fresh = &bytes[(baseline as usize)..];
+    assert_tone(fresh, "post-refusal");
+    lab.engine.hangup_call(&id).unwrap();
+    lab.settle();
+}
+#[test]
+fn controls_refused_488_hold_restores_fresh_incoming_pcm() {
+    refused_hold_restores_incoming_pcm("488 Not Acceptable Here", "refusal-pcm-488");
+}
+#[test]
+fn controls_refused_491_hold_restores_fresh_incoming_pcm() {
+    refused_hold_restores_incoming_pcm("491 Request Pending", "refusal-pcm-491");
+}
+
+#[test]
+fn controls_refused_hold_player_restart_failure_ends_owned_call() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let label = "refusal-player-failure";
+    let path = std::env::temp_dir().join(format!("sip-events-{label}.wav"));
+    let _ = std::fs::remove_dir(&path);
+    let mut lab = Lab::new(label);
+    lab.incoming();
+    let state = lab.engine.snapshot().unwrap();
+    let id = state.call_id.unwrap();
+    let account = state.calls[0].account_id;
+    lab.engine.set_call_held(&id, true).unwrap();
+    let offer = lab.receive("hold offer", |p| p.starts_with("INVITE "));
+    // The hold stopped aufile. A directory at its file path deterministically
+    // fails the real native player reopen, without touching hardware/permissions.
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    lab.reply(&offer, "488 Not Acceptable Here", "", "");
+    let until = Instant::now() + TIMEOUT;
+    let ended = loop {
+        let state = lab.engine.snapshot().unwrap();
+        if state.call == CallState::Idle || Instant::now() >= until {
+            break state;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    std::fs::remove_dir(&path).unwrap();
+    assert_eq!(
+        ended.call,
+        CallState::Idle,
+        "failed player restart must not claim a usable active call"
+    );
+    let failure = ended.last_call_failure.unwrap();
+    assert_eq!(failure.call_id, id);
+    assert_eq!(failure.account_id, account);
+    assert_eq!(failure.error.code, ErrorCode::NativeFailure);
+    lab.settle();
+}

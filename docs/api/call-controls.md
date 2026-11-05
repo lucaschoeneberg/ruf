@@ -173,3 +173,11 @@ Unsolicited second incoming calls remain busy-rejected; raising the native dialo
 limit does not accept them. Inbound REFER remains disabled at the account and
 out-of-dialog policy boundaries. Outgoing transfer does not authorize remote
 instructions to dial arbitrary destinations.
+
+A refused local hold (including SIP 488/491) restores both the previous SDP hold
+direction and the existing native receive/player pipeline before reporting the
+recoverable control error. Mute and remote hold remain independent. If restarting
+that media pipeline fails, only that dialog closes and its native failure remains
+in the owned `lastCallFailure`; the application does not report an active usable
+conversation. Mandatory-SRTP policy failures are fatal even during hold: see
+[account security](account-security.md).

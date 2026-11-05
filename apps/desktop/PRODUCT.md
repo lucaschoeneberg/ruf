@@ -18,9 +18,10 @@ up to eight saved SIP accounts, G.711, per-account registration/call state,
 answer, reject and hangup. Native controls now expose per-dialog mute, local hold,
 blind transfer and one consultation with switching, cancellation and attended
 transfer; at most two related dialogs share one audible conversation. UDP/TCP/TLS
-and optional required SDES-SRTP account policies are implemented. Full expanded
-Asterisk media/transfer interoperability and Windows/hardware runtime still need
-separate observed verification. Native audio stays in baresip. Bun owns JavaScript tooling.
+and optional required SDES-SRTP account policies are implemented. The [observed macOS loopback verification](../../docs/verification/2026-11-05-call-controls-security.md)
+covers Asterisk media/transfer, mute/hold and TLS/SRTP success and failure paths
+using isolated peers. External providers, Windows runtime and physical audio
+hardware still need separate observed verification. Native audio stays in baresip. Bun owns JavaScript tooling.
 
 ## Capabilities and Constraints
 

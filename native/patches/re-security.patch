@@ -796,3 +796,108 @@ index 214e607..176abf6 100644
  			break;
  		}
  
+--- a/include/re_sipsess.h
++++ b/include/re_sipsess.h
+@@ -76,6 +76,10 @@
+ typedef void (sipsess_modify_result_h)(int err, uint16_t status, void *arg);
+ void sipsess_set_modify_result_handler(struct sipsess *sess, sipsess_modify_result_h *handler);
+ bool sipsess_cancel_modify(struct sipsess *sess);
++/** End only this session on the next event-loop turn with its causal error.
++ * Event-thread only; allows the current SIP callback to finish ACK/response work.
++ * A nonzero error is required. Repeated requests preserve the first cause. */
++void sipsess_fail_deferred(struct sipsess *sess, int err);
+ int  sipsess_modify(struct sipsess *sess, struct mbuf *desc);
+ int  sipsess_info(struct sipsess *sess, const char *ctype, struct mbuf *body,
+ 		  sip_resp_h *resph, void *arg);
+--- a/src/sipsess/sipsess.h
++++ b/src/sipsess/sipsess.h
+@@ -9,6 +9,8 @@
+ 	sipsess_modify_result_h *modify_result;
+ 	bool modify_cancelled;
+ 	struct le he;
++	struct tmr fatal_tmr;
++	int fatal_error;
+ 	struct tmr tmr;
+ 	struct list replyl;
+ 	struct list requestl;
+--- a/src/sipsess/sess.c
++++ b/src/sipsess/sess.c
+@@ -65,6 +65,7 @@
+ {
+ 	bool wait = false;
+ 
++	tmr_cancel(&sess->fatal_tmr);
+ 	sess->terminated = 1;
+ 	/* Call-owned hooks cannot survive arg's replacement with the session itself. */
+ 	sess->modify_result = NULL;
+@@ -255,6 +256,20 @@
+ }
+ 
+ 
++static void fatal_handler(void *arg)
++{
++	struct sipsess *sess = arg;
++	sipsess_terminate(sess, sess->fatal_error, NULL);
++}
++
++void sipsess_fail_deferred(struct sipsess *sess, int err)
++{
++	if (!sess || !err || sess->terminated || sess->fatal_error) return;
++	sess->fatal_error = err;
++	/* Do not free the call/session inside its SDP or control callback. */
++	tmr_start(&sess->fatal_tmr, 0, fatal_handler, sess);
++}
++
+ void sipsess_terminate(struct sipsess *sess, int err,
+ 		       const struct sip_msg *msg)
+ {
+--- a/src/sipsess/modify.c
++++ b/src/sipsess/modify.c
+@@ -65,7 +65,7 @@
+ 
+ 			if (err) {
+ 				/* Every final 2xx needs ACK, even when its SDP is invalid. */
+-				if (sess->modify_result)
++				if (sess->modify_result || err == SIP_SECURITY_MEDIA)
+ 					(void)sipsess_ack(sess->sock, sess->dlg,
+ 					 msg->cseq.num, sess->auth, sess->ctype, NULL);
+ 				goto out;
+@@ -126,6 +126,14 @@
+ 		}
+ 	}
+  out:
++	if (err == SIP_SECURITY_MEDIA) {
++		/* Crypto contexts were destroyed: this is never recoverable hold refusal.
++		 * The final 2xx was ACKed above before deferred BYE/owned close. */
++		sess->modify_result = NULL;
++		sess->modify_pending = false;
++		sipsess_fail_deferred(sess, err);
++		return;
++	}
+ 	if (sess->modify_result) {
+ 		sipsess_modify_result_h *handler = sess->modify_result;
+ 		if (msg && msg->scode >= 200 && msg->scode < 300 &&
+--- a/src/sipsess/listen.c
++++ b/src/sipsess/listen.c
+@@ -156,6 +156,11 @@
+ 		err = sess->answerh(msg, sess->arg);
+ 	}
+ 
++	if (err == SIP_SECURITY_MEDIA && sess->established) {
++		sipsess_fail_deferred(sess, err);
++		return;
++	}
++
+ 	if (sess->modify_pending && !sess->replyl.head)
+ 		(void)sipsess_reinvite(sess, true);
+ 
+@@ -284,6 +289,9 @@
+ 			(void)sip_reply(sip, msg, 488,
+ 					str_error(err, m, sizeof(m)));
+ 			sess->neg_state = SDP_NEG_DONE;
++			/* Send refusal before deferred destruction of this failed dialog. */
++			if (err == SIP_SECURITY_MEDIA) sipsess_fail_deferred(sess, err);
++			mem_deref(desc);
+ 			return;
+ 		}
+ 	}

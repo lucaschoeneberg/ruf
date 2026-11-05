@@ -24,9 +24,17 @@ def header(message,name):
 def serve(raw):
     global active_invite
     try:
-        sock=raw if mode=='tcp' else context.wrap_socket(raw,server_side=True);log('CONNECTED' if mode=='tcp' else 'HANDSHAKE');pending=b''; incoming_sent=False
+        sock=raw if mode=='tcp' else context.wrap_socket(raw,server_side=True);log('CONNECTED' if mode=='tcp' else 'HANDSHAKE');pending=b''; incoming_sent=False; invites={}; dialog=None; rekey_sent=False
+        if mode.startswith('rekey-'):sock.settimeout(0.05)
         while True:
-            chunk=sock.recv(65536)
+            if mode in ('rekey-offer','rekey-ack') and dialog and not rekey_sent and (root/'rekey').exists():
+                rekey_sent=True
+                target=header(dialog,'Contact').split('<')[1].split('>')[0]
+                offer='' if mode=='rekey-ack' else f'v=0\r\no=fixture 1 2 IN IP4 127.0.0.1\r\ns=fixture\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio {rtpport} RTP/SAVP 0\r\na=rtpmap:0 PCMU/8000\r\na=sendrecv\r\n'
+                request=f'INVITE {target} SIP/2.0\r\nVia: SIP/2.0/TLS 127.0.0.1:{port};branch=z9hG4bK-rekey\r\nFrom: {header(dialog,"To")};tag=tls-peer\r\nTo: {header(dialog,"From")}\r\nCall-ID: {header(dialog,"Call-ID")}\r\nCSeq: 999 INVITE\r\nContact: <sip:peer@127.0.0.1:{port}>\r\nMax-Forwards: 70\r\nContent-Type: application/sdp\r\nContent-Length: {len(offer)}\r\n\r\n{offer}'
+                sock.sendall(request.encode());log('REKEY_SENT')
+            try:chunk=sock.recv(65536)
+            except socket.timeout:continue
             if not chunk:return
             pending+=chunk
             while b'\r\n\r\n' in pending:
@@ -34,6 +42,8 @@ def serve(raw):
                 if len(body)<length:break
                 message=(head+b'\r\n\r\n'+body[:length]).decode();pending=body[length:]
                 method=message.split(' ',1)[0];log(message.split('\r\n')[0])
+                observed=method+' '+message.split()[1] if method=='SIP/2.0' else method
+                log(f'RX_TRANSACTION|{observed}|{header(message,"Call-ID")}|{header(message,"CSeq")}')
                 if method=='REGISTER' and mode=='digest' and 'Authorization:' not in message:
                     sock.sendall((f'SIP/2.0 401 Unauthorized\r\nVia: {header(message,"Via")}\r\nFrom: {header(message,"From")}\r\nTo: {header(message,"To")};tag=auth\r\nCall-ID: {header(message,"Call-ID")}\r\nCSeq: {header(message,"CSeq")}\r\nWWW-Authenticate: Digest realm="fixture", nonce="synthetic-nonce", algorithm=MD5\r\nContent-Length: 0\r\n\r\n').encode());continue
                 if method=='REGISTER' and mode=='digest':
@@ -53,15 +63,22 @@ def serve(raw):
                     to=header(active_invite,'To')+';tag=tls-peer'
                     attack=f'BYE sip:peer@localhost SIP/2.0\r\nVia: SIP/2.0/TLS 127.0.0.1:{port};branch=z9hG4bK-wrong-peer\r\nFrom: {to}\r\nTo: {header(active_invite,"From")}\r\nCall-ID: {header(active_invite,"Call-ID")}\r\nCSeq: 999 BYE\r\nContent-Length: 0\r\n\r\n'
                     channels['other-host'].sendall(attack.encode());log('ATTACK_SENT');active_invite=None
+                if method=='SIP/2.0' and mode in ('rekey-offer','rekey-ack') and header(message,'CSeq')=='999 INVITE':
+                    target=header(dialog,'Contact').split('<')[1].split('>')[0]
+                    answer=f'v=0\r\no=fixture 1 2 IN IP4 127.0.0.1\r\ns=fixture\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio {rtpport} RTP/SAVP 0\r\na=rtpmap:0 PCMU/8000\r\na=sendrecv\r\n' if mode=='rekey-ack' else ''
+                    ack=f'ACK {target} SIP/2.0\r\nVia: SIP/2.0/TLS 127.0.0.1:{port};branch=z9hG4bK-rekey-ack\r\nFrom: {header(message,"From")}\r\nTo: {header(message,"To")}\r\nCall-ID: {header(message,"Call-ID")}\r\nCSeq: 999 ACK\r\nContent-Type: application/sdp\r\nContent-Length: {len(answer)}\r\n\r\n{answer}'
+                    sock.sendall(ack.encode());log(f'REKEY_ACK_SENT|{header(message,"Call-ID")}|999 ACK');continue
                 if method=='ACK':continue
                 if method not in ('REGISTER','INVITE','BYE','INFO','REFER','OPTIONS'):continue
                 to=header(message,'To');to=to if ';tag=' in to else to+';tag=tls-peer'
                 contact=header(message,'Contact') if method=='REGISTER' else f'<sip:peer@127.0.0.1:{port}'+ (';transport=udp' if mode=='contactudp' else '')+'>'
                 sdp=''
                 if method=='INVITE':
+                    callid=header(message,'Call-ID');invites[callid]=invites.get(callid,0)+1
+                    if dialog is None:dialog=message
                     proto='RTP/AVP' if mode in ('plaintext','tcp') else 'RTP/SAVP'
                     sdp=f'v=0\r\no=fixture 1 1 IN IP4 127.0.0.1\r\ns=fixture\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio {rtpport} {proto} 0\r\na=rtpmap:0 PCMU/8000\r\na=sendrecv\r\n'
-                    if mode not in ('missingcrypto','plaintext','tcp'):sdp+=f'a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:{"AAAA" if mode=="badkey" else key}\r\n'
+                    if mode not in ('missingcrypto','plaintext','tcp') and not (mode=='rekey-local' and invites[callid]==2):sdp+=f'a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:{"AAAA" if mode=="badkey" else key}\r\n'
                 extra='Content-Type: application/sdp\r\n' if sdp else ''
                 response=f'SIP/2.0 200 OK\r\nVia: {header(message,"Via")}\r\nFrom: {header(message,"From")}\r\nTo: {to}\r\nCall-ID: {header(message,"Call-ID")}\r\nCSeq: {header(message,"CSeq")}\r\nContact: {contact}\r\nExpires: 60\r\n{extra}Content-Length: {len(sdp)}\r\n\r\n{sdp}'
                 sock.sendall(response.encode())

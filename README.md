@@ -13,9 +13,11 @@ Host über die Betriebssystem-Vertrauensregeln; es gibt keinen automatischen
 Klartext-Rückfall. Die Gesprächsanzeige folgt beobachtetem Schutz, nicht der
 Kontoeinstellung. Schutz bis zur Telefonanlage garantiert keine Ende-zu-Ende-Verschlüsselung.
 Passwörter liegen im macOS-Schlüsselbund bzw. Windows Credential Manager.
-Der bestehende lokale Asterisk-Echotest prüft Anmeldung, Gesprächsaufbau und
-zurückkehrendes Audio; erweiterte Vermittlungs-/TLS-/SRTP-Interoperabilität und
-Hardware-/Windows-Laufzeit bleiben gesondert zu verifizieren.
+Die [lokale macOS-Verifikation](docs/verification/2026-11-05-call-controls-security.md)
+belegt Anmeldung, Vermittlung, Stummschaltung, Halten und zurückkehrendes Audio
+sowie TLS-/SRTP-Erfolg und Fehlerfälle mit isoliertem Asterisk und kontrollierten
+Loopback-Gegenstellen. Provider-Interoperabilität, physische Audiohardware und
+Windows-Laufzeit bleiben gesondert zu verifizieren.
 
 Die dunkle Desktop-Oberfläche startet mit 340 × 500 Pixeln. Sie bietet Wähltastatur,
 macOS-Kontakte nach ausdrücklicher Freigabe, Favoriten und einen lokalen

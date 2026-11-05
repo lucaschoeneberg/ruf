@@ -80,7 +80,15 @@ unverified channel continuity cannot establish trust for a new connection.
 Mandatory SRTP blocks outgoing and incoming RTP/RTCP before keys are ready,
 rejects absent/malformed/unsupported crypto and closes the gate during rekey or
 renegotiation. Invalid negotiation propagates as a fatal policy error; the app
-never falls back to plaintext media. Unsolicited inbound REFER remains rejected.
+never falls back to plaintext media. An established local re-INVITE answer,
+remote re-INVITE offer or ACK answer that fails mandatory crypto destroys rejected
+contexts and closes only that dialog with owned `mediaSecurityRequired`. Received
+final 2xx is ACKed, or an invalid remote offer receives 488, before deferred session
+termination/BYE. The callback's session stays alive until its transaction work is
+finished. The failed dialog cannot remain active with permanently gated media;
+other dialogs and registration remain available. Ordinary peer 488/491 refusal
+without a local policy failure retains its SIP classification and recovery path.
+Unsolicited inbound REFER remains rejected.
 
 ## Safe errors
 

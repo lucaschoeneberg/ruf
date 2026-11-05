@@ -332,3 +332,119 @@ fn another_verified_tls_host_cannot_terminate_an_existing_dialog() {
     engine.hangup_call(&token).unwrap();
     engine.shutdown().unwrap();
 }
+
+fn established_rekey_failure(mode: &str) {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let peer = Peer::new(mode, mode);
+    let mut engine = peer.engine();
+    let account = engine
+        .save_account(None, "Rekey", &peer.config("localhost"))
+        .unwrap();
+    engine.wait_account_update(account).unwrap();
+    wait(&engine, |s| s.registration == RegistrationState::Registered);
+    engine.dial("600").unwrap();
+    let active = wait(&engine, |s| {
+        s.call == CallState::Active && s.calls[0].security.media == MediaProtection::SdesSrtp
+    });
+    let id = active.call_id.unwrap();
+    let survivor = if mode == "rekey-offer" {
+        engine.start_consultation(&id, "601").unwrap();
+        let pair = wait(&engine, |s| {
+            s.calls.len() == 2
+                && s.call_id.as_deref() != Some(id.as_str())
+                && s.call == CallState::Active
+        });
+        Some(pair.call_id.unwrap())
+    } else {
+        None
+    };
+    if mode == "rekey-local" {
+        engine.set_call_held(&id, true).unwrap();
+    } else {
+        std::fs::write(peer.directory.join("rekey"), "trigger").unwrap();
+    }
+    let ended = wait(&engine, |s| {
+        !s.calls.iter().any(|c| c.id == id) && s.last_call_failure.is_some()
+    });
+    if let Some(survivor) = &survivor {
+        assert_eq!(ended.calls.len(), 1);
+        assert_eq!(ended.calls[0].id, *survivor);
+        assert_eq!(ended.calls[0].state, CallState::Active);
+        assert_eq!(ended.calls[0].security.media, MediaProtection::SdesSrtp);
+        assert!(!ended.calls[0].local_held);
+    } else {
+        assert!(ended.calls.is_empty());
+        assert_eq!(ended.call, CallState::Idle);
+    }
+    let failure = ended.last_call_failure.unwrap();
+    assert_eq!(failure.call_id, id);
+    assert_eq!(failure.account_id, account);
+    assert_eq!(failure.error.code, ErrorCode::MediaSecurityRequired);
+    assert_eq!(ended.registration, RegistrationState::Registered);
+    let packets = peer.packets();
+    let initial = packets
+        .lines()
+        .find(|l| l.starts_with("RX_TRANSACTION|INVITE|"))
+        .unwrap();
+    let wire_id = initial.split('|').nth(2).unwrap();
+    let bye_marker = format!("RX_TRANSACTION|BYE|{wire_id}|");
+    let until = Instant::now() + Duration::from_secs(2);
+    while !peer.packets().contains(&bye_marker) {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let packets = peer.packets();
+    let bye = packets.find(&bye_marker).unwrap();
+    let marker = match mode {
+        "rekey-local" => {
+            let reinvite = packets
+                .lines()
+                .filter(|l| l.starts_with(&format!("RX_TRANSACTION|INVITE|{wire_id}|")))
+                .nth(1)
+                .unwrap();
+            let sequence = reinvite
+                .rsplit('|')
+                .next()
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap();
+            format!("RX_TRANSACTION|ACK|{wire_id}|{sequence} ACK")
+        }
+        "rekey-offer" => format!("RX_TRANSACTION|SIP/2.0 488|{wire_id}|999 INVITE"),
+        _ => format!("REKEY_ACK_SENT|{wire_id}|999 ACK"),
+    };
+    assert!(
+        packets[..bye].contains(&marker),
+        "the failed transaction's ACK/488 must precede its BYE: {packets}"
+    );
+    if let Some(survivor) = survivor {
+        engine.set_call_muted(&survivor, true).unwrap();
+        wait(&engine, |s| s.calls[0].muted);
+        engine.hangup_call(&survivor).unwrap();
+        wait(&engine, |s| s.call == CallState::Idle);
+    }
+    // The same account/UA must remain reusable after only its failed dialog ends.
+    engine.dial("601").unwrap();
+    let next = wait(&engine, |s| {
+        s.call == CallState::Active && s.calls[0].security.media == MediaProtection::SdesSrtp
+    });
+    assert_ne!(next.call_id.as_deref(), Some(id.as_str()));
+    engine.hangup().unwrap();
+    wait(&engine, |s| s.call == CallState::Idle);
+    engine.shutdown().unwrap();
+}
+#[test]
+fn established_local_rekey_failure_is_terminal_and_owned() {
+    established_rekey_failure("rekey-local");
+}
+#[test]
+fn established_remote_rekey_offer_failure_is_terminal_and_owned() {
+    established_rekey_failure("rekey-offer");
+}
+#[test]
+fn established_remote_rekey_ack_failure_is_terminal_and_owned() {
+    established_rekey_failure("rekey-ack");
+}

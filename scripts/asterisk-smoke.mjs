@@ -150,7 +150,7 @@ console.log(
   `Recording: ${recording}\nLab remains available; stop with bun run lab:down.`,
 );
 
-// --ignored excludes controlled TLS negatives: run all eight explicitly too.
+// --ignored excludes controlled TLS security/lifecycle cases: run them explicitly too.
 run("cargo", [
   "test",
   "--locked",
