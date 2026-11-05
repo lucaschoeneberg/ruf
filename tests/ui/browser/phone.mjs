@@ -3,46 +3,6 @@ export default async function phoneRegressions(page) {
   page = await page.context().newPage();
   page.setDefaultTimeout(10000);
   await page.addInitScript(() => {
-    const syncDialogs = (snapshot) => {
-      snapshot.lastCallFailure ??= null;
-      if (snapshot.call === "idle" || !snapshot.callId) snapshot.calls = [];
-      else {
-        const previous = snapshot.calls?.find(
-          (call) => call.id === snapshot.callId,
-        );
-        const selected = {
-          id: snapshot.callId,
-          accountId: snapshot.callAccountId,
-          state: snapshot.call,
-          destination: snapshot.caller
-            ? null
-            : (snapshot.destination ?? previous?.destination ?? "1234"),
-          caller: snapshot.caller ?? null,
-          connectedAtMs: snapshot.callConnectedAtMs ?? null,
-          muted: false,
-          localHeld: false,
-          remoteHeld: snapshot.call === "held",
-          holdPending: false,
-          transfer: "idle",
-          consultation: false,
-          events: snapshot.callEvents ?? [],
-          eventsDropped: 0,
-          lastError: null,
-          security: {
-            signalingTransport: null,
-            tlsPeerVerified: false,
-            media: "unknown",
-          },
-          ...previous,
-          state: snapshot.call,
-          caller: snapshot.caller ?? null,
-          connectedAtMs: snapshot.callConnectedAtMs ?? null,
-          events: snapshot.callEvents ?? [],
-        };
-        snapshot.calls = [selected];
-      }
-      return snapshot;
-    };
     const callbacks = new Map();
     const listeners = new Map();
     let nextId = 1;
@@ -121,7 +81,9 @@ export default async function phoneRegressions(page) {
             callbacks.get(listener.handler)({
               id,
               event: listener.event,
-              payload: structuredClone(syncDialogs(payload ?? state)),
+              payload: structuredClone(
+                window.__rufTestSyncDialogs(payload ?? state),
+              ),
             });
       },
     };
@@ -172,7 +134,9 @@ export default async function phoneRegressions(page) {
         if (command === "get_engine_snapshot") {
           state.revision++;
           if (fixture.holdSnapshot) {
-            const captured = structuredClone(syncDialogs(state));
+            const captured = structuredClone(
+              window.__rufTestSyncDialogs(state),
+            );
             return new Promise((resolve, reject) => {
               fixture.rejectSnapshot = reject;
               fixture.resolveSnapshot = () => resolve(captured);
@@ -183,7 +147,7 @@ export default async function phoneRegressions(page) {
               code: "nativeFailure",
               message: "Synthetic snapshot failure",
             };
-          return structuredClone(syncDialogs(state));
+          return structuredClone(window.__rufTestSyncDialogs(state));
         }
         if (command === "select_account") {
           if (fixture.failSelect)
@@ -193,7 +157,7 @@ export default async function phoneRegressions(page) {
             };
           state.selectedAccountId = args.id;
           state.revision++;
-          const captured = structuredClone(syncDialogs(state));
+          const captured = structuredClone(window.__rufTestSyncDialogs(state));
           if (fixture.holdSelect)
             return new Promise((resolve) => {
               fixture.resolveSelect = () => resolve(captured);
@@ -213,7 +177,7 @@ export default async function phoneRegressions(page) {
             callerContact: null,
             callConnectedAtMs: null,
           });
-          return structuredClone(syncDialogs(state));
+          return structuredClone(window.__rufTestSyncDialogs(state));
         }
         if (["answer", "hangup", "reject"].includes(command)) {
           if (!args.callId || args.callId !== state.callId)
@@ -231,7 +195,7 @@ export default async function phoneRegressions(page) {
             state.callerContact = null;
             state.callConnectedAtMs = null;
           }
-          return structuredClone(syncDialogs(state));
+          return structuredClone(window.__rufTestSyncDialogs(state));
         }
         throw new Error("Unexpected synthetic IPC: " + command);
       },

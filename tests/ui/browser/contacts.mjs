@@ -5,46 +5,6 @@ export default async function contactsPermissions(page, baseUrl) {
     window.isTauri = true;
     localStorage.setItem("sip.introduction.v1", "seen");
 
-    const syncDialogs = (snapshot) => {
-      snapshot.lastCallFailure ??= null;
-      if (snapshot.call === "idle" || !snapshot.callId) snapshot.calls = [];
-      else {
-        const previous = snapshot.calls?.find(
-          (call) => call.id === snapshot.callId,
-        );
-        const selected = {
-          id: snapshot.callId,
-          accountId: snapshot.callAccountId,
-          state: snapshot.call,
-          destination: snapshot.caller
-            ? null
-            : (snapshot.destination ?? previous?.destination ?? "1234"),
-          caller: snapshot.caller ?? null,
-          connectedAtMs: snapshot.callConnectedAtMs ?? null,
-          muted: false,
-          localHeld: false,
-          remoteHeld: snapshot.call === "held",
-          holdPending: false,
-          transfer: "idle",
-          consultation: false,
-          events: snapshot.callEvents ?? [],
-          eventsDropped: 0,
-          lastError: null,
-          security: {
-            signalingTransport: null,
-            tlsPeerVerified: false,
-            media: "unknown",
-          },
-          ...previous,
-          state: snapshot.call,
-          caller: snapshot.caller ?? null,
-          connectedAtMs: snapshot.callConnectedAtMs ?? null,
-          events: snapshot.callEvents ?? [],
-        };
-        snapshot.calls = [selected];
-      }
-      return snapshot;
-    };
     const callbacks = new Map();
     const listeners = new Map();
     let next = 0;
@@ -185,7 +145,7 @@ export default async function contactsPermissions(page, baseUrl) {
         if (command === "get_app_info")
           return { version: "0.1.0", telephony: "linked" };
         if (command === "get_engine_snapshot")
-          return structuredClone(syncDialogs(snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(snapshot));
         if (command === "get_desktop_settings")
           return {
             autostartEnabled: false,
@@ -255,13 +215,13 @@ export default async function contactsPermissions(page, baseUrl) {
           snapshot.call = "calling";
           snapshot.callId = "synthetic-call";
           snapshot.callAccountId = 1;
-          return structuredClone(syncDialogs(snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(snapshot));
         }
         if (command === "hangup") {
           snapshot.call = "idle";
           snapshot.callId = null;
           snapshot.callAccountId = null;
-          return structuredClone(syncDialogs(snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(snapshot));
         }
         throw new Error("Unexpected contacts fixture command: " + command);
       },

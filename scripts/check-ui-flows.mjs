@@ -11,6 +11,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installDialogFixtures } from "../tests/ui/browser/dialog-fixtures.mjs";
 import callControls from "../tests/ui/browser/call-controls.mjs";
 import phone from "../tests/ui/browser/phone.mjs";
 import settings from "../tests/ui/browser/settings.mjs";
@@ -121,6 +122,13 @@ try {
   }
   mkdirSync(join(root, "output/playwright"), { recursive: true });
   run("open", url, `--config=${config}`);
+  const fixturePath = join(temporary, "fixtures.js");
+  writeFileSync(
+    fixturePath,
+    `async (page) => { await page.context().addInitScript(${installDialogFixtures.toString()}); }`,
+  );
+  run("run-code", `--filename=${fixturePath}`);
+
   for (const [name, test] of [
     ["contacts", contacts],
     ["history", history],

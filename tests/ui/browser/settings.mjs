@@ -4,46 +4,6 @@ export default async function settingsRegressions(
   baseUrl = new URL(page.url()).origin,
 ) {
   await page.addInitScript(() => {
-    const syncDialogs = (snapshot) => {
-      snapshot.lastCallFailure ??= null;
-      if (snapshot.call === "idle" || !snapshot.callId) snapshot.calls = [];
-      else {
-        const previous = snapshot.calls?.find(
-          (call) => call.id === snapshot.callId,
-        );
-        const selected = {
-          id: snapshot.callId,
-          accountId: snapshot.callAccountId,
-          state: snapshot.call,
-          destination: snapshot.caller
-            ? null
-            : (snapshot.destination ?? previous?.destination ?? "1234"),
-          caller: snapshot.caller ?? null,
-          connectedAtMs: snapshot.callConnectedAtMs ?? null,
-          muted: false,
-          localHeld: false,
-          remoteHeld: snapshot.call === "held",
-          holdPending: false,
-          transfer: "idle",
-          consultation: false,
-          events: snapshot.callEvents ?? [],
-          eventsDropped: 0,
-          lastError: null,
-          security: {
-            signalingTransport: null,
-            tlsPeerVerified: false,
-            media: "unknown",
-          },
-          ...previous,
-          state: snapshot.call,
-          caller: snapshot.caller ?? null,
-          connectedAtMs: snapshot.callConnectedAtMs ?? null,
-          events: snapshot.callEvents ?? [],
-        };
-        snapshot.calls = [selected];
-      }
-      return snapshot;
-    };
     window.isTauri = true;
     const scenario = new URLSearchParams(location.search).get("scenario");
     const soundSettings = {
@@ -151,7 +111,7 @@ export default async function settingsRegressions(
       resolveSave: null,
       emit(payload) {
         payload = { ...payload, revision: this.snapshot.revision + 1 };
-        this.snapshot = structuredClone(syncDialogs(payload));
+        this.snapshot = structuredClone(window.__rufTestSyncDialogs(payload));
         this.event("phone-state-changed", payload);
       },
       event(event, payload = null) {
@@ -195,7 +155,9 @@ export default async function settingsRegressions(
           return { version: "0.1.0", telephony: "linked" };
         if (command === "get_engine_snapshot") {
           state.snapshot.revision++;
-          const captured = structuredClone(syncDialogs(state.snapshot));
+          const captured = structuredClone(
+            window.__rufTestSyncDialogs(state.snapshot),
+          );
           if (state.holdSnapshot)
             return new Promise((resolve, reject) => {
               state.resolveSnapshot = () => resolve(captured);
@@ -301,12 +263,12 @@ export default async function settingsRegressions(
             ? "registered"
             : "unconfigured";
           state.snapshot.revision++;
-          return structuredClone(syncDialogs(state.snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(state.snapshot));
         }
         if (command === "select_account") {
           state.snapshot.selectedAccountId = args.id;
           state.snapshot.revision++;
-          return structuredClone(syncDialogs(state.snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(state.snapshot));
         }
         if (command === "request_notification_permission") {
           state.desktop.notificationPermission = state.requestPermissionResult;
@@ -342,7 +304,7 @@ export default async function settingsRegressions(
         if (command === "save_sound_settings") {
           state.snapshot.revision++;
           state.snapshot.soundSettings = { ...args.sound };
-          return structuredClone(syncDialogs(state.snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(state.snapshot));
         }
         if (command === "reconnect_account") {
           if (scenario === "credential-cancel")
@@ -362,7 +324,7 @@ export default async function settingsRegressions(
           state.snapshot.accounts[0].registration = "registering";
           state.snapshot.accounts[0].lastError = null;
           state.snapshot.lastError = null;
-          return structuredClone(syncDialogs(state.snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(state.snapshot));
         }
         if (command === "save_account") {
           if (state.holdSave) {
@@ -376,7 +338,9 @@ export default async function settingsRegressions(
               authUsername: args.account.authUsername,
               outboundProxy: args.account.outboundProxy,
             });
-            const captured = structuredClone(syncDialogs(state.snapshot));
+            const captured = structuredClone(
+              window.__rufTestSyncDialogs(state.snapshot),
+            );
             return new Promise((resolve) => {
               state.resolveSave = () => resolve(captured);
             });
@@ -394,12 +358,12 @@ export default async function settingsRegressions(
             });
           state.snapshot.revision++;
           state.snapshot.ringtonePlaying = false;
-          return structuredClone(syncDialogs(state.snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(state.snapshot));
         }
         if (command === "preview_ringtone") {
           state.snapshot.ringtonePlaying = true;
           state.emit(state.snapshot);
-          return structuredClone(syncDialogs(state.snapshot));
+          return structuredClone(window.__rufTestSyncDialogs(state.snapshot));
         }
         throw Error(`Unexpected synthetic IPC command: ${command}`);
       },
