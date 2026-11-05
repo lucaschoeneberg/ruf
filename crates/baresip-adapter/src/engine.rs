@@ -16,6 +16,7 @@ const OP_CONSULT: i32 = 20;
 const OP_SWITCH: i32 = 21;
 const OP_CANCEL_CONSULT: i32 = 22;
 const OP_COMPLETE_TRANSFER: i32 = 23;
+const OP_DTMF: i32 = 24;
 
 #[derive(Default)]
 pub(crate) struct EngineState {
@@ -675,6 +676,9 @@ impl Engine {
 
     /// Reserve the single call slot and queue a numeric extension/number.
     pub fn dial(&mut self, destination: &str) -> Result<(), PhoneError> {
+        let target = phone_core::contact_dial_target(destination)
+            .ok_or_else(|| PhoneError::new(ErrorCode::InvalidInput, "Invalid telephone number."))?;
+        let destination = target.as_str();
         let mut state = self.snapshot.lock().map_err(|_| state_error())?;
         let previous = state.snapshot.clone();
         state.snapshot.reserve_dial(destination)?;
@@ -825,8 +829,8 @@ impl Engine {
     }
     /// Send blind REFER to a validated numeric destination and await final NOTIFY.
     pub fn transfer_call(&mut self, call_id: &str, destination: &str) -> Result<(), PhoneError> {
-        self.validate_control_destination(destination)?;
-        self.call_control(call_id, OP_TRANSFER, Some(destination))
+        let target = self.validate_control_destination(destination)?;
+        self.call_control(call_id, OP_TRANSFER, Some(&target))
     }
     /// Hold the original before dialing one consultation on the same owning account.
     pub fn start_consultation(
@@ -834,8 +838,8 @@ impl Engine {
         call_id: &str,
         destination: &str,
     ) -> Result<(), PhoneError> {
-        self.validate_control_destination(destination)?;
-        self.call_control(call_id, OP_CONSULT, Some(destination))
+        let target = self.validate_control_destination(destination)?;
+        self.call_control(call_id, OP_CONSULT, Some(&target))
     }
     /// Select a live conversation after confirmed hold of the previously audible dialog.
     pub fn switch_call(&mut self, call_id: &str) -> Result<(), PhoneError> {
@@ -849,12 +853,30 @@ impl Engine {
     pub fn complete_transfer(&mut self, call_id: &str) -> Result<(), PhoneError> {
         self.call_control(call_id, OP_COMPLETE_TRANSFER, None)
     }
-    fn validate_control_destination(&self, destination: &str) -> Result<(), PhoneError> {
+    /// Queue one 0–9, star or hash tone for the selected, established, unheld call.
+    /// Native baresip owns duration/release and negotiated RTP-event/SIP-INFO transport.
+    /// Stale/background/held calls reject with InvalidState; pending controls with Busy.
+    pub fn send_dtmf(&mut self, call_id: &str, digit: &str) -> Result<(), PhoneError> {
+        if digit.len() != 1
+            || !digit
+                .bytes()
+                .all(|c| c.is_ascii_digit() || b"*#".contains(&c))
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidInput,
+                "One telephone digit is required.",
+            ));
+        }
+        self.call_control(call_id, OP_DTMF, Some(digit))
+    }
+    fn validate_control_destination(&self, destination: &str) -> Result<String, PhoneError> {
         let mut snapshot = EngineSnapshot {
             registration: RegistrationState::Registered,
             ..Default::default()
         };
-        snapshot.reserve_dial(destination)
+        snapshot.reserve_dial(destination)?;
+        phone_core::contact_dial_target(destination)
+            .ok_or_else(|| PhoneError::new(ErrorCode::InvalidInput, "Invalid telephone number."))
     }
     fn call_control(
         &self,
@@ -890,6 +912,16 @@ impl Engine {
             return Err(PhoneError::new(
                 ErrorCode::InvalidState,
                 "An established call is required.",
+            ));
+        }
+        if operation == OP_DTMF
+            && (state.snapshot.call_id.as_deref() != Some(call_id)
+                || call.local_held
+                || call.remote_held)
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidState,
+                "Tones require the selected unheld call.",
             ));
         }
         if operation == OP_TRANSFER && state.snapshot.calls.len() != 1 {

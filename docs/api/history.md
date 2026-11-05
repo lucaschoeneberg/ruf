@@ -19,7 +19,7 @@ All failures use the existing `{ code, message }` `PhoneError` contract.
 | `filter`         | Optional, `"all"`   | `all`, `missed` (incoming unanswered), `incoming`, or `outgoing`.                                                                                                                                                                               |
 | `offset`         | Optional, `0`       | Unsigned 32-bit zero-based matching-record offset.                                                                                                                                                                                              |
 | `limit`          | Optional/null, `50` | Integer 1–100.                                                                                                                                                                                                                                  |
-| `contactNumbers` | Optional, `[]`      | Restrict to any of these original contact numbers; at most 100 supported numbers. Uses conservative number matching, including explicit `00`/`+` prefixes; no country or suffix guessing. Unsupported numbers are rejected.                     |
+| `contactNumbers` | Optional, `[]`      | Restrict to any of these original contact numbers; at most 100 supported numbers. Uses current matching preferences, explicit `00`/`+` prefixes and optional German national aliases; no suffix guessing. Unsupported numbers are rejected.     |
 
 Unknown query fields and unknown enum values are rejected by deserialization.
 Invalid bounds, control characters or unsupported contact numbers return

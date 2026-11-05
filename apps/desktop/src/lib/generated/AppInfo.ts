@@ -46,7 +46,12 @@ favoritesFirst: boolean,
 /**
  * Show organization text alongside contact names.
  */
-showOrganization: boolean, };
+showOrganization: boolean,
+/**
+ * Match German national 0… numbers with +49…/0049… for identity display only.
+ * Defaults to true; never rewrites the number used for dialing.
+ */
+matchGermanNumbers: boolean, };
 
 export type HistoryPreferences = {
 /**
@@ -252,6 +257,10 @@ export type RegistrationState = "unconfigured" | "registering" | "registered" | 
 export type CallState = "idle" | "calling" | "ringing" | "earlyMedia" | "incoming" | "answering" | "active" | "held";
 
 export type CallSnapshot = {
+/**
+ * Current authorized address-book identity, enriched by the desktop; never persisted.
+ */
+contact: ContactReference | null,
 /**
  * Actual native signaling/media evidence, never inferred from preferences.
  */
@@ -482,7 +491,7 @@ callEventsDropped: number,
  */
 caller: CallerIdentity | null,
 /**
- * Current authorized address-book match for this incoming number; null if missing/ambiguous.
+ * Current authorized address-book match for the selected incoming or outgoing dialog; null if missing/ambiguous.
  */
 callerContact: ContactReference | null,
 /**

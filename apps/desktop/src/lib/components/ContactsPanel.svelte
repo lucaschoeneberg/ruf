@@ -37,6 +37,7 @@
   let preferences = $state<ContactsPreferences>({
     favoritesFirst: true,
     showOrganization: true,
+    matchGermanNumbers: true,
   });
   let preferencesError = $state<string | null>(null);
   let preferencesRequest = 0;
@@ -63,6 +64,7 @@
       query,
       favoritesOnly,
       preferences.favoritesFirst,
+      preferences.matchGermanNumbers,
     ),
   );
   const visible = $derived(results.slice(0, limit));
@@ -125,6 +127,7 @@
         "",
         false,
         preferences.favoritesFirst,
+        preferences.matchGermanNumbers,
       ).findIndex((contact) => contact.id === id);
       limit = Math.max(50, index + 1);
       expandedId = id;

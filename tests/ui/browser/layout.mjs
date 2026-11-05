@@ -81,7 +81,11 @@ export default async function layoutRegressions(page) {
           return {
             startHidden: true,
             showCallerInNotifications: true,
-            contacts: { favoritesFirst: true, showOrganization: true },
+            contacts: {
+              favoritesFirst: true,
+              showOrganization: true,
+              matchGermanNumbers: true,
+            },
             history: { recordingEnabled: true, retentionDays: null },
           };
         if (command === "get_notification_permission") return "denied";

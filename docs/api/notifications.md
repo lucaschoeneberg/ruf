@@ -41,3 +41,5 @@ The delivery worker reads this flag without blocking or loading metadata; unknow
 or contended session state also uses anonymous text. Changing captions preserves
 the opaque token and its still-live call binding. Existing stale-action checks,
 withdrawal and bounded delivery retry remain in force.
+
+Authorized current contact names apply to incoming captions as “Name ruft an”. Updated or revoked contact references replace the bound caption without changing its action token. The anonymous notification preference still suppresses both contact name and number.

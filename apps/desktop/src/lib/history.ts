@@ -1,5 +1,5 @@
 import type { CallOutcome, HistoryEntry } from "./generated/AppInfo";
-import { MAX_NUMBER_LENGTH } from "./dialing";
+import { normalizeDialNumber } from "./dialing";
 
 export const historyOutcomes: Record<CallOutcome, string> = {
   inProgress: "Laufend",
@@ -38,10 +38,7 @@ export function callbackUnavailable(
   canDial: boolean,
 ): string | null {
   if (!entry.number) return "Keine Nummer für den Rückruf vorhanden.";
-  if (
-    entry.number.length > MAX_NUMBER_LENGTH ||
-    !/^[0-9+*#]+$/.test(entry.number)
-  )
+  if (normalizeDialNumber(entry.number) === null)
     return "Diese Nummer ist nicht wählbar.";
   if (entry.callbackAccountId === null)
     return "Das ursprüngliche Konto ist nicht verbunden oder nicht mehr vorhanden.";

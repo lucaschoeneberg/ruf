@@ -155,11 +155,13 @@ that contact. Deleted or inaccessible contacts do not open a namesake.
 ## Caller recognition
 
 `EngineSnapshot.callerContact` is a nullable `ContactReference {id, source, name}`
-resolved from the authorized memory cache and current native caller number. It
+resolved from the authorized memory cache and selected dialog's native caller
+number or outgoing destination. It
 never modifies raw `caller` evidence. Matching removes supported visual separators
 and equates an explicit international `00` prefix to `+` for external-length
-numbers. It preserves short extensions and service codes. It never guesses a
-country, uses suffix matches, or matches names; withheld/unsupported/ambiguous
+numbers. The explicit `contacts.matchGermanNumbers` preference additionally
+equates German national numbers with +49 (see below). It preserves short
+extensions and service codes. It never uses suffix matches or matches names; withheld/unsupported/ambiguous
 numbers return null. If two contacts own the same number, neither is asserted.
 The call panel and system notification prefer the matched current name and retain
 the original caller number. This is display convenience, not caller authentication.
@@ -196,3 +198,27 @@ No address-book cache is written to disk or logs. System data is edited in Apple
 Contacts app. There is no vCard import, Windows/Outlook/CardDAV/Graph provider,
 contact creation or source writeback in this iteration. Locally observed call facts
 are persisted independently as described in [call history](history.md).
+
+## Dialer, conversation and history identity
+
+The dialer loads authorized contacts without prompting, suggests at most three
+explicit contact/number choices after three digits, and never calls automatically.
+Spaces and visual separators are normalized for lookup. The display preserves
+original contact spelling. Ambiguous owners remain separate choices.
+
+`CallSnapshot.contact` is a required nullable `ContactReference`, enriched by the
+desktop for each live dialog, incoming or outgoing. The legacy
+`EngineSnapshot.callerContact` projects the selected dialog's contact in either
+direction. These references are current authorized memory-only values, not SIP
+identity authentication or persisted contact names. Renames and late contact
+additions are resolved again in current calls and old history rows. Denial,
+revocation or read failure clears the projection; withheld numbers are not resolved.
+Notifications use the same selected reference and preserve the anonymous setting.
+
+`contacts.matchGermanNumbers` defaults to true and can be disabled in
+Kontakte & Verlauf. With this explicit setting, national numbers beginning with
+one 0 and at least seven dial characters match the corresponding +49/0049 form.
+Other countries, short extensions and service codes retain conservative exact
+matching. Multiple source contacts owning equivalent forms yield no identity.
+The conservative `resolve_contact` API remains unchanged; desktop projections use
+`resolve_contact_with_preferences` and its matching-key helper.

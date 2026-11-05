@@ -21,8 +21,13 @@ Windows-Laufzeit bleiben gesondert zu verifizieren.
 
 Die dunkle Desktop-Oberfläche startet mit 340 × 500 Pixeln. Sie bietet Wähltastatur,
 macOS-Kontakte nach ausdrücklicher Freigabe, Favoriten und einen lokalen
-SQLite-Anrufverlauf mit Rückruf. Acht Einstellungsbereiche bieten Feldsuche,
-Kontenaktivierung, Audiotests, Klingeltöne, Hintergrundstart und Berechtigungschecks.
+SQLite-Anrufverlauf mit Rückruf.
+Formatierte Rufnummern einschließlich führendem Plus werden vor dem Wählen validiert.
+Freigegebene Kontakte erscheinen als Nummernvorschläge, in Gesprächen, Mitteilungen
+und rückwirkend im Verlauf; die Zuordnung deutscher Vorwahlen ist abschaltbar.
+Während aktiver Gespräche lässt sich eine Tastatur für native DTMF-Töne einblenden.
+Acht Einstellungsbereiche bieten Feldsuche, Kontenaktivierung, Audiotests,
+Klingeltöne, Hintergrundstart und Berechtigungschecks.
 Anruferdetails in Mitteilungen lassen sich ausblenden; der Diagnosebericht enthält
 keine persönlichen Daten. Kontaktanzeige und Verlaufsspeicherung lassen sich anpassen; abgeschlossene
 Verlaufseinträge können nach einer gewählten Frist gelöscht werden. [Produktumfang](apps/desktop/PRODUCT.md),

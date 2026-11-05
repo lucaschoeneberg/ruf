@@ -22,6 +22,7 @@ pub(crate) struct ContactsState {
     cache: Arc<RwLock<Option<ContactsSnapshot>>>,
     error: Arc<RwLock<Option<PhoneError>>>,
     stopped: Arc<AtomicBool>,
+    match_german_numbers: Arc<AtomicBool>,
 }
 
 /// Authorized in-memory records only; source names/numbers are never persisted.
@@ -40,19 +41,59 @@ pub(crate) fn cached_contacts(app: &tauri::AppHandle) -> Vec<Contact> {
 }
 
 pub(crate) fn enrich_snapshot(app: &tauri::AppHandle, snapshot: &mut EngineSnapshot) {
-    snapshot.caller_contact = app
-        .state::<ContactsState>()
-        .cache
-        .read()
-        .ok()
-        .and_then(|cache| {
-            let contacts = cache
-                .as_ref()
-                .filter(|snapshot| snapshot.permission == ContactsPermission::Authorized)?;
-            let number = snapshot.caller.as_ref()?.number.as_deref()?;
-            phone_core::resolve_contact(&contacts.contacts, number)
-        });
+    let state = app.state::<ContactsState>();
+    let preferences = matching_preferences(app);
+    if let Ok(cache) = state.cache.read() {
+        let records = cache
+            .as_ref()
+            .filter(|s| s.permission == ContactsPermission::Authorized)
+            .map_or(&[][..], |s| s.contacts.as_slice());
+        project_contacts(snapshot, records, &preferences);
+    } else {
+        project_contacts(snapshot, &[], &preferences);
+    }
     snapshot.history_error = crate::history::recording_error(app);
+}
+
+fn project_contacts(
+    snapshot: &mut EngineSnapshot,
+    contacts: &[Contact],
+    preferences: &phone_core::ContactsPreferences,
+) {
+    for call in &mut snapshot.calls {
+        let number = call
+            .destination
+            .as_deref()
+            .or_else(|| call.caller.as_ref().and_then(|c| c.number.as_deref()));
+        call.contact = number
+            .and_then(|n| phone_core::resolve_contact_with_preferences(contacts, n, preferences));
+    }
+    snapshot.caller_contact = snapshot
+        .calls
+        .iter()
+        .find(|c| Some(&c.id) == snapshot.call_id.as_ref())
+        .and_then(|c| c.contact.clone());
+}
+
+pub(crate) fn matching_preferences(app: &tauri::AppHandle) -> phone_core::ContactsPreferences {
+    phone_core::ContactsPreferences {
+        match_german_numbers: app
+            .state::<ContactsState>()
+            .match_german_numbers
+            .load(Ordering::Acquire),
+        ..Default::default()
+    }
+}
+
+pub(crate) fn update_matching(app: &tauri::AppHandle, enabled: bool) {
+    if app
+        .state::<ContactsState>()
+        .match_german_numbers
+        .swap(enabled, Ordering::AcqRel)
+        != enabled
+    {
+        let _ = app.emit("contacts-changed", ());
+    }
 }
 
 fn refresh_locked(
@@ -94,6 +135,17 @@ fn publish(
 
 /// Subscribe to native revision changes; permission checks never request access.
 pub(crate) fn setup(app: &tauri::AppHandle) {
+    let enabled = crate::store::data_directory(app)
+        .ok()
+        .and_then(|dir| {
+            crate::store::AccountStore {
+                path: dir.join("accounts.json"),
+            }
+            .load()
+            .ok()
+        })
+        .is_some_and(|s| s.preferences.contacts.match_german_numbers);
+    update_matching(app, enabled);
     let app = app.clone();
     let state = app.state::<ContactsState>().inner().clone();
     std::thread::spawn(move || {
@@ -400,6 +452,72 @@ pub(crate) async fn set_contact_favorite(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_contact_projection_covers_both_directions_rename_and_revocation() {
+        let mut snapshot = EngineSnapshot {
+            call_id: Some("outgoing".into()),
+            ..Default::default()
+        };
+        let outgoing = phone_core::CallSnapshot {
+            contact: None,
+            id: "outgoing".into(),
+            account_id: 1,
+            state: phone_core::CallState::Active,
+            destination: Some("03055501234".into()),
+            caller: None,
+            connected_at_ms: None,
+            muted: false,
+            local_held: false,
+            remote_held: false,
+            hold_pending: false,
+            transfer: phone_core::TransferState::Idle,
+            consultation: false,
+            events: vec![],
+            events_dropped: 0,
+            last_error: None,
+            security: Default::default(),
+        };
+        snapshot.calls.push(outgoing);
+        let mut incoming = snapshot.calls[0].clone();
+        incoming.id = "incoming".into();
+        incoming.destination = None;
+        incoming.caller = Some(phone_core::CallerIdentity {
+            name: None,
+            number: Some("00493055501234".into()),
+        });
+        snapshot.calls.push(incoming);
+        let mut contact = Contact {
+            id: "synthetic".into(),
+            source: phone_core::ContactSource::Macos,
+            name: "Mara Muster".into(),
+            organization: String::new(),
+            favorite: false,
+            phones: vec![phone_core::ContactPhone {
+                label: "Arbeit".into(),
+                number: "+49 30 55501234".into(),
+                destination: Some("+493055501234".into()),
+            }],
+        };
+        let preferences = phone_core::ContactsPreferences::default();
+        project_contacts(&mut snapshot, &[contact.clone()], &preferences);
+        assert_eq!(
+            snapshot.calls[0].contact.as_ref().unwrap().name,
+            "Mara Muster"
+        );
+        assert_eq!(snapshot.caller_contact, snapshot.calls[0].contact);
+        assert_eq!(snapshot.calls[1].contact, snapshot.calls[0].contact);
+        contact.name = "Neuer Kontaktname".into();
+        project_contacts(&mut snapshot, &[contact], &preferences);
+        assert_eq!(
+            snapshot.caller_contact.as_ref().unwrap().name,
+            "Neuer Kontaktname"
+        );
+        project_contacts(&mut snapshot, &[], &preferences);
+        assert!(snapshot.caller_contact.is_none());
+        assert!(snapshot.calls[0].contact.is_none());
+        assert!(snapshot.calls[1].contact.is_none());
+    }
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Directory(std::path::PathBuf);

@@ -156,6 +156,12 @@ const fields: SettingResult[] = [
   },
   {
     section: "contacts",
+    target: "match-german-numbers",
+    label: "Deutsche Vorwahlen zuordnen",
+    terms: "ländervorwahl deutschland +49 0049 nummer kontakt erkennen",
+  },
+  {
+    section: "contacts",
     target: "show-organization",
     label: "Firma anzeigen",
     terms: "organisation kontakt firma",

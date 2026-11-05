@@ -129,6 +129,19 @@ export default async function phoneRegressions(page) {
         }
         if (command === "plugin:event|unlisten" || command === "open_settings")
           return;
+        if (command === "get_contacts" || command === "refresh_contacts")
+          return { permission: "authorized", contacts: [] };
+        if (command === "get_preferences")
+          return {
+            startHidden: true,
+            showCallerInNotifications: true,
+            contacts: {
+              favoritesFirst: true,
+              showOrganization: true,
+              matchGermanNumbers: true,
+            },
+            history: { recordingEnabled: true, retentionDays: null },
+          };
         if (command === "get_app_info")
           return { version: "0.1.0", telephony: "linked" };
         if (command === "get_engine_snapshot") {
@@ -325,7 +338,7 @@ export default async function phoneRegressions(page) {
       const input = page.getByRole("textbox", {
         name: "Nummer oder Nebenstelle",
       });
-      await input.fill("abc");
+      await input.fill("12++3");
       const described = await input.evaluate((e) =>
         (e.getAttribute("aria-describedby") ?? "")
           .split(/\s+/)

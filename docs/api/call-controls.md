@@ -14,9 +14,11 @@ native call pointers or credentials cross the adapter boundary.
 | `switch_call`         | `call_id: &str`                      | Hold the audible conversation, select the target, then resume it.                                                                                                         |
 | `cancel_consultation` | `call_id: &str`                      | End the consultation (including while dialing/ringing), select and resume the original. Requires the current consultation token, including when the original is selected. |
 | `complete_transfer`   | `call_id: &str`                      | Send REFER/Replaces from the original using the established consultation dialog. Requires the current consultation token, including when the original is selected.        |
+| `send_dtmf`           | `call_id: &str`, `digit: &str`       | Queue one ASCII digit, star or hash on the selected established unheld conversation.                                                                                      |
 
 Every argument is required; there are no optional control arguments. Destinations
-reuse dialing validation: 1–64 ASCII digits or `+`, `*`, `#`. They are interpreted
+reuse formatted-number validation: 1–64 ASCII dial characters after removing
+supported visual separators, with a leading plus only. They are interpreted
 on the owning account; raw URIs, SIP headers, control characters and arbitrary
 remote targets are rejected as `invalidInput`. Opaque `call_id` must match a live
 dialog. Cancellation/completion require the consultation token; the original
@@ -30,7 +32,7 @@ pending controls and supports either dialog's token.
 
 ## Desktop IPC
 
-All seven controls are exposed as main-window-only Tauri commands with exactly
+All eight controls are exposed as main-window-only Tauri commands with exactly
 these required camelCase inputs and a password-free `EngineSnapshot` result:
 
 | Command               | Input                                                         |
@@ -42,6 +44,7 @@ these required camelCase inputs and a password-free `EngineSnapshot` result:
 | `switch_call`         | `{callId: string}`                                            |
 | `cancel_consultation` | `{callId: string}` — the child consultation token             |
 | `complete_transfer`   | `{callId: string}` — the established child consultation token |
+| `send_dtmf`           | `{callId: string, digit: string}`                             |
 
 No optional control input or HTTP status codes exist. Deserialization rejects
 missing arguments and invalid types; Engine/native guards enforce token ownership,
@@ -95,23 +98,24 @@ existing global `lastError` fallback.
 
 All `CallSnapshot` fields are required, including nullable fields:
 
-| Field           | Type                                     | Meaning                                                                               |
-| --------------- | ---------------------------------------- | ------------------------------------------------------------------------------------- |
-| `id`            | string                                   | Opaque, engine-recreation-safe action token.                                          |
-| `accountId`     | number                                   | Owning account, independent of outgoing account selection.                            |
-| `state`         | `CallState`                              | Existing establishment states; `held` continues to indicate remote hold.              |
-| `destination`   | string or null                           | Validated requested outgoing number; null for incoming calls.                         |
-| `caller`        | `CallerIdentity` or null                 | Existing sanitized, unverified incoming identity; null for outgoing calls.            |
-| `connectedAtMs` | number or null                           | Native initial connection time; null before establishment.                            |
-| `muted`         | boolean                                  | Confirmed suppression of outgoing audio.                                              |
-| `localHeld`     | boolean                                  | Confirmed accepted local hold; independent of remote hold.                            |
-| `remoteHeld`    | boolean                                  | Remote hold observation; both hold flags may be true.                                 |
-| `holdPending`   | boolean                                  | Hold/resume is queued for SDP, negotiating, or recovering.                            |
-| `transfer`      | `idle`, `pending`, `succeeded`, `failed` | Outgoing transfer lifecycle. Success requires final 2xx sipfrag NOTIFY.               |
-| `consultation`  | boolean                                  | This is the explicitly requested second dialog. Becomes false when the original ends. |
-| `events`        | `CallEvent[]`                            | Last 64 significant events, oldest first, independently sequenced per dialog.         |
-| `eventsDropped` | number                                   | Saturating count of evicted events.                                                   |
-| `lastError`     | `PhoneError` or null                     | Safe dialog-specific error. No native headers/reasons.                                |
+| Field           | Type                                     | Meaning                                                                                                                |
+| --------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `id`            | string                                   | Opaque, engine-recreation-safe action token.                                                                           |
+| `accountId`     | number                                   | Owning account, independent of outgoing account selection.                                                             |
+| `state`         | `CallState`                              | Existing establishment states; `held` continues to indicate remote hold.                                               |
+| `destination`   | string or null                           | Validated requested outgoing number; null for incoming calls.                                                          |
+| `caller`        | `CallerIdentity` or null                 | Existing sanitized, unverified incoming identity; null for outgoing calls.                                             |
+| `contact`       | `ContactReference` or null               | Current authorized address-book identity for this dialog; memory-only and nullable when missing, revoked or ambiguous. |
+| `connectedAtMs` | number or null                           | Native initial connection time; null before establishment.                                                             |
+| `muted`         | boolean                                  | Confirmed suppression of outgoing audio.                                                                               |
+| `localHeld`     | boolean                                  | Confirmed accepted local hold; independent of remote hold.                                                             |
+| `remoteHeld`    | boolean                                  | Remote hold observation; both hold flags may be true.                                                                  |
+| `holdPending`   | boolean                                  | Hold/resume is queued for SDP, negotiating, or recovering.                                                             |
+| `transfer`      | `idle`, `pending`, `succeeded`, `failed` | Outgoing transfer lifecycle. Success requires final 2xx sipfrag NOTIFY.                                                |
+| `consultation`  | boolean                                  | This is the explicitly requested second dialog. Becomes false when the original ends.                                  |
+| `events`        | `CallEvent[]`                            | Last 64 significant events, oldest first, independently sequenced per dialog.                                          |
+| `eventsDropped` | number                                   | Saturating count of evicted events.                                                                                    |
+| `lastError`     | `PhoneError` or null                     | Safe dialog-specific error. No native headers/reasons.                                                                 |
 
 Added `CallEventKind` tags are `muteChanged` (required `muted: boolean`),
 `localHoldChanged` (required `held: boolean`), `controlFailed`, `transferStarted`,
@@ -181,3 +185,29 @@ that media pipeline fails, only that dialog closes and its native failure remain
 in the owned `lastCallFailure`; the application does not report an active usable
 conversation. Mandatory-SRTP policy failures are fatal even during hold: see
 [account security](account-security.md).
+
+## In-call telephone keypad
+
+`send_dtmf` requires `{callId: string, digit: string}`; `digit` must be exactly
+one ASCII 0–9, `*` or `#`. It returns `EngineSnapshot` after queue acceptance,
+not confirmation that an IVR received the tone. Only the main window is granted
+this command. `invalidInput` rejects malformed/multiple characters;
+`invalidState` rejects stale, background or held dialogs; `busy` rejects pending
+hold/transfer controls. Engine/unavailable errors retain the existing contract.
+
+Native baresip `call_send_digit` selects negotiated RFC4733 RTP events (through
+the existing SRTP path) or SIP INFO. A bounded 32-key queue preserves order, holds
+each key for 160 ms and releases it before an 80 ms inter-key gap. Ending/switching/
+holding a call or stopping the engine releases the key and discards its remaining
+queue. Every execution revalidates the owning generation and selected dialog.
+Failures remain native control errors. No browser audio, outgoing DTMF history,
+PIN logging or durable digit buffer is introduced. The UI keypad can be shown or
+hidden and physical keys operate it only while expanded and outside editable fields.
+
+Dialing and transfer destinations now share `contact_dial_target` validation:
+formatting spaces/parentheses/hyphens/dots/slashes are removed, at most 64 dial
+characters remain, at least one digit is required and plus is leading only.
+International numbers cannot combine plus with star/hash; ambiguous optional
+international `(0)`, control characters, letters, arbitrary SIP URIs and post-dial
+text are rejected without silently extracting a different number. This does not
+change the single-character DTMF command syntax.

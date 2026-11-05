@@ -7,9 +7,10 @@ const commands = [
   "switch_call",
   "cancel_consultation",
   "complete_transfer",
+  "send_dtmf",
 ];
 const base = "apps/desktop/src-tauri/";
-test("all seven controls have main-only authority and explicit command registration", async () => {
+test("all call controls have main-only authority and explicit command registration", async () => {
   const main = await Bun.file(base + "capabilities/main.json").json();
   const settings = await Bun.file(base + "capabilities/settings.json").json();
   const handlers = await Bun.file(base + "src/lib.rs").text();

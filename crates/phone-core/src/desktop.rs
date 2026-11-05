@@ -117,12 +117,20 @@ pub struct ContactsPreferences {
     pub favorites_first: bool,
     /// Show organization text alongside contact names.
     pub show_organization: bool,
+    /// Match German national 0… numbers with +49…/0049… for identity display only.
+    /// Defaults to true; never rewrites the number used for dialing.
+    #[serde(default = "german_matching_default")]
+    pub match_german_numbers: bool,
+}
+fn german_matching_default() -> bool {
+    true
 }
 impl Default for ContactsPreferences {
     fn default() -> Self {
         Self {
             favorites_first: true,
             show_organization: true,
+            match_german_numbers: true,
         }
     }
 }

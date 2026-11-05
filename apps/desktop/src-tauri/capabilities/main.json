@@ -33,6 +33,7 @@
     "allow-switch-call",
     "allow-cancel-consultation",
     "allow-complete-transfer",
+    "allow-send-dtmf",
     "allow-select-account",
     "allow-open-settings",
     "core:event:allow-listen",

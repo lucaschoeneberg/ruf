@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { insertDigit, removeDigit, MAX_NUMBER_LENGTH } from "../dialing";
+  import { dialSuggestions } from "../contacts";
+  import { normalizeDialNumber } from "../dialing";
+  import type { Contact } from "../generated/AppInfo";
   import Icon from "./Icon.svelte";
 
   let {
@@ -11,6 +14,9 @@
     connectionHint,
     setupLabel,
     setupEnabled,
+    contacts = [],
+    matchGermanNumbers = true,
+    contactsHint = null,
     oncall,
     onsetup,
   }: {
@@ -21,6 +27,9 @@
     connectionHint: string;
     setupLabel: string;
     setupEnabled: boolean;
+    contacts?: readonly Contact[];
+    matchGermanNumbers?: boolean;
+    contactsHint?: string | null;
     oncall: () => void;
     onsetup: () => void;
   } = $props();
@@ -29,21 +38,26 @@
   let holdPointer: number | null = null;
   let plusInserted = false;
   const invalidNumber = $derived(
-    value.length > 0 && !/^[0-9+*#]{1,64}$/.test(value),
+    value.trim().length > 0 &&
+      value.trim() !== "+" &&
+      normalizeDialNumber(value) === null,
+  );
+  const suggestions = $derived(
+    dialSuggestions(contacts, value, matchGermanNumbers),
   );
   const keys = [
-    ["1", ""],
-    ["2", "ABC"],
-    ["3", "DEF"],
-    ["4", "GHI"],
-    ["5", "JKL"],
-    ["6", "MNO"],
-    ["7", "PQRS"],
-    ["8", "TUV"],
-    ["9", "WXYZ"],
-    ["*", ""],
-    ["0", "+"],
-    ["#", ""],
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "*",
+    "0",
+    "#",
   ] as const;
 
   onMount(() => {
@@ -107,11 +121,27 @@
         autocomplete="off"
         spellcheck="false"
         placeholder="Nummer eingeben"
-        maxlength={MAX_NUMBER_LENGTH}
+        maxlength={MAX_NUMBER_LENGTH * 2}
+        onbeforeinput={(event) => {
+          if (
+            event.inputType === "insertText" &&
+            event.data &&
+            /\p{L}/u.test(event.data)
+          )
+            event.preventDefault();
+        }}
         aria-invalid={invalidNumber}
         aria-describedby="number-hint"
         disabled={busy}
       />
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Plus einfügen"
+        title="Plus einfügen"
+        disabled={busy}
+        onclick={() => edit("+", true)}>+</button
+      >
       <button
         class="icon-button erase-number"
         type="button"
@@ -124,23 +154,41 @@
     </div>
     <p id="number-hint" class="number-hint" aria-live="polite">
       {invalidNumber
-        ? "Erlaubt sind Ziffern, +, * und #"
+        ? "Ziffern und Leerzeichen; + nur am Anfang. Keine Buchstaben."
         : value
           ? "Nummer oder Nebenstelle"
           : "Direkt tippen oder Ziffern wählen"}
     </p>
   </div>
+  {#if suggestions.length}<ul
+      class="dial-suggestions"
+      aria-label="Kontaktvorschläge"
+    >
+      {#each suggestions as suggestion (`${suggestion.contact.id}:${suggestion.phone.destination}`)}<li
+        >
+          <button
+            class="secondary-button"
+            type="button"
+            disabled={busy}
+            onclick={() => {
+              if (suggestion.phone.destination)
+                value = suggestion.phone.destination;
+            }}
+            ><strong>{suggestion.contact.name}</strong><span
+              >{suggestion.phone.label} · {suggestion.phone.number}</span
+            ></button
+          >
+        </li>{/each}
+    </ul>{:else if contactsHint && value}<p class="number-hint">
+      {contactsHint}
+    </p>{/if}
   <div class="keypad" aria-label="Wähltastatur">
-    {#each keys as [digit, letters]}
+    {#each keys as digit}
       <button
         class="dial-key"
         class:symbol-key={digit === "*" || digit === "#"}
         type="button"
-        aria-label={digit === "0"
-          ? "0, gedrückt halten für Plus"
-          : letters
-            ? `${digit}, ${letters}`
-            : digit}
+        aria-label={digit === "0" ? "0, gedrückt halten für Plus" : digit}
         disabled={busy}
         onpointerdown={(event) => beginHold(event, digit)}
         onpointerup={cancelHold}
@@ -153,7 +201,7 @@
       >
         <span class="key-digit">{digit}</span><span
           class="key-letters"
-          aria-hidden="true">{letters || "\u00a0"}</span
+          aria-hidden="true">{digit === "0" ? "+" : "\u00a0"}</span
         >
       </button>
     {/each}

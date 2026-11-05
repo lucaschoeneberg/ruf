@@ -34,7 +34,7 @@ hardware still need separate observed verification. Native audio stays in baresi
 - History records observed native calls locally with outcomes, duration, original account, search/filter/pagination, contact links, safe callback and deletion. Startup marks unfinished records interrupted without invented duration. Collection can be disabled for future calls; optional 30/90/365-day retention removes completed rows only, with confirmation before destructive shortening.
 - Mute/hold state and transfer outcomes follow native snapshots, not queue acceptance.
   Pending hold includes uncertain recovery; mute/hangup remain reachable. Incoming
-  REFER instructions are rejected. In-call DTMF transmission remains deferred.
+  REFER instructions are rejected. An expandable in-call keypad sends native DTMF on the selected unheld dialog, with ordered release and stale-call guards.
 - TLS/required SDES-SRTP is the recommended encrypted configuration; required media
   needs TLS and cannot downgrade. Private PBX certificates use intentional OS trust,
   with no per-account CA or verification bypass. Observed per-call security is
@@ -92,3 +92,5 @@ while “Audioaufzeichnung” is reserved for the explicit developer test-tone m
 “macOS-Kontakte” names the operating-system app; opening it does not select a
 specific contact. Destructive actions name “Anruf” or “Verlauf”. Keep protocol
 and diagnostic details in supporting text rather than primary action labels.
+
+Dial entry supports formatted telephone numbers and leading plus, with authorized contact suggestions and current per-dialog names. German 0/+49/0049 identity matching is configurable; it never rewrites the dialed number. History resolves names from current contacts after later additions or renames.

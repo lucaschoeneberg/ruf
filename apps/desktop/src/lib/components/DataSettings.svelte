@@ -68,6 +68,20 @@
       bind:checked={value.contacts.showOrganization}
     />
   </div>
+  <div class="setting-row">
+    <div class="setting-description">
+      <label for="match-german-numbers">Deutsche Vorwahlen zuordnen</label>
+      <p>
+        0…, +49… und 0049… bei Kontaktnamen gleich behandeln. Die gewählte
+        Nummer bleibt unverändert.
+      </p>
+    </div>
+    <input
+      id="match-german-numbers"
+      type="checkbox"
+      bind:checked={value.contacts.matchGermanNumbers}
+    />
+  </div>
   <h2 class="settings-group sound-group">Anrufverlauf</h2>
   <div class="setting-row">
     <div class="setting-description">

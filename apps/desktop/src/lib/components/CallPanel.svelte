@@ -12,6 +12,8 @@
   import { errorMessage } from "../api";
   import { getContacts } from "../contacts-api";
   import { searchContacts } from "../contacts";
+  import DtmfPad from "./DtmfPad.svelte";
+  import { normalizeDialNumber } from "../dialing";
   import Icon from "./Icon.svelte";
   let {
     call,
@@ -24,6 +26,8 @@
     testAudio = false,
     audioUnknown = false,
     receivedDtmf = null,
+    matchGermanNumbers = true,
+    onsenddtmf = () => {},
     onanswer,
     onhangup,
     onmute,
@@ -44,6 +48,8 @@
     testAudio?: boolean;
     audioUnknown?: boolean;
     receivedDtmf?: string | null;
+    matchGermanNumbers?: boolean;
+    onsenddtmf?: (id: string, digit: string) => void;
     onanswer: (id: string) => void;
     onhangup: (id: string) => void;
     onmute: (id: string, muted: boolean) => Promise<boolean>;
@@ -67,12 +73,13 @@
   const established = (item: CallSnapshot) =>
     item.state === "active" || item.state === "held";
   const peer = (item: CallSnapshot) =>
+    item.contact?.name ??
     item.destination ??
     item.caller?.name ??
     item.caller?.number ??
     "Unbekannter Anrufer";
   const selectedPeer = $derived(
-    call.caller ? (callerContact?.name ?? peer(call)) : peer(call),
+    call.contact?.name ?? callerContact?.name ?? peer(call),
   );
   const pending = $derived(
     calls.some((item) => item.holdPending || item.transfer === "pending"),
@@ -128,6 +135,22 @@
     )
       muteRequest = null;
   }
+  let tonesOpen = $state(false);
+  let tonesFor: string | undefined;
+  $effect(() => {
+    if (tonesFor !== call.id) {
+      tonesFor = call.id;
+      tonesOpen = false;
+    }
+  });
+  const canSendTone = $derived(
+    !busy &&
+      !audioUnknown &&
+      call.state === "active" &&
+      !call.localHeld &&
+      !call.remoteHeld &&
+      !pending,
+  );
   let transferOpen = $state(false);
   let target = $state("");
   let targetError = $state("");
@@ -144,6 +167,9 @@
     searchContacts(
       contacts?.permission === "authorized" ? contacts.contacts : [],
       query,
+      false,
+      true,
+      matchGermanNumbers,
     ).slice(0, 30),
   );
   async function refreshContacts() {
@@ -189,6 +215,7 @@
     };
   });
   function openTransfer() {
+    tonesOpen = false;
     transferOpen = true;
     void tick().then(() => targetInput?.focus());
   }
@@ -198,14 +225,15 @@
   }
   function submitTarget(consult: boolean) {
     if (!canChange || !established(call) || calls.length !== 1) return;
-    if (!/^[0-9+*#]{1,64}$/.test(target)) {
+    const normalized = normalizeDialNumber(target);
+    if (!normalized) {
       targetError = "Gib 1–64 Ziffern oder + * # ein. Keine SIP-Adresse.";
       targetInput?.focus();
       return;
     }
     targetError = "";
     // Queue acceptance is not a native outcome. Preserve the draft through failure.
-    (consult ? onconsult : ontransfer)(call.id, target);
+    (consult ? onconsult : ontransfer)(call.id, normalized);
   }
 </script>
 
@@ -224,6 +252,9 @@
         >
           <div class="conversation-copy">
             <strong>{item.id === call.id ? selectedPeer : peer(item)}</strong>
+            {#if (item.destination ?? item.caller?.number) && (item.destination ?? item.caller?.number) !== peer(item)}<span
+                >{item.destination ?? item.caller?.number}</span
+              >{/if}
             <span
               >{item.consultation ? "Rückfrage" : "Ursprüngliches Gespräch"} · {accounts.find(
                 (account) => account.id === item.accountId,
@@ -262,10 +293,10 @@
           : ""}
       </p>
       <h1 class="call-peer">{selectedPeer}</h1>
-      {#if call.caller?.number && call.caller.number !== selectedPeer}<p
+      {#if (call.destination ?? call.caller?.number) && (call.destination ?? call.caller?.number) !== selectedPeer}<p
           class="call-number"
         >
-          {call.caller.number}
+          {call.destination ?? call.caller?.number}
         </p>{/if}
     </div>
   {/if}
@@ -351,6 +382,24 @@
         : "Auflegen"}</button
     >
   </div>
+  {#if established(call)}
+    <button
+      class="secondary-button tone-toggle"
+      type="button"
+      aria-expanded={tonesOpen}
+      onclick={() => {
+        tonesOpen = !tonesOpen;
+        if (tonesOpen) transferOpen = false;
+      }}
+      ><Icon name="keypad" size={16} />{tonesOpen
+        ? "Gesprächstastatur ausblenden"
+        : "Gesprächstastatur einblenden"}</button
+    >
+    {#if tonesOpen}<DtmfPad
+        disabled={!canSendTone}
+        onsend={(digit) => onsenddtmf(call.id, digit)}
+      />{/if}
+  {/if}
   {#if child && calls.length === 2}
     <div class="consultation-actions">
       <button
@@ -378,7 +427,7 @@
         name="transfer-target"
         type="tel"
         inputmode="tel"
-        maxlength="64"
+        maxlength="128"
         autocomplete="off"
         bind:value={target}
         aria-invalid={!!targetError}

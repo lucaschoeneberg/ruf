@@ -104,6 +104,7 @@ pub fn run() {
             commands::switch_call,
             commands::cancel_consultation,
             commands::complete_transfer,
+            commands::send_dtmf,
             commands::hangup
         ])
         .build(tauri::generate_context!())

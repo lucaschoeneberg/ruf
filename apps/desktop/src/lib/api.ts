@@ -199,3 +199,7 @@ export const getDiagnostics = () =>
 export const copyDiagnostics = () => desktopInvoke<void>("copy_diagnostics");
 export const setAccountEnabled = (id: number, enabled: boolean) =>
   desktopInvoke<EngineSnapshot>("set_account_enabled", { id, enabled });
+
+/** Queue a single native telephone tone for an opaque current call token. */
+export const sendDtmf = (callId: string, digit: string) =>
+  desktopInvoke<EngineSnapshot>("send_dtmf", { callId, digit });

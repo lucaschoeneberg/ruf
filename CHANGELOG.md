@@ -2,6 +2,10 @@
 
 ## 0.1.0 · Vorschau
 
+- Formatierte Nummern mit Leerzeichen und führendem Plus wählen; Kontaktvorschläge direkt bei der Eingabe nutzen.
+- Gesprächstastatur für Ziffern, Stern und Raute während eines Gesprächs einblenden; Töne werden nativ über baresip gesendet.
+- Aktuelle Kontaktnamen für ausgehende und eingehende Gespräche, Mitteilungen und ältere Verlaufseinträge verwenden; deutsche nationale und internationale Vorwahlen optional zuordnen.
+
 - Gespräche nativ stummschalten und lokal halten; Halten durch die Gegenstelle und noch ausstehende Änderungen getrennt sehen.
 - Direkt vermitteln oder eine Rückfrage starten, zwischen beiden Gesprächen wechseln, zur ursprünglichen Gegenstelle zurückkehren und die Vermittlung abschließen. Erfolg folgt der nativen Bestätigung; eingehende REFER-Anweisungen bleiben abgelehnt.
 - SIP-Transport UDP/TCP/TLS, erforderliches SDES-SRTP mit TLS, separate Anmeldekennung und Outbound-Proxy pro Konto speichern. Serverprüfung nutzt Betriebssystem-Vertrauen ohne automatischen Klartext-Rückfall. Angezeigter Gesprächsschutz folgt nativen Beobachtungen und garantiert keine Ende-zu-Ende-Verschlüsselung.

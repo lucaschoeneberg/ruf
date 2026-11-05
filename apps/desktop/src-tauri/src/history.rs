@@ -4,7 +4,6 @@ use phone_core::{
     AccountSnapshot, CallDirection, CallOutcome, CallState, Contact, EngineSnapshot, ErrorCode,
     HistoryEntry, HistoryFilter, HistoryPage, HistoryPreferences, HistoryQuery, ObservedCallEvent,
     ObservedCallKind, PhoneError, RegistrationState, contact_dial_target, contact_match_key,
-    resolve_contact,
 };
 use std::sync::{Arc, Mutex, mpsc};
 use tauri::{Emitter, Manager};
@@ -56,13 +55,14 @@ fn project_page(
     contacts: &[Contact],
     accounts: &[AccountSnapshot],
     recording_error: Option<PhoneError>,
+    preferences: &phone_core::ContactsPreferences,
 ) -> Result<HistoryPage, PhoneError> {
     validate_query(query)?;
     let search = query.search.trim().to_lowercase();
     let numbers: Vec<String> = query
         .contact_numbers
         .iter()
-        .filter_map(|n| contact_match_key(n))
+        .filter_map(|n| phone_core::contact_match_key_with_preferences(n, preferences))
         .collect();
     let entries: Vec<HistoryEntry> = entries
         .into_iter()
@@ -71,15 +71,14 @@ fn project_page(
                 && !entry
                     .number
                     .as_deref()
-                    .and_then(contact_match_key)
+                    .and_then(|n| phone_core::contact_match_key_with_preferences(n, preferences))
                     .is_some_and(|key| numbers.contains(&key))
             {
                 return None;
             }
-            entry.contact = entry
-                .number
-                .as_deref()
-                .and_then(|number| resolve_contact(contacts, number));
+            entry.contact = entry.number.as_deref().and_then(|number| {
+                phone_core::resolve_contact_with_preferences(contacts, number, preferences)
+            });
             entry.callback_account_id = callback_account(&entry, accounts);
             let matches = search.is_empty()
                 || [
@@ -478,13 +477,21 @@ pub(crate) async fn get_history(
                 &contacts,
                 &accounts,
                 recording_error(&app),
+                &crate::contacts::matching_preferences(&app),
             )?;
             page.total = total;
             page.has_more = has_more;
             Ok(page)
         } else {
             let entries = history.request(|reply| Message::Entries(query.filter, reply))?;
-            project_page(entries, &query, &contacts, &accounts, recording_error(&app))
+            project_page(
+                entries,
+                &query,
+                &contacts,
+                &accounts,
+                recording_error(&app),
+                &crate::contacts::matching_preferences(&app),
+            )
         }
     })
     .await
@@ -654,23 +661,45 @@ mod query_tests {
             ..Default::default()
         };
         assert_eq!(
-            project_page(rows.clone(), &query, &contacts, &[account()], None)
-                .unwrap()
-                .total,
+            project_page(
+                rows.clone(),
+                &query,
+                &contacts,
+                &[account()],
+                None,
+                &phone_core::ContactsPreferences::default()
+            )
+            .unwrap()
+            .total,
             1
         );
         let query = HistoryQuery {
             search: "new NAME".into(),
             ..Default::default()
         };
-        let page = project_page(rows.clone(), &query, &contacts, &[account()], None).unwrap();
+        let page = project_page(
+            rows.clone(),
+            &query,
+            &contacts,
+            &[account()],
+            None,
+            &phone_core::ContactsPreferences::default(),
+        )
+        .unwrap();
         assert_eq!(page.total, 1);
         assert_eq!(page.entries[0].contact.as_ref().unwrap().name, "New name");
         assert_eq!(page.entries[0].callback_account_id, Some(7));
         assert_eq!(
-            project_page(rows.clone(), &query, &[], &[account()], None)
-                .unwrap()
-                .total,
+            project_page(
+                rows.clone(),
+                &query,
+                &[],
+                &[account()],
+                None,
+                &phone_core::ContactsPreferences::default()
+            )
+            .unwrap()
+            .total,
             0
         );
         let query = HistoryQuery {
@@ -678,20 +707,43 @@ mod query_tests {
             ..Default::default()
         };
         assert_eq!(
-            project_page(rows.clone(), &query, &contacts, &[], None)
-                .unwrap()
-                .total,
+            project_page(
+                rows.clone(),
+                &query,
+                &contacts,
+                &[],
+                None,
+                &phone_core::ContactsPreferences::default()
+            )
+            .unwrap()
+            .total,
             1
         );
         let query = HistoryQuery {
             limit: Some(1),
             ..Default::default()
         };
-        let page = project_page(rows.clone(), &query, &contacts, &[], None).unwrap();
+        let page = project_page(
+            rows.clone(),
+            &query,
+            &contacts,
+            &[],
+            None,
+            &phone_core::ContactsPreferences::default(),
+        )
+        .unwrap();
         assert!(page.has_more);
         assert_eq!(page.total, 2);
         let query = HistoryQuery { offset: 1, ..query };
-        let page = project_page(rows, &query, &[], &[], None).unwrap();
+        let page = project_page(
+            rows,
+            &query,
+            &[],
+            &[],
+            None,
+            &phone_core::ContactsPreferences::default(),
+        )
+        .unwrap();
         assert!(!page.has_more);
         assert_eq!(page.entries[0].id, "older");
     }

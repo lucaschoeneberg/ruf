@@ -12,7 +12,11 @@ export default async function contactsPermissions(page, baseUrl) {
       preferences: {
         startHidden: true,
         showCallerInNotifications: true,
-        contacts: { favoritesFirst: true, showOrganization: true },
+        contacts: {
+          favoritesFirst: true,
+          showOrganization: true,
+          matchGermanNumbers: true,
+        },
         history: { recordingEnabled: true, retentionDays: null },
       },
       permission: "notDetermined",

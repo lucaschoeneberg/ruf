@@ -82,7 +82,11 @@
   const defaultPreferences = (): AppPreferences => ({
     startHidden: true,
     showCallerInNotifications: true,
-    contacts: { favoritesFirst: true, showOrganization: true },
+    contacts: {
+      favoritesFirst: true,
+      showOrganization: true,
+      matchGermanNumbers: true,
+    },
     history: { recordingEnabled: true, retentionDays: null },
   });
   let preferences = $state<AppPreferences | null>(null);

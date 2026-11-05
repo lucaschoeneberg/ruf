@@ -166,7 +166,11 @@ export default async function callControls(page, baseUrl, capture = false) {
           return {
             startHidden: true,
             showCallerInNotifications: true,
-            contacts: { favoritesFirst: true, showOrganization: true },
+            contacts: {
+              favoritesFirst: true,
+              showOrganization: true,
+              matchGermanNumbers: true,
+            },
             history: { recordingEnabled: true, retentionDays: null },
           };
         if (command === "get_desktop_settings")

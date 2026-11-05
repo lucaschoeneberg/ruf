@@ -148,6 +148,22 @@ pub async fn dial(
     .await
 }
 
+/// Queue one 0–9, * or # DTMF tone on the selected established, unheld call.
+/// Native timing/release and transport negotiation remain in baresip.
+#[tauri::command]
+pub async fn send_dtmf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    call_id: String,
+    digit: String,
+) -> Result<EngineSnapshot, PhoneError> {
+    with_session(app, state, move |session| {
+        session.engine()?.send_dtmf(&call_id, &digit)?;
+        session.snapshot()
+    })
+    .await
+}
+
 /// Accept the single offered incoming call on its own account.
 #[tauri::command]
 pub async fn answer(

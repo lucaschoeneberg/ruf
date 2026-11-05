@@ -13,6 +13,64 @@ use std::{
 };
 
 const WAIT: Duration = Duration::from_secs(15);
+
+#[test]
+#[ignore = "Requires isolated Asterisk; bun run test:asterisk"]
+fn asterisk_dtmf_digits_and_hash_operate_ivr_and_reject_stale_tokens() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut lab = Lab::new("dtmf");
+    lab.engine.dial("605").unwrap();
+    let state = wait(&lab.engine, |s| s.call == CallState::Active);
+    let id = state.call_id.unwrap();
+    assert_eq!(
+        lab.engine.send_dtmf(&id, "AB").unwrap_err().code,
+        ErrorCode::InvalidInput
+    );
+    lab.engine.send_dtmf(&id, "5").unwrap();
+    lab.engine.send_dtmf(&id, "#").unwrap();
+    thread::sleep(Duration::from_secs(3));
+    lab.hangup(&id);
+    lab.engine.shutdown().unwrap();
+    let samples = pcm(&lab.recording);
+    tone(
+        &samples[samples.len().saturating_sub(16000)..],
+        880.0,
+        "IVR-accepted-five-and-hash",
+    );
+    assert_eq!(
+        lab.engine.send_dtmf(&id, "#").unwrap_err().code,
+        ErrorCode::InvalidState
+    );
+    drop(lab);
+    let mut lab = Lab::new("dtmf-cancel");
+    lab.engine.dial("600").unwrap();
+    let second = wait(&lab.engine, |s| s.call == CallState::Active)
+        .call_id
+        .unwrap();
+    lab.engine.send_dtmf(&second, "1").unwrap();
+    lab.engine.send_dtmf(&second, "2").unwrap();
+    lab.hangup(&second);
+    lab.engine.dial("600").unwrap();
+    let third = wait(&lab.engine, |s| s.call == CallState::Active)
+        .call_id
+        .unwrap();
+    assert_eq!(
+        lab.engine.send_dtmf(&second, "#").unwrap_err().code,
+        ErrorCode::InvalidState
+    );
+    thread::sleep(Duration::from_millis(600));
+    let current = lab.engine.snapshot().unwrap();
+    assert!(
+        current
+            .call_events
+            .iter()
+            .all(|event| !matches!(event.event, CallEventKind::DtmfStart { .. }))
+    );
+    assert_eq!(current.call_id.as_deref(), Some(third.as_str()));
+    lab.hangup(&third);
+}
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")

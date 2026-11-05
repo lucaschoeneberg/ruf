@@ -40,7 +40,7 @@ typedef void (*event_callback)(const struct sip_event *event, void *arg);
 enum { EV_READY=1, EV_REGISTERING, EV_REGISTERED, EV_REG_FAILED,
        EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE, EV_REMOVED, EV_REMOVE_FAILED, EV_ACCOUNT_APPLIED, EV_ACCOUNT_REJECTED, EV_AUDIO_APPLIED, EV_AUDIO_FAILED, EV_RING_STARTED, EV_RING_STOPPED, EV_ANSWER_FAILED, EV_BUSY_INCOMING, EV_DIAL_STARTED, EV_DIAL_FAILED, EV_LOCAL_END, EV_INTERRUPTING,
        EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED, EV_TEST_STARTED, EV_TEST_LEVEL, EV_TEST_STOPPED, EV_TEST_FAILED, EV_SELECTED, EV_MUTED, EV_LOCAL_HOLD_PENDING, EV_LOCAL_HOLD_DONE, EV_CONTROL_FAILED, EV_TRANSFER_PENDING, EV_TRANSFER_RESULT, EV_CONTROL_REJECTED, EV_RECOVERY_FAILED, EV_RECOVERING, EV_CONSULT_FAILED, EV_CALL_ERROR, EV_SECURITY };
-enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE, OP_REJECT, OP_TEST_MIC, OP_TEST_SPEAKER, OP_TEST_STOP, OP_DISABLE, OP_ENABLE, OP_MUTE, OP_HOLD, OP_TRANSFER, OP_CONSULT, OP_SWITCH, OP_CANCEL_CONSULT, OP_COMPLETE_TRANSFER };
+enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE, OP_REJECT, OP_TEST_MIC, OP_TEST_SPEAKER, OP_TEST_STOP, OP_DISABLE, OP_ENABLE, OP_MUTE, OP_HOLD, OP_TRANSFER, OP_CONSULT, OP_SWITCH, OP_CANCEL_CONSULT, OP_COMPLETE_TRANSFER, OP_DTMF };
 
 struct request {
     struct request *next;
@@ -77,6 +77,11 @@ struct engine {
     struct native_dialog dialogs[2];
     struct native_dialog *current, *selected, *action_target;
     struct tmr control_timer;
+    struct tmr dtmf_timer;
+    uint64_t dtmf_generation;
+    char dtmf_keys[32];
+    unsigned dtmf_count;
+    bool dtmf_active;
     int control_action;
     char consultation_destination[65];
     char test_ca[1024], test_dns_ip[64];
@@ -621,6 +626,7 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
              * remote CANCEL. Local hangup first marks the call terminated. */
             bool answer_failed = e->current->answered && call_state(call) == CALL_STATE_INCOMING && !call_scode(call);
             if (call_native_error(call)) emit(e, EV_CALL_ERROR, security_error(account, call_native_error(call)));
+            if (e->dtmf_generation == e->current->generation) stop_dtmf(e);
             stop_ring(e); e->current->call = NULL; e->current->ua = NULL;
             emit(e, answer_failed ? EV_ANSWER_CLOSED : EV_CLOSED, call_scode(call));
             e->current->account_id = 0;
@@ -654,7 +660,7 @@ static void queue_handler(int id, void *data, void *arg) {
     (void)id;
     e->current = e->selected;
     LOCK(&e->lock); remove_pending(e, r); UNLOCK(&e->lock);
-    if (r->operation >= OP_MUTE && r->operation <= OP_COMPLETE_TRANSFER) {
+    if (r->operation >= OP_MUTE && r->operation <= OP_DTMF) {
         control_request(e, r);
         e->current = e->selected;
         free_request(r);
@@ -949,6 +955,7 @@ int sip_engine_run(void *handle) {
         error = re_main(NULL);
     }
     tmr_cancel(&e->control_timer);
+    stop_dtmf(e);
     tmr_cancel(&e->shutdown_timer);
     tmr_cancel(&e->network_timer);
     sip_network_reset();

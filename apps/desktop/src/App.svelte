@@ -36,11 +36,14 @@
   import CallPanel from "./lib/components/CallPanel.svelte";
   import GettingStarted from "./lib/components/GettingStarted.svelte";
   import HistoryPanel from "./lib/components/HistoryPanel.svelte";
-  import { getContacts } from "./lib/contacts-api";
+  import { getContacts, refreshContacts } from "./lib/contacts-api";
   import { callbackHistory } from "./lib/history-api";
   import ContactsPanel from "./lib/components/ContactsPanel.svelte";
   import { hasSeenIntroduction, rememberIntroduction } from "./lib/onboarding";
 
+  import { normalizeDialNumber } from "./lib/dialing";
+  import { getPreferences, sendDtmf } from "./lib/api";
+  import type { ContactsSnapshot } from "./lib/generated/AppInfo";
   type View = "dialer" | "contacts" | "history" | "start";
   let view = $state<View>("dialer");
   let contactFocusId = $state<string | null>(null);
@@ -179,6 +182,57 @@
   );
   const accountName = $derived((callAccount ?? selectedAccount)?.name ?? "Ruf");
   let destination = $state("");
+  let dialContacts = $state<ContactsSnapshot | null>(null);
+  let matchGermanNumbers = $state(true);
+  let dialContactsRequest = 0;
+  async function refreshDialContacts(force = false) {
+    if (browser) return;
+    const request = ++dialContactsRequest;
+    try {
+      const next = await (force ? refreshContacts() : getContacts());
+      if (mounted && request === dialContactsRequest) {
+        dialContacts =
+          next.permission === "authorized" ? next : { ...next, contacts: [] };
+        if (next.permission !== "authorized") clearDisplayedContacts();
+        else if (snapshot?.calls.length)
+          void getEngineSnapshot()
+            .then((state) => {
+              if (mounted && request === dialContactsRequest)
+                applySnapshot(state);
+            })
+            .catch(() => {
+              /* SIP read errors do not invalidate contact authorization. */
+            });
+      }
+    } catch {
+      if (mounted && request === dialContactsRequest) {
+        dialContacts = null;
+        clearDisplayedContacts();
+      }
+    }
+    if (!mounted || request !== dialContactsRequest) return;
+    try {
+      const next = await getPreferences();
+      if (mounted && request === dialContactsRequest)
+        matchGermanNumbers = next.contacts.matchGermanNumbers ?? true;
+    } catch {
+      /* Existing preference/read errors never prevent number dialing. */
+    }
+  }
+  function clearDisplayedContacts() {
+    if (snapshot)
+      snapshot = {
+        ...snapshot,
+        callerContact: null,
+        calls: snapshot.calls.map((call) => ({ ...call, contact: null })),
+      };
+  }
+  function contactsChanged() {
+    dialContacts = null;
+    clearDisplayedContacts();
+    void refreshDialContacts();
+    void refreshHistoryScope();
+  }
   const connectedAt = $derived(snapshot?.callConnectedAtMs ?? 0);
   const receivedDtmf = $derived(
     snapshot?.callEvents
@@ -205,7 +259,7 @@
       registered &&
       selectedAccount?.enabled !== false &&
       callIdle &&
-      /^[0-9+*#]{1,64}$/.test(destination),
+      normalizeDialNumber(destination) !== null,
   );
   const elapsed = $derived(
     connectedAt ? Math.max(0, Math.floor((now - connectedAt) / 1000)) : 0,
@@ -305,7 +359,14 @@
     )
       error = errorMessage(next.lastError);
     lastNativeError = nextError;
-    snapshot = next;
+    snapshot =
+      dialContacts?.permission === "authorized"
+        ? next
+        : {
+            ...next,
+            callerContact: null,
+            calls: next.calls.map((call) => ({ ...call, contact: null })),
+          };
     if (!initialSnapshotReceived) {
       initialSnapshotReceived = true;
       if (
@@ -392,17 +453,27 @@
     }
     let unlistenState: UnlistenFn | undefined;
     let unlistenContacts: UnlistenFn | undefined;
+    let contactsReady = false;
     if (!browser)
-      void listen("contacts-changed", () => void refreshHistoryScope())
+      void listen("contacts-changed", contactsChanged)
         .then((unlisten) => {
           if (!mounted) unlisten();
-          else unlistenContacts = unlisten;
+          else {
+            unlistenContacts = unlisten;
+            contactsReady = true;
+            void refreshDialContacts();
+          }
         })
         .catch(() => {
-          /* Focus restoration revalidates the contact scope. */
+          contactsReady = true;
+          void refreshDialContacts();
+          /* Focus restoration revalidates if event subscription failed. */
         });
     const contactFocus = () => {
-      if (!browser) void refreshHistoryScope();
+      if (!browser) {
+        void refreshHistoryScope();
+        if (contactsReady) void refreshDialContacts(true);
+      }
       refreshNotificationStatus();
     };
     window.addEventListener("focus", contactFocus);
@@ -451,6 +522,10 @@
         });
     };
     const timer = setInterval(poll, 2000);
+    const contactsTimer = setInterval(() => {
+      if (!browser && document.visibilityState !== "hidden")
+        void refreshDialContacts();
+    }, 30000);
     const clock = setInterval(() => {
       now = Date.now();
     }, 1000);
@@ -458,7 +533,9 @@
     return () => {
       mounted = false;
       ++notificationRequest;
+      ++dialContactsRequest;
       clearInterval(timer);
+      clearInterval(contactsTimer);
       clearInterval(clock);
       unlistenState?.();
       unlistenContacts?.();
@@ -509,9 +586,34 @@
       openingSettings = false;
     }
   }
+  let queuedTones = 0;
+  let toneRequests = Promise.resolve();
+  function sendTone(callId: string, digit: string) {
+    if (queuedTones >= 32) {
+      error =
+        "Die Gesprächstastatur ist beschäftigt. Warte kurz und versuche es erneut.";
+      return;
+    }
+    queuedTones++;
+    toneRequests = toneRequests
+      .then(async () => {
+        if (!mounted || snapshot?.callId !== callId) return;
+        try {
+          const next = await sendDtmf(callId, digit);
+          if (mounted) applySnapshot(next);
+        } catch (reason) {
+          if (mounted && snapshot?.callId === callId)
+            error = errorMessage(reason);
+        }
+      })
+      .finally(() => {
+        queuedTones--;
+      });
+  }
   async function placeCall() {
     if (!canCall || busy) return;
-    const target = destination;
+    const target = normalizeDialNumber(destination);
+    if (!target) return;
     if (await perform(() => dial(target))) {
       firstCallHint = false;
     }
@@ -671,6 +773,7 @@
             call={currentCall}
             calls={snapshot?.calls ?? []}
             callerContact={snapshot?.callerContact ?? null}
+            {matchGermanNumbers}
             accounts={snapshot?.accounts ?? []}
             elapsed={elapsedLabel}
             receivedDtmf={receivedDtmf?.kind === "dtmfStart"
@@ -687,6 +790,7 @@
               const end = currentCall?.state === "incoming" ? reject : hangup;
               void perform(() => end(id));
             }}
+            onsenddtmf={sendTone}
             onmute={(id, muted) => perform(() => setCallMuted(id, muted))}
             onhold={(id, held) => void perform(() => setCallHeld(id, held))}
             ontransfer={(id, target) =>
@@ -715,6 +819,19 @@
     {:else if view === "dialer"}
       {#if callIdle}<Dialpad
           bind:value={destination}
+          contacts={dialContacts?.permission === "authorized"
+            ? dialContacts.contacts
+            : []}
+          {matchGermanNumbers}
+          contactsHint={dialContacts?.permission === "authorized"
+            ? null
+            : dialContacts?.permission === "unsupported"
+              ? "Kontaktzuordnung ist auf dieser Plattform nicht verfügbar."
+              : dialContacts?.permission === "restricted"
+                ? "Der Kontaktzugriff ist durch eine Systemrichtlinie eingeschränkt."
+                : dialContacts
+                  ? "Kontaktnamen nach Freigabe der macOS-Kontakte."
+                  : "Kontakte sind momentan nicht verfügbar."}
           {canCall}
           {busy}
           {registered}

@@ -474,6 +474,8 @@ pub enum TransferState {
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct CallSnapshot {
+    /// Current authorized address-book identity, enriched by the desktop; never persisted.
+    pub contact: Option<crate::ContactReference>,
     /// Actual native signaling/media evidence, never inferred from preferences.
     pub security: CallSecurity,
     /// Guard token required by every call-control API.
@@ -553,7 +555,7 @@ pub struct EngineSnapshot {
     /// Incoming caller, available atomically with Incoming and retained through Answering/Active.
     /// Null while idle or for outgoing calls; nested fields are null when unavailable/withheld.
     pub caller: Option<CallerIdentity>,
-    /// Current authorized address-book match for this incoming number; null if missing/ambiguous.
+    /// Current authorized address-book match for the selected incoming or outgoing dialog; null if missing/ambiguous.
     pub caller_contact: Option<crate::ContactReference>,
     /// A history persistence failure, separate from call/registration errors.
     pub history_error: Option<PhoneError>,
@@ -702,12 +704,7 @@ impl EngineSnapshot {
 
     /// Reserve the single outgoing-call slot, rejecting malformed targets first.
     pub fn reserve_dial(&mut self, destination: &str) -> Result<(), PhoneError> {
-        if destination.is_empty()
-            || destination.len() > 64
-            || !destination
-                .bytes()
-                .all(|c| c.is_ascii_digit() || b"+*#".contains(&c))
-        {
+        if crate::contact_dial_target(destination).is_none() {
             return Err(PhoneError::new(
                 ErrorCode::InvalidInput,
                 "Dial a number or extension of at most 64 characters; SIP URIs are not supported yet.",

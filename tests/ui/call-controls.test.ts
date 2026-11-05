@@ -27,6 +27,7 @@ const { default: CallPanel } =
   await import("../../apps/desktop/src/lib/components/CallPanel.svelte");
 function call(overrides: Partial<CallSnapshot> = {}): CallSnapshot {
   return {
+    contact: null,
     id: "original",
     accountId: 2,
     state: "active",

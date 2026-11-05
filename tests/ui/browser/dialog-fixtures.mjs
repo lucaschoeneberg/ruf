@@ -9,6 +9,7 @@ export function installDialogFixtures() {
         (call) => call.id === snapshot.callId,
       );
       const selected = {
+        contact: null,
         id: snapshot.callId,
         accountId: snapshot.callAccountId,
         state: snapshot.call,

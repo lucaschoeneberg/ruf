@@ -42,3 +42,38 @@ fn namesakes_and_duplicate_owners_never_become_a_false_identity() {
     assert_eq!(contact_match_key("0012").as_deref(), Some("0012"));
     assert_eq!(contact_match_key("*21*1234#").as_deref(), Some("*21*1234#"));
 }
+
+#[test]
+fn german_number_matching_is_explicit_and_never_matches_short_suffixes() {
+    let contacts = [contact("mobile", "+49 151 55501234")];
+    let preferences = phone_core::ContactsPreferences::default();
+    for number in ["0151 55501234", "+4915155501234", "004915155501234"] {
+        assert_eq!(
+            phone_core::resolve_contact_with_preferences(&contacts, number, &preferences)
+                .unwrap()
+                .id,
+            "mobile"
+        );
+    }
+    for number in ["55501234", "1234", "+4315155501234", "anonymous"] {
+        assert!(
+            phone_core::resolve_contact_with_preferences(&contacts, number, &preferences).is_none()
+        );
+    }
+    let disabled = phone_core::ContactsPreferences {
+        match_german_numbers: false,
+        ..preferences
+    };
+    assert!(
+        phone_core::resolve_contact_with_preferences(&contacts, "015155501234", &disabled)
+            .is_none()
+    );
+    assert!(
+        phone_core::resolve_contact_with_preferences(
+            &[contact("a", "015155501234"), contact("b", "+4915155501234")],
+            "015155501234",
+            &phone_core::ContactsPreferences::default()
+        )
+        .is_none()
+    );
+}

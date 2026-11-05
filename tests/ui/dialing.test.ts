@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { insertDigit, removeDigit } from "../../apps/desktop/src/lib/dialing";
+import {
+  insertDigit,
+  removeDigit,
+  normalizeDialNumber,
+} from "../../apps/desktop/src/lib/dialing";
 
 describe("softphone number editing", () => {
   test("inserts at the caret and replaces selected digits", () => {
@@ -26,4 +30,21 @@ describe("softphone number editing", () => {
     expect(insertDigit("123", "a", 3, 3).value).toBe("123");
     expect(insertDigit("123", "12", 3, 3).value).toBe("123");
   });
+});
+
+test("formatted numbers retain a leading plus without turning pasted text into another destination", () => {
+  expect(normalizeDialNumber("+49 30 5550-1234")).toBe("+493055501234");
+  expect(normalizeDialNumber("030 (5550) 1234")).toBe("03055501234");
+  expect(normalizeDialNumber("*21*1234#")).toBe("*21*1234#");
+  for (const number of [
+    "12+34",
+    "+",
+    "+49(0)3055501234",
+    "123 ext 45",
+    "sip:123@pbx",
+    "12\n34",
+  ])
+    expect(normalizeDialNumber(number)).toBeNull();
+  expect(insertDigit("1234", "+", 0, 0).value).toBe("+1234");
+  expect(insertDigit("1234", "+", 2, 2).value).toBe("1234");
 });

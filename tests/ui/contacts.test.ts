@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Contact } from "../../apps/desktop/src/lib/generated/AppInfo";
 import { searchContacts } from "../../apps/desktop/src/lib/contacts";
+import { dialSuggestions } from "../../apps/desktop/src/lib/contacts";
 
 const contacts: Contact[] = [
   {
@@ -34,6 +35,22 @@ const contacts: Contact[] = [
     phones: [{ label: "Intern", number: "456", destination: "456" }],
   },
 ];
+
+test("dialer finds national/international choices and preserves ambiguous owners", () => {
+  expect(
+    dialSuggestions(contacts, "030 123456").map((x) => x.contact.id),
+  ).toEqual(["c"]);
+  expect(dialSuggestions(contacts, "+49 30").map((x) => x.contact.id)).toEqual([
+    "c",
+  ]);
+  expect(dialSuggestions(contacts, "030123456", false)).toEqual([]);
+  expect(dialSuggestions(contacts, "12")).toEqual([]);
+  expect(dialSuggestions(contacts, "call 030123456")).toEqual([]);
+  const duplicate = { ...contacts[0], id: "other", name: "Anderer Kontakt" };
+  expect(dialSuggestions([contacts[0], duplicate], "030123456")).toHaveLength(
+    2,
+  );
+});
 
 describe("contact phonebook search", () => {
   test("searches Unicode names and companies without dropping namesakes", () => {

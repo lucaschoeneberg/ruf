@@ -341,8 +341,7 @@ the relevant field, with focus moved to the first invalid control. Sidebar
 search is transparent inside an outlined control and uses a blue focused border.
 
 Twelve flat outlined keys retain telephone order; hover raises the surface and
-pressing selects it. Holding zero enters plus. These enter numbers and do not
-implement in-call DTMF. Tastatur, Kontakte and Verlauf receive equal navigation
+pressing selects it. Holding zero enters plus. The idle keys enter formatted telephone numbers; an explicit plus action complements holding zero. Authorized contact suggestions appear as compact flat rows under the entry. An independently expanded in-call keypad sends native DTMF, without mnemonic letters or stored PIN text. Tastatur, Kontakte and Verlauf receive equal navigation
 space, horizontal icon/label pairs and `aria-current` for the selected page.
 
 ### First run, accounts and errors

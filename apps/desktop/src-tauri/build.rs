@@ -48,6 +48,7 @@ fn main() {
             "switch_call",
             "cancel_consultation",
             "complete_transfer",
+            "send_dtmf",
             "save_account",
             "reconnect_account",
             "select_account",

@@ -59,6 +59,7 @@ pub(crate) async fn save_preferences(
                 return Err(error);
             }
         }
+        crate::contacts::update_matching(&app, preferences.contacts.match_german_numbers);
         Ok(preferences)
     })
     .await

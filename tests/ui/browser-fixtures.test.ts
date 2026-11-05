@@ -37,6 +37,7 @@ test("serialized fixture installer projects owner, identity and safe unobserved 
   expect(result).toBe(snapshot);
   expect(result.calls).toEqual([
     {
+      contact: null,
       id: "original",
       accountId: 2,
       state: "active",

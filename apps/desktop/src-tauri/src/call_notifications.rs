@@ -273,7 +273,7 @@ fn banner_text(snapshot: &EngineSnapshot, show_details: bool) -> (String, String
         .map(|name| {
             plain(name)
                 .chars()
-                .take(MAX_TITLE_CHARACTERS)
+                .take(MAX_TITLE_CHARACTERS.saturating_sub(8))
                 .collect::<String>()
         })
         .filter(|v| !v.is_empty());
@@ -282,6 +282,7 @@ fn banner_text(snapshot: &EngineSnapshot, show_details: bool) -> (String, String
         .map(plain)
         .filter(|v| !v.is_empty());
     let title = name
+        .map(|name| format!("{name} ruft an"))
         .or_else(|| number.clone())
         .unwrap_or_else(|| "Unbekannter Anrufer".into());
     let account = snapshot
@@ -552,7 +553,7 @@ mod tests {
             .unwrap()
             .show
             .unwrap();
-        assert_eq!(first.title, "Private address book name");
+        assert_eq!(first.title, "Private address book name ruft an");
         assert_eq!(first.body, "+4930123456 · Private account name");
         let private = registry
             .update(&snapshot, true, false, now, || {
@@ -602,12 +603,12 @@ mod tests {
                 .show
                 .unwrap()
                 .title,
-            "Address book name"
+            "Address book name ruft an"
         );
         snapshot.caller_contact = None;
         let replaced = next(&mut registry, &snapshot, now, "unused").show.unwrap();
         assert_eq!(replaced.token, "bound");
-        assert_eq!(replaced.title, "Ada Weber");
+        assert_eq!(replaced.title, "Ada Weber ruft an");
         assert!(next(&mut registry, &snapshot, now, "unused").show.is_none());
         assert!(
             registry
@@ -896,7 +897,7 @@ mod tests {
         let mut s = incoming("1");
         assert_eq!(
             banner_text(&s, true),
-            ("Ada Weber".into(), "+4930123456".into())
+            ("Ada Weber ruft an".into(), "+4930123456".into())
         );
         s.caller.as_mut().unwrap().name = None;
         assert_eq!(banner_text(&s, true).0, "+4930123456");

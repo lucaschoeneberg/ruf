@@ -133,12 +133,54 @@ pub fn contact_match_key(number: &str) -> Option<String> {
 /// Duplicate numbers on one contact are allowed; multiple owners produce no identity.
 #[must_use]
 pub fn resolve_contact(contacts: &[Contact], number: &str) -> Option<ContactReference> {
+    resolve_with_key(contacts, number, contact_match_key)
+}
+
+/// Comparison under the user's explicit regional preference. Only German external
+/// numbers gain a national/international alias; extensions, service codes and all
+/// other countries keep conservative exact matching. This never changes dialing.
+#[must_use]
+pub fn contact_match_key_with_preferences(
+    number: &str,
+    preferences: &crate::ContactsPreferences,
+) -> Option<String> {
     let key = contact_match_key(number)?;
+    if preferences.match_german_numbers
+        && key.len() >= 7
+        && key.starts_with('0')
+        && !key.starts_with("00")
+        && key.bytes().all(|c| c.is_ascii_digit())
+    {
+        Some(format!("+49{}", &key[1..]))
+    } else {
+        Some(key)
+    }
+}
+
+/// Resolve current authorized contact identity with regional aliases, rejecting
+/// ambiguous ownership even when two contacts use different equivalent spellings.
+#[must_use]
+pub fn resolve_contact_with_preferences(
+    contacts: &[Contact],
+    number: &str,
+    preferences: &crate::ContactsPreferences,
+) -> Option<ContactReference> {
+    resolve_with_key(contacts, number, |n| {
+        contact_match_key_with_preferences(n, preferences)
+    })
+}
+
+fn resolve_with_key(
+    contacts: &[Contact],
+    number: &str,
+    key_for: impl Fn(&str) -> Option<String>,
+) -> Option<ContactReference> {
+    let key = key_for(number)?;
     let mut matches = contacts.iter().filter(|contact| {
         contact
             .phones
             .iter()
-            .any(|phone| contact_match_key(&phone.number).as_ref() == Some(&key))
+            .any(|phone| key_for(&phone.number).as_ref() == Some(&key))
     });
     let contact = matches.next()?;
     if matches.any(|other| other.id != contact.id || other.source != contact.source) {

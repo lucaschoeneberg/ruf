@@ -19,6 +19,47 @@ static bool controls_busy(const struct engine *e) {
     return e->control_action || e->dialogs[0].pending || e->dialogs[1].pending ||
         e->dialogs[0].recovery || e->dialogs[1].recovery;
 }
+/* Tones stay on the existing baresip media path. One bounded FIFO belongs to
+ * the audible dialog; every stop/switch/close releases the key and cancels time. */
+static struct native_dialog *dtmf_dialog(struct engine *e) {
+    for (size_t i = 0; i < 2; ++i)
+        if (e->dialogs[i].call && e->dialogs[i].generation == e->dtmf_generation) return &e->dialogs[i];
+    return NULL;
+}
+static void stop_dtmf(struct engine *e) {
+    tmr_cancel(&e->dtmf_timer);
+    struct native_dialog *dialog = dtmf_dialog(e);
+    if (e->dtmf_active && dialog) (void)call_send_digit(dialog->call, KEYCODE_REL);
+    e->dtmf_active = false;
+    e->dtmf_count = 0;
+    e->dtmf_generation = 0;
+    memset(e->dtmf_keys, 0, sizeof(e->dtmf_keys));
+}
+static void dtmf_tick(void *arg) {
+    struct engine *e = arg;
+    struct native_dialog *dialog = dtmf_dialog(e);
+    if (!dialog || dialog != e->selected || call_state(dialog->call) != CALL_STATE_ESTABLISHED || call_is_onhold(dialog->call) || controls_busy(e)) { stop_dtmf(e); return; }
+    if (e->dtmf_active) {
+        (void)call_send_digit(dialog->call, KEYCODE_REL);
+        e->dtmf_active = false;
+        tmr_start(&e->dtmf_timer, 80, dtmf_tick, e);
+    } else if (e->dtmf_count) {
+        char key = e->dtmf_keys[0];
+        memmove(e->dtmf_keys, e->dtmf_keys + 1, --e->dtmf_count);
+        e->dtmf_keys[e->dtmf_count] = 0;
+        int error = call_send_digit(dialog->call, key);
+        if (error) {
+            struct native_dialog *previous = e->current;
+            e->current = dialog;
+            emit(e, EV_CONTROL_FAILED, 0);
+            e->current = previous;
+            stop_dtmf(e);
+        } else {
+            e->dtmf_active = true;
+            tmr_start(&e->dtmf_timer, 160, dtmf_tick, e);
+        }
+    } else stop_dtmf(e);
+}
 static void begin_hold(struct engine *e, struct native_dialog *dialog, bool held) {
     e->current = dialog;
     if (call_is_onhold(dialog->call) == held && !dialog->recovery) { emit(e, EV_LOCAL_HOLD_DONE, held); return; }
@@ -49,6 +90,7 @@ static void begin_hold(struct engine *e, struct native_dialog *dialog, bool held
 }
 static void dialog_closed(struct engine *e, int status) {
     struct native_dialog *closed = e->current;
+    if (e->dtmf_generation == closed->generation) stop_dtmf(e);
     struct native_dialog *other = closed == &e->dialogs[0] ? &e->dialogs[1] : &e->dialogs[0];
     bool consultation = closed->consultation;
     bool consultation_failed = consultation && !closed->answered && !closed->local_ending &&
@@ -182,6 +224,7 @@ static void control_request(struct engine *e, struct request *r) {
         if (e->dialogs[i].call && e->dialogs[i].generation == r->call_generation) dialog = &e->dialogs[i];
     if (!dialog) { emit(e, EV_STALE, 0); return; }
     e->current = dialog;
+    if (r->operation != OP_MUTE && r->operation != OP_DTMF) stop_dtmf(e);
     if ((r->operation == OP_CANCEL_CONSULT || r->operation == OP_COMPLETE_TRANSFER) && !dialog->consultation) {
         emit(e, EV_STALE, 0);
         return;
@@ -191,6 +234,14 @@ static void control_request(struct engine *e, struct request *r) {
     int error = 0;
     if (r->operation != OP_CANCEL_CONSULT && call_state(dialog->call) != CALL_STATE_ESTABLISHED) error = EINVAL;
     else switch (r->operation) {
+    case OP_DTMF:
+        if (dialog != e->selected || call_is_onhold(dialog->call) || strlen(r->destination) != 1 || !strchr("0123456789*#", r->destination[0])) { error = EINVAL; break; }
+        if (e->dtmf_generation && e->dtmf_generation != dialog->generation) stop_dtmf(e);
+        if (e->dtmf_count >= sizeof(e->dtmf_keys)) { error = EBUSY; break; }
+        e->dtmf_generation = dialog->generation;
+        e->dtmf_keys[e->dtmf_count++] = r->destination[0];
+        if (!e->dtmf_active && !tmr_isrunning(&e->dtmf_timer)) dtmf_tick(e);
+        break;
     case OP_MUTE:
         dialog->muted = !strcmp(r->destination, "1");
         audio_mute(call_audio(dialog->call), dialog->muted);
