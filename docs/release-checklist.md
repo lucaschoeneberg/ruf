@@ -31,6 +31,19 @@ Use [development commands](development.md) and [CI/release behavior](ci-cd.md).
   signing. Current macOS ad-hoc signatures and unsigned Windows installers do
   not establish publisher trust. Preserve the final app identity for OS consent,
   credential storage, notifications and login items.
+- Exercise the eight settings sections with keyboard navigation, field search,
+  long account names and protected drafts. Verify account activation preserves
+  credentials and outgoing identity, especially when a call wins an update race.
+- Test version-1 metadata migration and its original-byte backup. Exercise history
+  recording changes for future calls, confirmed retention shortening, completed-only
+  cleanup and storage-failure recovery without interrupting live calls.
+- Check OS authorization independently of corrupt/missing account metadata. Saving
+  the app notification switch must not prompt; explicit test-notification failure
+  must not change a known permission state. Verify caller-detail privacy on actual
+  banners and that anonymous tests never carry call actions.
+- Verify native microphone/speaker test bounds, selected outputs, navigation cleanup
+  and real incoming-call preemption on hardware; inspect all three ringtones and
+  zero/full ringtone volume. Meter success alone does not establish usable media.
 - Qualify installed macOS and Windows behavior: first-run permissions, credential
   recovery, upgrade/restart, silent login, second launch, hide/reopen, tray/quit,
   denied notifications and actual notification clicks. Test real microphones,

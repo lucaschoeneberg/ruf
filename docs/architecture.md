@@ -39,10 +39,15 @@ that same pipeline. The native event loop handles interface changes and SIP/UDP
 NAT mapping; this does not certify arbitrary public-network/provider compatibility.
 See [native build details](../native/README.md).
 
-The desktop stores password-free account/settings metadata in `accounts.json`.
-Passwords use OS credential storage, with explicit foreground recovery after
-access failure and no plaintext fallback. Call facts queue to a single SQLite
-history worker without disk I/O under native call locks. Authorized macOS Contacts
+The desktop stores password-free account/settings metadata in schema-v2
+`accounts.json`, with an original-byte backup before replacing a legacy-v1 file.
+Preferences include login presentation, notification privacy, contact display and
+history collection/retention. Disabled accounts retain keys/selection and restore
+without password access or native user-agent creation. Passwords use OS credential
+storage, with explicit foreground recovery after access failure and no plaintext fallback. Call facts queue to a single SQLite
+history worker without disk I/O under native call locks. The same ordered worker
+latches history collection at call start and prunes completed rows on policy
+changes, startup and daily intervals. Authorized macOS Contacts
 data remains an in-memory projection; contact names are not copied into call
 history. Favorites store only contact identifiers. Contacts integration is not
 available on Windows. Contracts and recovery behavior are documented in
@@ -52,7 +57,17 @@ available on Windows. Contracts and recovery behavior are documented in
 The native process owns startup restoration, tray actions, background ringing and
 notification observation independently of webview visibility. A single-instance
 plugin reopens the existing phone. Closing the phone hides it; explicit Quit joins
-the native engine before draining history writes.
+the native engine before draining history writes. Login launches use the saved
+hidden-start preference; manual launches show the phone. Native permission queries
+bypass account/keychain restoration. Anonymous test notifications have independent
+ownership, and diagnostic reports serialize an explicit nonidentifying whitelist.
+
+Settings remain one native window with eight typed sections, guarded drafts and
+field-search IDs. Microphone/speaker diagnostics reuse the native baresip source,
+player and event loop, with bounded duration and real-call preemption; there is
+no browser capture or second audio pipeline. See [preferences](api/preferences.md),
+[notifications](api/notifications.md), [diagnostics](api/diagnostics.md),
+[account activation](api/account-activation.md) and [audio tests](api/audio-diagnostics.md).
 
 The application identifier is `org.rufapp.desktop`, with Ruf icon assets. macOS
 bundles include microphone/contact purpose strings and hardened-runtime

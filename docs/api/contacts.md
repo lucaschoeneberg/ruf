@@ -131,7 +131,9 @@ Unmounted panels ignore late responses. A manual refresh remains available.
 
 Search is an in-memory frontend filter over name, organization and original phone
 numbers, ignoring common number separators, case and diacritics. Favorites sort
-first, then names alphabetically; a favorites-only filter is explicit. Initial
+first by default, then names alphabetically; `contacts.favoritesFirst: false`
+uses alphabetical order instead. `contacts.showOrganization` controls company
+labels without removing company search. A favorites-only filter is explicit. Initial
 rendering is limited to 50 matching contacts with a load-more action.
 
 Clicking a supported number reuses `dial {destination}` through the main phone's
@@ -143,7 +145,7 @@ The compact phonebook calls a single supported number directly from its row;
 contacts with several numbers first expand an inline number chooser. Only one
 contact is expanded at a time. The star beside search toggles favorites-only
 filtering; the count is shown beside the heading. Source/privacy information
-remains in Settings → Kontakte instead of being repeated below the list.
+remains in Einstellungen → Datenschutz instead of being repeated below the list.
 Inline details expose every original number, per-number copying, the fixed Apple
 Contacts app action and a scoped call-history link. Cmd/Ctrl+F focuses search;
 Escape clears search/collapses details, and ArrowDown from search enters the list.

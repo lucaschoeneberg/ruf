@@ -2,8 +2,18 @@
 
 ## 0.1.0 · Vorschau
 
-- Mehrere Telefonkonten verwalten und für jeden Anruf das passende Konto auswählen.
-- Auf dem Mac Kontakte nach Freigabe durchsuchen und direkt anrufen.
-- Vergangene Anrufe mit Ergebnis und Dauer ansehen und bequem zurückrufen.
-- Mikrofon, Gesprächslautsprecher und Klingelton-Ausgabe getrennt auswählen.
-- Eingehende Anrufe auch im Hintergrund sehen und über die Mitteilung annehmen oder ablehnen.
+- Bis zu acht Telefonkonten verwalten, einzeln aktivieren oder deaktivieren und das Konto für ausgehende Anrufe auswählen.
+- Acht Einstellungsbereiche mit Feldsuche, Tastaturbedienung und Schutz vor dem Verlust ungespeicherter Änderungen nutzen.
+- Gespeicherte Konten nach einer ausstehenden Schlüsselbundfreigabe über „Erneut verbinden“ neu anmelden.
+- Mikrofon, Gesprächslautsprecher und Klingelton-Ausgabe getrennt auswählen; zwischen drei Klingeltönen wechseln und die Klingellautstärke einstellen.
+- Das Mikrofon mit einer kurzen Pegelanzeige und den Lautsprecher mit einem zweisekündigen Ton testen. Eingehende Anrufe beenden laufende Audiotests.
+- Mitteilungs-, Mikrofon- und Kontakte-Freigaben prüfen und bei Bedarf ausdrücklich anfordern oder die Systemeinstellungen öffnen.
+- Eingehende Anrufe im Hintergrund über Systemmitteilungen annehmen oder ablehnen; Anruferdetails darin bei Bedarf ausblenden.
+- Eine neutrale Testmitteilung nach fünf Sekunden anfordern. Fokus und Systemeinstellungen können die Anzeige weiterhin unterdrücken.
+- Ruf bei der Computeranmeldung mit oder ohne sichtbares Telefonfenster starten; beim manuellen Öffnen bleibt das Fenster sichtbar.
+- Auf dem Mac Kontakte nach Freigabe durchsuchen und direkt anrufen; Favoritenreihenfolge und Firmenanzeige einstellen.
+- Vergangene Anrufe mit Ergebnis und Dauer ansehen und über das ursprüngliche Konto zurückrufen.
+- Die Speicherung künftiger Anrufe abschalten oder abgeschlossene Verlaufseinträge nach 30, 90 oder 365 Tagen aufräumen; unbegrenzte Aufbewahrung bleibt Standard.
+- Anruferanzeige, Gesprächszustände und SIP-Fehler genauer unterscheiden. Nicht unterstützte Vermittlungsanfragen werden ausdrücklich abgelehnt.
+- Einen Diagnosebericht ohne persönliche Konten-, Kontakt- oder Anruferdaten ansehen und gezielt kopieren.
+- Bestehende Einstellungen mit Sicherung der bisherigen Metadaten übernehmen; lange Kontonamen, eindeutige Kontoaktionen und Suchfokus sind verbessert.

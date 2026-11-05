@@ -11,8 +11,11 @@ prüft Anmeldung, Gesprächsaufbau und zurückkehrendes Audio.
 
 Die dunkle Desktop-Oberfläche startet mit 340 × 500 Pixeln. Sie bietet Wähltastatur,
 macOS-Kontakte nach ausdrücklicher Freigabe, Favoriten und einen lokalen
-SQLite-Anrufverlauf mit Rückruf. Separate Einstellungen verwalten Konten,
-Audiogeräte, Hintergrundbetrieb und Mitteilungen. [Produktumfang](apps/desktop/PRODUCT.md),
+SQLite-Anrufverlauf mit Rückruf. Acht Einstellungsbereiche bieten Feldsuche,
+Kontenaktivierung, Audiotests, Klingeltöne, Hintergrundstart und Berechtigungschecks.
+Anruferdetails in Mitteilungen lassen sich ausblenden; der Diagnosebericht enthält
+keine persönlichen Daten. Kontaktanzeige und Verlaufsspeicherung lassen sich anpassen; abgeschlossene
+Verlaufseinträge können nach einer gewählten Frist gelöscht werden. [Produktumfang](apps/desktop/PRODUCT.md),
 [Designregeln](apps/desktop/DESIGN.md) und [Release-Notizen](docs/releases/0.1.0.md)
 beschreiben die Vorschau. Windows-Kontakte, Kalender, TLS/SRTP und automatische
 Updates sind noch nicht verfügbar.
@@ -56,8 +59,11 @@ bun run test:ui
 bun run test:ui:flows
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
-bun run desktop:build
+bun run desktop:build --features native
 ```
+
+Für portable Buildprüfungen kann `--features native` entfallen; dieser Build
+meldet `notLinked` und enthält keine native Telefonie.
 
 `bun run dev:web` öffnet nur die Web-Oberfläche; der native Status ist dort
 ausdrücklich nicht verfügbar. Cargo nutzt ein gemeinsames `target/` im Root.

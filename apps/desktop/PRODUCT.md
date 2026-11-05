@@ -15,7 +15,7 @@ and Svelte. The application is named Ruf. Original application code is MIT licen
 
 The current verified telephony milestone is a local Asterisk test environment:
 up to eight saved SIP accounts, one SIP/UDP call, G.711, per-account registration/call state,
-answer and hangup. Native audio stays in baresip. Bun owns JavaScript tooling.
+answer, reject and hangup. Native audio stays in baresip. Bun owns JavaScript tooling.
 
 ## Capabilities and Constraints
 
@@ -25,7 +25,7 @@ answer and hangup. Native audio stays in baresip. Bun owns JavaScript tooling.
 - Contacts read the native macOS address book after explicit system permission,
   with name/company/number search, multiple numbers, local favorite IDs and calls
   through the selected SIP account. Windows and other sources remain deferred.
-- History records observed native calls locally with outcomes, duration, original account, search/filter/pagination, contact links, safe callback and deletion. Startup marks unfinished records interrupted without invented duration.
+- History records observed native calls locally with outcomes, duration, original account, search/filter/pagination, contact links, safe callback and deletion. Startup marks unfinished records interrupted without invented duration. Collection can be disabled for future calls; optional 30/90/365-day retention removes completed rows only, with confirmation before destructive shortening.
 - Do not imply that mute, hold, transfer, DTMF or immediate contact push sync
   exist when no corresponding native API exists.
 - Native Windows runtime and hardware audio still require platform tests.
@@ -43,7 +43,10 @@ people/numbers are visual reference material, not application data.
 - Prioritize dialing and reachable call controls in a small window.
 - The user explicitly prioritizes onboarding with their own SIP account; local
   Asterisk/test audio is a secondary developer path, never the default.
-- Account settings open in a separate native window, with Zed-style navigation, search and setting rows; account management follows Telephone.
+- Settings open in a separate native window with eight Zed-style sections, concrete field search and guarded drafts. Keep the permanent direct Deine Konten block below navigation; account management follows Telephone.
+- Account activation preserves credentials and selected outgoing identity. A disabled selected account blocks dialing until explicitly changed or enabled.
+- Read OS permission independently of account restoration. Prompts require explicit foreground actions; changing the notification switch alone never requests access. Anonymous test notifications are separate from calls, and caller details can be hidden in notification text.
+- Login-only hidden start is configurable. Manual opening shows the phone; closing its window preserves background operation. Diagnostics expose a whitelisted technical summary, without personal account/call/contact details.
 - Several accounts can remain registered; select the outgoing account in the compact phone header.
 - Describe actual runtime state; never fabricate registration or contact/history data.
 - Keep common actions accessible by keyboard and named in German.
@@ -53,8 +56,12 @@ people/numbers are visual reference material, not application data.
 Ton provides microphone, call output and independent ringtone output, ringtone
 on/off and a native audible preview. Preferences persist with account metadata.
 Use platform default devices unless explicitly selected; unavailable or ambiguous
-endpoints remain clear and recoverable. Volume/microphone metering is not part of
-this iteration. The developer test tone stays secondary and explicit.
+endpoints remain clear and recoverable. Classic, soft and short ringtones have
+independent 0–100 volume; classic/100 preserves the original tone. An explicit
+microphone meter discards samples and runs at most ten seconds; the speaker test
+runs two seconds. Real calls preempt tests, and navigation releases test ownership.
+Ringtone preview uses saved tone/volume on the selected draft ring output. The
+developer test tone remains secondary and explicit under Diagnose & Hilfe.
 
 ## Shared visual direction
 

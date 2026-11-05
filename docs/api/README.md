@@ -225,14 +225,17 @@ codes to German recovery guidance.
 | `preview_ringtone`      | required `{device: string}`       | `EngineSnapshot`. Plays a two-second native ringtone on that draft output without saving it. Starts the engine if necessary, locking its audio mode for the session. Requires idle state and valid device. Does not open a microphone or send audio to SIP.                                                                     |
 | `stop_ringtone_preview` | none                              | `EngineSnapshot`. Stops a preview only; never silences an actual incoming-call alert. Safe before engine initialization.                                                                                                                                                                                                        |
 
-`SoundSettings` is a required-field object: `inputDevice`, `outputDevice`,
-`ringDevice` (strings), and `ringtoneEnabled` (boolean). Unknown fields reject.
+`SoundSettings` requires `inputDevice`, `outputDevice`, `ringDevice` (strings)
+and `ringtoneEnabled` (boolean). It also returns `ringtone` (`classic`, `soft`,
+`short`) and integer `ringtoneVolume` (0–100); input omission defaults them to
+`classic`/`100` for compatibility. Unknown fields reject. See
+[audio diagnostics and ringtones](audio-diagnostics.md) for validation and tests.
 Empty device IDs select the OS default independently; the native alias `default`
 is also accepted. Nonempty IDs are opaque, <=127 UTF-8 bytes without control
 characters, and must match a currently selectable endpoint of the right direction.
 Microphone/call-output choices apply to subsequent system-audio calls; test-tone
 mode continues to use its synthetic source/recording path. Default preferences:
-three empty IDs and ringtone enabled.
+three empty IDs, ringtone enabled, classic tone and volume 100.
 
 `AudioDevice` contains required `id`, `name`, and `selectable` fields. macOS
 CoreAudio currently routes by device display name; if several physical devices
@@ -248,9 +251,10 @@ including incoming alerts. A preview is stopped when a call starts, and an
 incoming ringtone stops on answer/reject/close/shutdown. Native call guards also
 reject routing changes or previews that race an incoming call.
 
-Version-1 metadata adds optional `sound` with defaults when absent, preserving
-older account files. It is ordinary nonsecret local data; keychain handling is
-unchanged. Sound preferences are not written to webview storage.
+The optional saved `sound` object retains defaults when absent in legacy or
+schema-v2 metadata. It is ordinary nonsecret local data; keychain handling is
+unchanged. Sound preferences are not written to webview storage. Ringtone preview
+uses the applied tone/volume and the independently supplied draft output device.
 
 ## Automatic audio jitter buffering
 
@@ -293,12 +297,15 @@ a successful observation, the observer retains the last known call, account and
 notification preference state and attaches the read error as `lastError`; it does
 not infer call termination or disabled notifications. A later successful read
 replaces that retained state. Native ring audio and registration do not depend on
-those listeners. Rust emits `settings-section` (one of the four section strings)
-only to the settings window; existing drafts still require an explicit discard.
+those listeners. Rust emits `settings-section` with one of the eight IDs:
+`general`, `accounts`, `audio`, `notifications`, `contacts`, `privacy`,
+`diagnostics` or `about`. Only the settings window receives this event;
+existing drafts still require an explicit discard.
 The optional `open_settings.section` defaults to `accounts`; invalid sections
 reject with `invalidInput`. Existing-window focus/build failures use `nativeFailure`.
 
-Settings-only commands:
+Desktop preference commands (`get_desktop_settings` is available to main and
+settings; the request/save commands are settings-only):
 
 | Command                           | Required input                                               | Output / errors                                                                                                                                                                                                                                                                                                    |
 | --------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -332,16 +339,25 @@ first-registration login-start setup defers while a foreground preference or
 notification authorization operation is pending; the observer continues delivering
 phone state and retries the deferred setup afterward.
 
-The saved schema remains version 1 with a defaulted `desktop` object containing
-`notificationsEnabled` (default true) and `autostartConfigured` (default false).
-Existing metadata without this object loads unchanged; credentials remain in the
-system store. Preference updates serialize the OS change with metadata commits
-and attempt rollback if persistence fails.
+Login launches use `--autostart` and the saved `startHidden` preference (default
+true); manual launches show the phone. Explicit `--background` and notification
+activation remain hidden. Existing configured/enabled login entries have their
+arguments refreshed independently of account registration; disabled entries stay
+disabled. This preference does not keep an offline or sleeping system reachable.
 
-Reading settings or receiving calls never requests permission. Saving an explicit
-change from disabled to enabled can request permission only while the OS decision
-is `notDetermined`; unchanged enabled defaults do not request it implicitly.
-Clicking “Mitteilungen erlauben” is the separate first-authorization action. A prior
+The saved schema is version 2; the existing defaulted `desktop` object retains
+`notificationsEnabled` (default true) and `autostartConfigured` (default false).
+The separate `preferences` object owns login presentation, caller privacy,
+contact display and history policy. Legacy metadata loads with defaults and an
+original-byte backup precedes its first v2 replacement; see [migration](preferences.md).
+Credentials remain in the system store. Preference updates serialize the OS
+change with metadata commits and attempt rollback if persistence fails.
+
+Reading settings, receiving calls and saving the app notification switch never
+request permission. Only the explicit “Mitteilungen erlauben” action can present
+the first OS prompt while the decision is `notDetermined`. The independent
+`get_notification_permission` command remains usable despite account metadata or
+keychain errors; see [notification commands](notifications.md). A prior
 OS denial must be changed in system settings. Unsupported contexts include unbundled
 macOS binaries and temporary Windows builds. Focus/display policy can still suppress
 authorized banners; native ringing remains independent.

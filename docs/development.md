@@ -35,8 +35,10 @@ bun run desktop:build
 After intentional DTO changes, review and commit the generated diff before using
 the clean-diff command as a verification gate. `bun run format` uses the built-in
 Bun formatter and `cargo fmt` for source and
-documentation. Native artifacts are under the root `target/release/bundle`, or
-`target/<triple>/release/bundle` when passing `--target`.
+documentation. The `desktop:build` wrapper always supplies a concrete Rust target
+(defaulting to the host), so release bundles are under
+`target/<triple>/release/bundle`. The macOS examples below use the supported
+Apple Silicon target, `aarch64-apple-darwin`.
 
 For native changes, also run workspace Clippy/tests with
 `--features sip-desktop/native`, `bun run test:asterisk`, and
@@ -46,7 +48,7 @@ hardware; microphone/speaker and Windows runtime require separate platform tests
 macOS bundles require both `NSMicrophoneUsageDescription` in `Info.plist` and
 the `com.apple.security.device.audio-input` hardened-runtime entitlement in
 `Entitlements.plist`. Tauri applies the entitlement when signing the bundle.
-After building, run `bun run test:macos-audio target/release/bundle/macos/Ruf.app`.
+After building, run `bun run test:macos-audio target/aarch64-apple-darwin/release/bundle/macos/Ruf.app`.
 Desktop CI runs this check against the signed bundle before uploading the
 installer (including tag releases). It verifies the signature, entitlement and
 purpose string; it never opens a microphone. A user must still grant microphone
@@ -58,10 +60,10 @@ and [Tauri macOS entitlements](https://v2.tauri.app/distribute/macos-application
 
 macOS Contacts also needs `NSContactsUsageDescription` and the signed
 `com.apple.security.personal-information.addressbook` resource entitlement when
-using Hardened Runtime. Run `bun run test:macos-contacts target/release/bundle/macos/Ruf.app`
+using Hardened Runtime. Run `bun run test:macos-contacts target/aarch64-apple-darwin/release/bundle/macos/Ruf.app`
 after building; desktop CI verifies the shipped signature before artifact upload.
-The check never requests access or reads any contact. In Ruf open Settings →
-Kontakte to see the OS permission and explicitly request access. After denial,
+The check never requests access or reads any contact. In Ruf open Einstellungen →
+Datenschutz to see the OS permission and explicitly request access. After denial,
 the app opens System Settings → Privacy & Security → Contacts instead of trying
 to prompt again. Only the user changes the system permission; never reset TCC
 automatically. See [Apple's Address Book entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.personal-information.addressbook)
@@ -71,7 +73,7 @@ For remote hangup diagnosis, quit the existing app after ending calls, then
 launch the **built native bundle** from a terminal with the restricted trace:
 
 ```sh
-SIP_DIAGNOSTICS=1 target/release/bundle/macos/Ruf.app/Contents/MacOS/sip-desktop 2>&1 | rg '^sip\.diag '
+SIP_DIAGNOSTICS=1 target/aarch64-apple-darwin/release/bundle/macos/Ruf.app/Contents/MacOS/sip-desktop 2>&1 | rg '^sip\.diag '
 ```
 
 Do not launch a second process with the same SIP account while another instance
@@ -267,9 +269,13 @@ Captures go to the ignored `output/playwright/` directory.
 History regressions cover refresh of more than two loaded pages, retained detail
 and keyboard position, unchanged contact scopes, recoverable refresh failures,
 and debounced searches that keep prior results while rejecting obsolete replies.
-Settings regressions cover focus restoration after continuing a draft and native
-revision ordering across events, reads and saves. The dialer exposes its correction
-hint through the input's accessible description.
+Settings regressions cover the eight sections, concrete field-search targets,
+nested-disclosure focus, long account names, named account actions and protected
+drafts. They separate permission reads from notification/open-action failures and
+cover native revision ordering across events, reads and saves. Audio test controls
+use synthetic IPC here; native ownership/preemption and real hardware require their
+separate checks. The dialer exposes its correction hint through the input's
+accessible description.
 
 Install Chromium when no browser is available:
 

@@ -350,19 +350,29 @@ new accounts require one. Saving starts registration and does not prove success.
 Dots and labels follow native pending, connected, failed and removing snapshots.
 Native errors receive actionable German copy.
 
-Settings search filters section labels and account identities. Cmd/Ctrl+F focuses
-it; Escape and a labeled clear action clear it. Section/account buttons expose
+The eight sections are Allgemein, SIP-Konten, Ton, Mitteilungen, Kontakte & Verlauf,
+Datenschutz, Diagnose & Hilfe and Über Ruf. The direct Deine Konten block remains
+below navigation and never becomes a collapsible hierarchy. Section, overview
+and embedded account headings follow h1/h2/h3; action names include their account.
+Overview names wrap without overlapping actions; sidebar names may truncate.
+
+Settings search filters section labels and account identities and indexes concrete
+field labels/synonyms. Results navigate, reveal parent disclosures and focus the
+registered field or heading; never index secrets or execute a matched action.
+Cmd/Ctrl+F focuses search; Escape and a labeled clear action clear it. Section/account buttons expose
 `aria-current`. Account names truncate above their SIP identity. The outgoing
 account picker is independent of the account being edited. The plus action
 opens an empty form and disables at eight accounts.
 
-Unsaved account or sound edits reveal an inline continue/discard choice before
-navigation; the notice scrolls into view and focuses continue editing.
+Unsaved account, sound or preference edits reveal an inline continue/discard
+choice before navigation; the notice scrolls into view and focuses continue editing.
 Continuing edits, including Escape, restores the last focused field when available.
 Removal requires inline confirmation and deletes the stored password. Account mutations
 are disabled during calls or busy operations. Browser and portable modes explain
-unavailable native operations. About retains storage details, SIP/UDP limits
-and the collapsed local Asterisk guide.
+unavailable native operations. Datenschutz contains storage and permission
+information; Diagnose & Hilfe holds health checks, help and developer audio.
+About retains version/changelog, SIP/UDP limits, authorship, links and the
+collapsed software/license inventory.
 
 ### Sound
 
@@ -377,10 +387,29 @@ Klingelton anhören explicitly previews two seconds on the selected output witho
 saving, changes to Hörprobe stoppen while native playback is reported, and has
 a live status. Ton speichern requires unsaved changes and applies to all SIP
 accounts. Device changes and preview are disabled during calls, operations or
-unavailable native support. Audio für Entwicklung remains initially collapsed:
+unavailable native support. Ton also provides classic/soft/short ringtones,
+ringtone-only volume, an explicit ten-second microphone meter and two-second
+speaker test. Tests use the selected draft devices and stop when a call wins or
+the owning panel closes. They never capture through a browser audio pipeline.
+
+Audio für Entwicklung remains initially collapsed under Diagnose & Hilfe:
 it selects the shared source before the first account, then shows and locks the
 engine snapshot's `audioMode` for the session. Test-tone mode discloses its
 440-Hz source, received-audio recording and suppressed automatic ringing.
+
+### Permissions, diagnostics and local data
+
+Mitteilungen keeps app preferences separate from OS authorization, even with the
+app switch off or metadata unavailable. Read errors show an unknown state; explicit
+request/open actions and test delivery have their own errors and never overwrite
+a known authorization state. A test notification is anonymous, delayed five
+seconds and has no call actions. Enqueue success is not a visible-banner claim.
+
+Datenschutz reuses contact permission controls and adds microphone metadata.
+Opening it does not fetch contacts or capture samples. Diagnose & Hilfe shows
+unavailable readings honestly and previews/copies only the native whitelist.
+Kontakte & Verlauf holds contact ordering/company display and history collection,
+retention and explicit deletion. Keep destructive confirmations local and clear.
 
 ### Calls, containers and empty states
 
