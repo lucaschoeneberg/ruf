@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { compile } from "svelte/compiler";
 import { render } from "svelte/server";
+import type { ErrorCode } from "../../apps/desktop/src/lib/generated/AppInfo";
 
 Bun.plugin({
   name: "svelte-server-components",
@@ -81,3 +82,62 @@ for (const [state, label] of [
     if (state === "held") expect(body).toContain("02:34");
     else expect(body).not.toContain("02:34");
   });
+
+const { default: AccountSetup } =
+  await import("../../apps/desktop/src/lib/components/AccountSetup.svelte");
+
+function accountRecovery(code: ErrorCode, disabled = false) {
+  return render(AccountSetup, {
+    props: {
+      account: {
+        registrar: "pbx.example.test",
+        username: "alice",
+        password: "",
+        audioMode: "system",
+      },
+      name: "Büro",
+      existing: {
+        id: 1,
+        name: "Büro",
+        registrar: "pbx.example.test",
+        username: "alice",
+        registration: "failed",
+        lastError: { code, message: "Synthetic local error", sipStatus: null },
+        removing: false,
+      },
+      busy: false,
+      disabled,
+      async onconfigure() {},
+      onremove() {},
+      onreconnect() {},
+    },
+  }).body;
+}
+
+test("account storage failure does not imply incorrect SIP credentials", () => {
+  const body = accountRecovery("storageFailure");
+  expect(body).toContain("App-Datenordner");
+  expect(body).not.toContain("Prüfe die Zugangsdaten");
+  expect(body).not.toContain("Erneut verbinden</button>");
+});
+
+for (const code of ["credentialAccessRequired", "credentialFailure"] as const)
+  test(`${code} offers an explicit retry using the stored credential`, () => {
+    const body = accountRecovery(code);
+    expect(body).toContain("System-Schlüsselbund");
+    expect(body).toContain("Erneut verbinden</button>");
+    expect(body).not.toContain("Prüfe die Zugangsdaten");
+  });
+
+test("missing credential requires entering a password rather than retrying access", () => {
+  const body = accountRecovery("credentialMissing");
+  expect(body).toContain("Gib das Passwort ein");
+  expect(body).not.toContain("Erneut verbinden</button>");
+  expect(body).not.toContain("Leer lassen");
+});
+
+test("credential retry is disabled during a call", () => {
+  expect(accountRecovery("credentialAccessRequired", true)).toMatch(
+    /<button[^>]*disabled[^>]*>Erneut verbinden<\/button>/,
+  );
+});

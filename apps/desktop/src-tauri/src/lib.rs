@@ -59,6 +59,7 @@ pub fn run() {
             commands::answer,
             commands::reject,
             commands::save_account,
+            commands::reconnect_account,
             commands::select_account,
             commands::remove_account,
             commands::open_settings,

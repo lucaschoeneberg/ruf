@@ -17,6 +17,7 @@
     disabled,
     onconfigure,
     onremove,
+    onreconnect,
   }: {
     account: AccountConfig;
     name: string;
@@ -26,16 +27,28 @@
     disabled: boolean;
     onconfigure: (account: AccountConfig, name: string) => Promise<void>;
     onremove: () => void;
+    onreconnect: () => void;
   } = $props();
   let errors = $state<AccountErrors>({});
   let nameError = $state("");
   let form: HTMLFormElement;
   let confirmRemove = $state(false);
+  const missingCredential = $derived(
+    existing?.lastError?.code === "credentialMissing",
+  );
+  const canReconnect = $derived(
+    existing?.registration === "failed" &&
+      (existing.lastError?.code === "credentialAccessRequired" ||
+        existing.lastError?.code === "credentialFailure"),
+  );
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (disabled || busy || removed) return;
     const normalized = normalizeAccount(account);
-    errors = validateAccount(normalized, existing !== null);
+    errors = validateAccount(
+      normalized,
+      existing !== null && !missingCredential,
+    );
     nameError =
       !name.trim() ||
       [...name.trim()].length > 64 ||
@@ -91,9 +104,14 @@
     >{/if}
 </div>
 {#if existing?.lastError}<p class="settings-feedback error" role="status">
-    {errorMessage(existing.lastError)} Prüfe die Zugangsdaten und verbinde das Konto
-    erneut.
+    {errorMessage(existing.lastError)}
   </p>{/if}
+{#if canReconnect}<button
+    class="secondary-button"
+    type="button"
+    disabled={disabled || busy || removed || existing?.removing}
+    onclick={onreconnect}>Erneut verbinden</button
+  >{/if}
 
 <form bind:this={form} onsubmit={submit} novalidate>
   <fieldset disabled={disabled || busy || removed || existing?.removing}>
@@ -175,9 +193,11 @@
       <div class="setting-description">
         <label for="password">Passwort</label>
         <p id="password-help">
-          {existing || removed
-            ? "Leer lassen, um das gespeicherte Passwort zu behalten."
-            : "Wird sicher im System-Schlüsselbund gespeichert."}
+          {missingCredential
+            ? "Gib das Passwort ein und speichere das Konto."
+            : existing || removed
+              ? "Leer lassen, um das gespeicherte Passwort zu behalten."
+              : "Wird sicher im System-Schlüsselbund gespeichert."}
         </p>
       </div>
       <div class="setting-control">
@@ -186,11 +206,11 @@
           name="password"
           bind:value={account.password}
           type="password"
-          placeholder={existing || removed
+          placeholder={(existing || removed) && !missingCredential
             ? "Gespeichertes Passwort"
             : "SIP-Passwort"}
           autocomplete="new-password"
-          required={!existing && !removed}
+          required={missingCredential || (!existing && !removed)}
           aria-invalid={!!errors.password}
           aria-describedby={errors.password
             ? "password-error"

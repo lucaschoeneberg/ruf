@@ -126,3 +126,27 @@ test("editing a saved account may keep an empty password, creation may not", () 
     validateAccount({ ...input, password: "bad\0value" }, true).password,
   ).toBeDefined();
 });
+
+for (const [code, guidance] of [
+  ["credentialAccessRequired", /Schlüsselbund/],
+  ["credentialMissing", /Passwort.*eingeben|Gib.*Passwort/],
+  ["credentialFailure", /Schlüsselbund/],
+] as const)
+  test(`${code} gives local credential recovery without exposing native details`, () => {
+    const message = errorMessage({ code, message: "secret native details" });
+    expect(message).toMatch(guidance);
+    expect(message).not.toContain("secret native details");
+    expect(message).not.toMatch(
+      /SIP-Anmeldung wurde abgelehnt|falsche.*Passwort/,
+    );
+  });
+
+test("unusable saved credentials explain both retry and password replacement safely", () => {
+  const message = errorMessage({
+    code: "credentialFailure",
+    message: "private malformed secret contents",
+  });
+  expect(message).toMatch(/Erneut verbinden/);
+  expect(message).toMatch(/Passwort.*ein.*speichere/);
+  expect(message).not.toContain("private malformed secret contents");
+});

@@ -9,6 +9,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(all(test, feature = "native"))]
+#[path = "credential_recovery_tests.rs"]
+mod credential_recovery_tests;
+
 pub(crate) struct PhoneSession {
     engine: Option<Engine>,
     store: Option<AccountStore>,
@@ -83,19 +87,18 @@ impl PhoneSession {
             let mut engine = self.start_engine(settings.audio_mode, &settings.sound)?;
             let mut keys = BTreeMap::new();
             for saved in &settings.accounts {
-                let password = self.credentials.read(&saved.key, false);
-                let config = AccountConfig {
+                let mut config = AccountConfig {
                     registrar: saved.registrar.clone(),
                     username: saved.username.clone(),
-                    password: password
-                        .as_ref()
-                        .cloned()
-                        .unwrap_or_else(|_| "unavailable".into()),
+                    password: "unavailable".into(),
                     audio_mode: settings.audio_mode,
                 };
-                let id = match password {
-                    Ok(_) => engine.save_account(None, &saved.name, &config)?,
+                let credential =
+                    read_saved_password(self.credentials.as_ref(), &saved.key, false, &mut config);
+                let id = match credential {
+                    Ok(()) => engine.save_account(None, &saved.name, &config)?,
                     Err(error) => {
+                        config.password = "unavailable".into();
                         engine.restore_unavailable_account(&saved.name, &config, error)?
                     }
                 };
@@ -157,6 +160,10 @@ impl PhoneSession {
                 return;
             }
         };
+        if durable != self.settings {
+            self.storage_warning = Some(store::storage_error());
+            return;
+        }
         let mut next = self.settings.clone();
         next.pending_deletions.retain(|key| {
             self.credential_save.as_ref() == Some(key)
@@ -185,10 +192,21 @@ impl PhoneSession {
         })
     }
     fn write(&self, settings: &SavedSettings) -> Result<(), PhoneError> {
-        self.store
-            .as_ref()
-            .ok_or_else(store::storage_error)?
-            .write(settings)
+        self.write_from(&self.settings, settings)
+    }
+
+    // PhoneState serializes internal mutations. A failed rollback or a changed
+    // file must not let stale session state replace the last durable settings.
+    fn write_from(
+        &self,
+        expected: &SavedSettings,
+        settings: &SavedSettings,
+    ) -> Result<(), PhoneError> {
+        let store = self.store.as_ref().ok_or_else(store::storage_error)?;
+        if store.load()? != *expected {
+            return Err(store::storage_error());
+        }
+        store.write(settings)
     }
 
     fn validate_save(
@@ -344,7 +362,7 @@ impl PhoneSession {
             }) {
             Ok(id) => id,
             Err(error) => {
-                self.write(&self.settings)?;
+                self.write_from(&next, &self.settings)?;
                 return Err(error);
             }
         };
@@ -385,7 +403,7 @@ impl PhoneSession {
         if let Some(engine) = self.engine.as_mut()
             && let Err(error) = engine.set_sound_settings(&sound)
         {
-            self.write(&self.settings)?;
+            self.write_from(&next, &self.settings)?;
             return Err(error);
         }
         self.settings = next;
@@ -454,18 +472,16 @@ impl PhoneSession {
                 .find(|a| a.key == key)
                 .cloned()
                 .ok_or_else(store::storage_error)?;
-            let password = self.credentials.read(&key, false);
-            let config = AccountConfig {
+            let mut config = AccountConfig {
                 registrar: saved.registrar,
                 username: saved.username,
-                password: password
-                    .as_ref()
-                    .cloned()
-                    .unwrap_or_else(|_| "unavailable".into()),
+                password: "unavailable".into(),
                 audio_mode: self.settings.audio_mode,
             };
-            let restore = match password {
-                Ok(_) => self
+            let credential =
+                read_saved_password(self.credentials.as_ref(), &key, false, &mut config);
+            let restore = match credential {
+                Ok(()) => self
                     .engine()?
                     .save_account(None, &saved.name, &config)
                     .and_then(|id| {
@@ -477,12 +493,17 @@ impl PhoneSession {
             let restored_id = match restore {
                 Ok(id) => id,
                 Err(error) => {
+                    config.password = "unavailable".into();
                     self.engine()?
                         .restore_unavailable_account(&saved.name, &config, error)?
                 }
             };
+            let was_selected = self.settings.selected_key.as_ref() == Some(&key);
             self.keys.remove(&id);
             self.keys.insert(restored_id, key);
+            if was_selected {
+                self.engine()?.select_account(restored_id)?;
+            }
             return Err(error);
         }
         self.settings = next;
@@ -498,6 +519,23 @@ impl PhoneSession {
         }
         Ok(())
     }
+}
+
+// Callers validate nonsecret metadata before reading. An invalid saved secret is
+// a credential failure, distinct from invalid fields entered in a save request.
+fn read_saved_password(
+    credentials: &dyn store::CredentialStore,
+    key: &str,
+    interactive: bool,
+    account: &mut AccountConfig,
+) -> Result<(), PhoneError> {
+    account.password = credentials.read(key, interactive)?;
+    account.validate().map_err(|_| {
+        PhoneError::new(
+            ErrorCode::CredentialFailure,
+            "The saved password is invalid. Enter the SIP password and save the account.",
+        )
+    })
 }
 
 enum SaveTarget {
@@ -516,9 +554,11 @@ struct PreparedSave {
 impl PreparedSave {
     fn persist_credentials(&mut self) -> Result<(), PhoneError> {
         if self.account.password.is_empty() {
-            self.account.password = self.credentials.read(
+            read_saved_password(
+                self.credentials.as_ref(),
                 self.old_key.as_deref().ok_or_else(store::storage_error)?,
                 true,
+                &mut self.account,
             )?;
         }
         self.account.validate()?;
@@ -529,6 +569,90 @@ impl PreparedSave {
 #[derive(Clone, Default)]
 pub(crate) struct PhoneState(Arc<Mutex<PhoneSession>>, Arc<Mutex<()>>);
 impl PhoneState {
+    /// Explicitly authorize reuse of a saved credential without saving form drafts or rotating secrets.
+    /// Credential UI runs outside the session lock; account/call state is revalidated afterward.
+    pub async fn reconnect_account(
+        &self,
+        directory: PathBuf,
+        cache: PathBuf,
+        id: u32,
+    ) -> Result<EngineSnapshot, PhoneError> {
+        let state = self.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            state.reconnect_account_blocking(directory, cache, id)
+        })
+        .await
+        .map_err(|_| lock_error())?
+    }
+
+    fn reconnect_account_blocking(
+        &self,
+        directory: PathBuf,
+        cache: PathBuf,
+        id: u32,
+    ) -> Result<EngineSnapshot, PhoneError> {
+        // Serialize explicit credential actions without blocking native state observation.
+        let _operation = self.1.lock().map_err(|_| lock_error())?;
+        let (saved, mut account, credentials) = self.with(|session| {
+            session.load(directory, cache)?;
+            let key = session.keys.get(&id).ok_or_else(|| {
+                PhoneError::new(ErrorCode::InvalidInput, "Unknown saved account.")
+            })?;
+            let saved = session
+                .settings
+                .accounts
+                .iter()
+                .find(|account| &account.key == key)
+                .cloned()
+                .ok_or_else(|| {
+                    PhoneError::new(ErrorCode::InvalidState, "Saved account metadata changed.")
+                })?;
+            let account = AccountConfig {
+                registrar: saved.registrar.clone(),
+                username: saved.username.clone(),
+                password: "unavailable".into(),
+                audio_mode: session.settings.audio_mode,
+            };
+            session.validate_save(Some(id), &saved.name, &account)?;
+            if session
+                .snapshot()?
+                .accounts
+                .iter()
+                .find(|account| account.id == id)
+                .is_none_or(|account| account.removing)
+            {
+                return Err(PhoneError::new(
+                    ErrorCode::InvalidState,
+                    "The saved account is unavailable or being removed.",
+                ));
+            }
+            Ok((saved, account, Arc::clone(&session.credentials)))
+        })?;
+
+        // Only this foreground user action permits a system authorization dialog.
+        read_saved_password(credentials.as_ref(), &saved.key, true, &mut account)?;
+        self.with(|session| {
+            if session.keys.get(&id) != Some(&saved.key)
+                || session
+                    .settings
+                    .accounts
+                    .iter()
+                    .find(|account| account.key == saved.key)
+                    != Some(&saved)
+            {
+                return Err(PhoneError::new(
+                    ErrorCode::InvalidState,
+                    "The account changed during credential authorization.",
+                ));
+            }
+            session.validate_save(Some(id), &saved.name, &account)?;
+            let engine = session.engine()?;
+            let applied_id = engine.save_account(Some(id), &saved.name, &account)?;
+            engine.wait_account_update(applied_id)?;
+            session.snapshot()
+        })
+    }
+
     /// Save an account without holding phone state while OS credentials may ask for authorization.
     pub async fn save_account(
         &self,
@@ -918,6 +1042,135 @@ mod credential_tests {
             key
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_does_not_overwrite_newer_durable_accounts_after_rollback_failure() {
+        let (entered, _) = mpsc::channel();
+        let (_, release) = mpsc::channel();
+        let credentials = Arc::new(BlockedCredentials {
+            entered,
+            release: Mutex::new(release),
+            fail_write: false,
+            fail_delete: false,
+            values: Mutex::new(BTreeMap::from([
+                ("abcd-5678".into(), "replacement".into()),
+                ("abcd-9999".into(), "obsolete".into()),
+            ])),
+        });
+        let root = std::env::temp_dir().join(format!("sip-newer-metadata-{}", std::process::id()));
+        let store = AccountStore {
+            path: root.join("accounts.json"),
+        };
+        store
+            .write(&SavedSettings {
+                accounts: vec![SavedAccount {
+                    key: "abcd-5678".into(),
+                    name: "Durable replacement".into(),
+                    registrar: "pbx.test".into(),
+                    username: "1000".into(),
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let before = std::fs::read(&store.path).unwrap();
+        let mut session = PhoneSession {
+            store: Some(store),
+            credentials,
+            settings: SavedSettings {
+                pending_deletions: vec!["abcd-5678".into(), "abcd-9999".into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        session.cleanup_credentials();
+        let after = std::fs::read(&session.store.as_ref().unwrap().path).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            after, before,
+            "cleanup replaced newer account metadata with stale session state"
+        );
+        assert_eq!(
+            session.snapshot().unwrap().last_error.unwrap().code,
+            ErrorCode::StorageFailure
+        );
+    }
+
+    #[test]
+    fn preference_save_rejects_stale_metadata_instead_of_erasing_durable_accounts() {
+        let root =
+            std::env::temp_dir().join(format!("sip-stale-preferences-{}", std::process::id()));
+        let store = AccountStore {
+            path: root.join("accounts.json"),
+        };
+        store
+            .write(&SavedSettings {
+                accounts: vec![SavedAccount {
+                    key: "abcd-5678".into(),
+                    name: "Durable replacement".into(),
+                    registrar: "pbx.test".into(),
+                    username: "1000".into(),
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let before = std::fs::read(&store.path).unwrap();
+        let mut session = PhoneSession {
+            store: Some(store),
+            ..Default::default()
+        };
+        let result = session.save_desktop_preferences(store::DesktopPreferences {
+            notifications_enabled: false,
+            ..Default::default()
+        });
+        let after = std::fs::read(&session.store.as_ref().unwrap().path).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(result.unwrap_err().code, ErrorCode::StorageFailure);
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn retaining_malformed_saved_password_is_a_credential_failure() {
+        let (entered, _) = mpsc::channel();
+        let (_, release) = mpsc::channel();
+        let mut prepared = PreparedSave {
+            id: Some(1),
+            name: "Synthetic account".into(),
+            account: AccountConfig {
+                registrar: "pbx.test".into(),
+                username: "1000".into(),
+                password: String::new(),
+                audio_mode: AudioMode::System,
+            },
+            old_key: Some("abcd-1111".into()),
+            key: "abcd-2222".into(),
+            credentials: Arc::new(BlockedCredentials {
+                entered,
+                release: Mutex::new(release),
+                fail_write: false,
+                fail_delete: false,
+                values: Mutex::new(BTreeMap::from([("abcd-1111".into(), String::new())])),
+            }),
+        };
+        assert_eq!(
+            prepared.persist_credentials().unwrap_err().code,
+            ErrorCode::CredentialFailure
+        );
+    }
+
+    #[test]
+    fn snapshots_before_native_startup_are_ordered_for_delayed_delivery() {
+        let mut session = PhoneSession::default();
+        let before_change = session.snapshot().unwrap();
+        session.settings.sound.ringtone_enabled = false;
+        let after_change = session.snapshot().unwrap();
+        assert!(session.engine.is_none());
+        assert!(before_change.sound_settings.ringtone_enabled);
+        assert!(!after_change.sound_settings.ringtone_enabled);
+        assert!(
+            after_change.revision > before_change.revision,
+            "a delayed earlier snapshot can overwrite newer saved sound settings",
+        );
     }
 
     #[test]

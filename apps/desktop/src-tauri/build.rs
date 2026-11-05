@@ -24,6 +24,7 @@ fn main() {
             "reject",
             "hangup",
             "save_account",
+            "reconnect_account",
             "select_account",
             "remove_account",
             "open_settings",

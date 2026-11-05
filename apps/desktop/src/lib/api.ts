@@ -32,6 +32,8 @@ export const saveAccount = (
 ) => desktopInvoke<EngineSnapshot>("save_account", { id, name, account });
 export const removeAccount = (id: number) =>
   desktopInvoke<EngineSnapshot>("remove_account", { id });
+export const reconnectAccount = (id: number) =>
+  desktopInvoke<EngineSnapshot>("reconnect_account", { id });
 export const selectAccount = (id: number) =>
   desktopInvoke<EngineSnapshot>("select_account", { id });
 export type SettingsSection =
@@ -82,10 +84,16 @@ export function errorMessage(error: unknown): string {
         return "Die Aktion passt nicht zum aktuellen Gesprächsstatus. Prüfe den Status und versuche es erneut.";
       case "engineUnavailable":
         return "Telefonieren ist hier nicht verfügbar. Nutze die Desktop-App mit nativer Telefonie.";
+      case "credentialAccessRequired":
+        return "Ruf benötigt Zugriff auf das gespeicherte Passwort im System-Schlüsselbund. Wähle „Erneut verbinden“ und bestätige bei Bedarf die Systemabfrage.";
+      case "credentialMissing":
+        return "Für dieses Konto ist kein Passwort im System-Schlüsselbund gespeichert. Gib das Passwort ein und wähle „Speichern & verbinden“.";
+      case "credentialFailure":
+        return "Das gespeicherte Passwort im System-Schlüsselbund konnte nicht verwendet werden. Wähle „Erneut verbinden“ oder gib das Passwort erneut ein und speichere das Konto.";
       case "credentialCleanupPending":
         return "Die Kontoänderung ist gespeichert. Ein altes Passwort konnte noch nicht aus dem Schlüsselbund gelöscht werden. Erlaube den Zugriff und starte die App erneut, damit die Löschung wiederholt wird.";
       case "storageFailure":
-        return "Die Einstellungen konnten nicht gespeichert oder geladen werden. Prüfe den Zugriff auf den System-Schlüsselbund und den App-Datenordner. Versuche es danach erneut.";
+        return "Die Einstellungen konnten nicht gespeichert oder geladen werden. Prüfe den Zugriff auf den App-Datenordner und versuche es erneut.";
       case "sipRedirect":
         return "Der Anruf soll umgeleitet werden. Ruf wählt das neue Ziel nicht automatisch. Prüfe die Zielnummer.";
       case "sipAuthenticationFailed":

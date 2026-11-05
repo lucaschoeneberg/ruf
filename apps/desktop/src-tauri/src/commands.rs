@@ -62,6 +62,23 @@ pub async fn save_account(
         .await
 }
 
+/// Reconnect a saved account after explicit foreground credential authorization.
+/// Required id must refer to an existing, non-removing account; requires idle call state.
+/// Does not save form drafts, rewrite metadata, rotate credentials or change outgoing selection.
+#[tauri::command]
+pub async fn reconnect_account(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    id: u32,
+) -> Result<EngineSnapshot, PhoneError> {
+    let directory = crate::store::data_directory(&app)?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    state.reconnect_account(directory, cache, id).await
+}
+
 /// Compatibility command: save/replace the selected account using its username as name.
 #[tauri::command]
 pub async fn configure_account(

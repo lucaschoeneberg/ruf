@@ -9,6 +9,7 @@
     getEngineSnapshot,
     saveAccount,
     removeAccount,
+    reconnectAccount,
     getAudioDevices,
     saveSoundSettings,
     previewRingtone,
@@ -534,6 +535,36 @@
       if (mounted) busy = false;
     }
   }
+  async function reconnect() {
+    const target = existing;
+    if (
+      busy ||
+      disabled ||
+      removedDraft ||
+      !target ||
+      target.removing ||
+      target.registration !== "failed" ||
+      (target.lastError?.code !== "credentialAccessRequired" &&
+        target.lastError?.code !== "credentialFailure")
+    )
+      return;
+    const current = ++epoch;
+    busy = true;
+    error = null;
+    feedback = "";
+    try {
+      const result = await reconnectAccount(target.id);
+      if (!mounted || current !== epoch) return;
+      applySnapshot(result);
+      const updated = snapshot?.accounts.find((item) => item.id === target.id);
+      if (updated?.lastError) error = errorMessage(updated.lastError);
+      else feedback = "Die Anmeldung mit dem gespeicherten Passwort läuft.";
+    } catch (reason) {
+      if (mounted && current === epoch) error = errorMessage(reason);
+    } finally {
+      if (mounted && current === epoch) busy = false;
+    }
+  }
   async function remove() {
     if (busy || disabled || editedId === null) return;
     busy = true;
@@ -864,6 +895,9 @@
             {busy}
             disabled={disabled || removedDraft}
             onconfigure={save}
+            onreconnect={() => {
+              void reconnect();
+            }}
             onremove={() => {
               void remove();
             }}

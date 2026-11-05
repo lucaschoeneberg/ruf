@@ -74,7 +74,7 @@ password: string,
  */
 audioMode: AudioMode, };
 
-export type ErrorCode = "invalidInput" | "notRegistered" | "busy" | "invalidState" | "engineUnavailable" | "storageFailure" | "credentialCleanupPending" | "nativeFailure" | "sipRedirect" | "sipAuthenticationFailed" | "sipForbidden" | "sipNotFound" | "sipTimeout" | "sipUnavailable" | "sipBusy" | "sipNotAcceptable" | "sipRejected" | "sipFailure";
+export type ErrorCode = "invalidInput" | "notRegistered" | "busy" | "invalidState" | "engineUnavailable" | "storageFailure" | "credentialAccessRequired" | "credentialMissing" | "credentialFailure" | "credentialCleanupPending" | "nativeFailure" | "sipRedirect" | "sipAuthenticationFailed" | "sipForbidden" | "sipNotFound" | "sipTimeout" | "sipUnavailable" | "sipBusy" | "sipNotAcceptable" | "sipRejected" | "sipFailure";
 
 export type PhoneError = {
 /**

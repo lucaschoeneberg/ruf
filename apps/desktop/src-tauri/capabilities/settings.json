@@ -10,6 +10,7 @@
     "allow-open-contacts-settings",
     "allow-get-engine-snapshot",
     "allow-save-account",
+    "allow-reconnect-account",
     "allow-remove-account",
     "allow-configure-account",
     "allow-get-audio-devices",

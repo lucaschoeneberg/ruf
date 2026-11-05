@@ -119,8 +119,14 @@ pub enum ErrorCode {
     InvalidState,
     /// The build does not contain native support.
     EngineUnavailable,
-    /// Account metadata or the operating-system credential store is unavailable.
+    /// Account metadata, preferences or application-data storage is unavailable.
     StorageFailure,
+    /// The OS credential store needs foreground authorization or unlocking; not a SIP rejection.
+    CredentialAccessRequired,
+    /// No saved credential exists for this account; a password must be supplied again.
+    CredentialMissing,
+    /// The OS credential store could not initialize, read, write or decode the credential.
+    CredentialFailure,
     /// Saved changes succeeded but obsolete credential deletion needs retrying.
     CredentialCleanupPending,
     /// Native initialization, queueing or execution failed.
