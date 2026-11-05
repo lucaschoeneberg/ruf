@@ -29,17 +29,21 @@ export default async function layoutRegressions(page) {
             call: "idle",
             callId: null,
             lastError: null,
-            accounts: [
-              {
-                id: 1,
-                name: "Büro",
+            accounts: Array.from(
+              { length: location.search.includes("many-accounts") ? 8 : 1 },
+              (_, index) => ({
+                id: index + 1,
+                name: index === 0 ? "Büro" : `Konto ${index + 1}`,
                 username: "1000",
                 registrar: "pbx.example.test",
                 registration: "registered",
                 removing: false,
                 lastError: null,
-              },
-            ],
+                enabled: true,
+                enabledChanging: false,
+                registeredAtMs: null,
+              }),
+            ),
             selectedAccountId: 1,
             callAccountId: null,
             audioMode: "system",
@@ -60,6 +64,19 @@ export default async function layoutRegressions(page) {
             notificationPermission: "unsupported",
           };
         if (command === "get_audio_devices") return { inputs: [], outputs: [] };
+        if (command === "get_preferences")
+          return {
+            startHidden: true,
+            showCallerInNotifications: true,
+            contacts: { favoritesFirst: true, showOrganization: true },
+            history: { recordingEnabled: true, retentionDays: null },
+          };
+        if (command === "get_notification_permission") return "denied";
+        if (
+          command === "get_microphone_permission" ||
+          command === "get_contacts_permission"
+        )
+          return "notDetermined";
         return null;
       },
     };
@@ -114,7 +131,16 @@ export default async function layoutRegressions(page) {
   ]) {
     await target.setViewportSize({ width, height });
     await target.goto(`${origin}/?window=settings&section=general`);
-    for (const section of ["Allgemein", "SIP-Konten", "Ton", "Über Ruf"]) {
+    for (const section of [
+      "Allgemein",
+      "SIP-Konten",
+      "Ton",
+      "Mitteilungen",
+      "Kontakte & Verlauf",
+      "Datenschutz",
+      "Diagnose & Hilfe",
+      "Über Ruf",
+    ]) {
       await target
         .getByRole("button", { name: new RegExp(`^${section}(?:\\s+\\d+)?$`) })
         .click();
@@ -128,11 +154,56 @@ export default async function layoutRegressions(page) {
       });
     }
   }
+  await target.setViewportSize({ width: 740, height: 540 });
+  await target.goto(`${origin}/?window=settings&section=general&many-accounts`);
+  await target.locator(".accounts-list button").last().waitFor();
+  if (
+    !(await target
+      .locator(".accounts-list")
+      .evaluate((el) => el.scrollHeight > el.clientHeight))
+  )
+    throw Error("Eight accounts must scroll independently");
+  await target.locator(".accounts-list button").last().scrollIntoViewIfNeeded();
+  await check("eight accounts at minimum window size");
+  await target.screenshot({
+    path: "output/playwright/settings-eight-accounts-740.png",
+  });
+  await target.setViewportSize({ width: 592, height: 432 });
+  const zoom = await target.context().newCDPSession(target);
+  await zoom.send("Emulation.setDeviceMetricsOverride", {
+    width: 592,
+    height: 432,
+    deviceScaleFactor: 1.25,
+    mobile: false,
+  });
+  await target.keyboard.press("Meta+f");
+  if (
+    !(await target
+      .getByLabel("Konten und Bereiche suchen", { exact: true })
+      .evaluate((el) => el === document.activeElement))
+  )
+    throw Error("Keyboard search unavailable with enlarged text");
+  await check("settings at 125 percent zoom");
+  await target.screenshot({ path: "output/playwright/settings-zoom-125.png" });
+  if (
+    !(await target
+      .locator(".accounts-list")
+      .evaluate((el) => el.clientHeight >= 48))
+  )
+    throw Error("Enlarged settings must keep an account row visible");
+  const footer = await target.locator(".settings-sidebar-footer").boundingBox();
+  if (!footer || footer.y + footer.height > 432)
+    throw Error(
+      `Enlarged settings must retain the sidebar footer: ${JSON.stringify({ footer, viewport: await target.evaluate(() => ({ width: innerWidth, height: innerHeight, zoom: getComputedStyle(document.body).zoom })) })}`,
+    );
+  await zoom.send("Emulation.clearDeviceMetricsOverride");
+  await zoom.detach();
+  await target.setViewportSize({ width: 740, height: 540 });
   await target.goto(`${origin}/?preview`);
   const preview = await target.locator(".softphone").boundingBox();
   if (preview.width !== 340)
     throw new Error("Browser preview must retain compact 340px shell");
   if (errors.length) throw new Error(errors.join("\n"));
   await target.close();
-  return { passed: true, screenshots: 17 };
+  return { passed: true, screenshots: 27 };
 }

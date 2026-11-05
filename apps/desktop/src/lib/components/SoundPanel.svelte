@@ -16,6 +16,7 @@
     onsave,
     onpreview,
     onstop,
+    ondiscard,
   }: {
     value: SoundSettings;
     devices: AudioDevices | null;
@@ -31,6 +32,7 @@
     onsave: () => void;
     onpreview: () => void;
     onstop: () => void;
+    ondiscard: () => void;
   } = $props();
   onMount(() => onrefresh());
   const rows = [
@@ -148,10 +150,38 @@
   </div>
   <div class="setting-row">
     <div class="setting-description">
+      <label for="ringtone-style">Klingelton</label>
+      <p>Ein integrierter Ton für eingehende Anrufe.</p>
+    </div>
+    <select id="ringtone-style" bind:value={value.ringtone}
+      ><option value="classic">Klassisch</option><option value="soft"
+        >Sanft</option
+      ><option value="short">Kurz</option></select
+    >
+  </div>
+  <div class="setting-row">
+    <div class="setting-description">
+      <label for="ringtone-volume">Klingellautstärke</label>
+      <p>Ändert nur Ruf, nicht die System- oder Gesprächslautstärke.</p>
+    </div>
+    <div class="setting-control">
+      <input
+        id="ringtone-volume"
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        bind:value={value.ringtoneVolume}
+      /><output for="ringtone-volume">{value.ringtoneVolume} %</output>
+    </div>
+  </div>
+  <div class="setting-row">
+    <div class="setting-description">
       <h3>Klingelton anhören</h3>
       <p>
-        Zwei Sekunden auf der gewählten Klingelton-Ausgabe. Deine Auswahl wird
-        dabei noch nicht gespeichert.
+        Zwei Sekunden auf der gewählten Klingelton-Ausgabe. Ton und Lautstärke
+        entsprechen den gespeicherten Einstellungen; speichere Änderungen daran
+        vor der Hörprobe.
       </p>
     </div>
     <div class="setting-control sound-preview">
@@ -166,17 +196,24 @@
       >
     </div>
   </div>
-  <div class="settings-form-actions">
+  <div class="settings-form-actions settings-save-bar">
     <p>
       {dirty
         ? "Deine Änderungen sind noch nicht gespeichert."
         : "Die Auswahl gilt für alle SIP-Konten."}
     </p>
-    <button
-      class="primary-button"
-      type="button"
-      disabled={disabled || busy || !dirty}
-      onclick={onsave}>{busy ? "Bitte warten …" : "Ton speichern"}</button
-    >
+    <div class="settings-actions">
+      <button
+        type="button"
+        class="text-button"
+        disabled={disabled || busy || !dirty}
+        onclick={ondiscard}>Verwerfen</button
+      ><button
+        class="primary-button"
+        type="button"
+        disabled={disabled || busy || !dirty}
+        onclick={onsave}>{busy ? "Bitte warten …" : "Ton speichern"}</button
+      >
+    </div>
   </div>
 </fieldset>

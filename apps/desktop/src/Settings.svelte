@@ -15,8 +15,11 @@
     previewRingtone,
     stopRingtonePreview,
     getDesktopSettings,
-    requestNotificationPermission,
     saveDesktopSettings,
+    getPreferences,
+    savePreferences,
+    selectAccount,
+    setAccountEnabled,
     quitApp,
     settingsReady,
     type SettingsSection,
@@ -29,11 +32,18 @@
     SoundSettings,
     AudioDevices,
     DesktopSettings,
+    AppPreferences,
   } from "./lib/generated/AppInfo";
   import AccountSetup from "./lib/components/AccountSetup.svelte";
   import SoundPanel from "./lib/components/SoundPanel.svelte";
-  import ContactsSettings from "./lib/components/ContactsSettings.svelte";
   import AboutPanel from "./lib/components/AboutPanel.svelte";
+  import GeneralSettings from "./lib/components/GeneralSettings.svelte";
+  import NotificationSettings from "./lib/components/NotificationSettings.svelte";
+  import PrivacySettings from "./lib/components/PrivacySettings.svelte";
+  import DiagnosticsSettings from "./lib/components/DiagnosticsSettings.svelte";
+  import DataSettings from "./lib/components/DataSettings.svelte";
+  import AudioDiagnostics from "./lib/components/AudioDiagnostics.svelte";
+  import { settingsSections, searchSettings } from "./lib/settings-navigation";
   import Icon from "./lib/components/Icon.svelte";
 
   type Section = SettingsSection;
@@ -46,7 +56,6 @@
   let browser = $state(false);
   let error = $state<string | null>(null);
   let feedback = $state("");
-  let permissionFeedback = $state("");
   let editedId = $state<number | null>(null);
   let name = $state("");
   let account = $state<AccountConfig>({
@@ -60,10 +69,30 @@
     outputDevice: "",
     ringDevice: "",
     ringtoneEnabled: true,
+    ringtone: "classic",
+    ringtoneVolume: 100,
   });
   let sound = $state<SoundSettings>(defaultSound());
   let soundBaseline = $state(JSON.stringify(defaultSound()));
   const soundDirty = $derived(JSON.stringify(sound) !== soundBaseline);
+  const defaultPreferences = (): AppPreferences => ({
+    startHidden: true,
+    showCallerInNotifications: true,
+    contacts: { favoritesFirst: true, showOrganization: true },
+    history: { recordingEnabled: true, retentionDays: null },
+  });
+  let preferences = $state<AppPreferences | null>(null);
+  let preferenceDraft = $state<AppPreferences>(defaultPreferences());
+  let preferencesLoading = $state(false);
+  let preferencesError = $state<string | null>(null);
+  let confirmRetention = $state(false);
+  const preferencesDirty = $derived(
+    preferences !== null &&
+      JSON.stringify(preferenceDraft) !== JSON.stringify(preferences),
+  );
+  let helpOverlay = $state<Section | null>(null);
+  const activeSection = $derived(helpOverlay ?? section);
+  const readOnlySections: Section[] = ["privacy", "diagnostics", "about"];
   let desktopSettings = $state<DesktopSettings | null>(null);
   let autostartEnabled = $state(false);
   let notificationsEnabled = $state(false);
@@ -78,7 +107,12 @@
   let devicesError = $state<string | null>(null);
   let baseline = $state("");
   type PendingAction =
-    | { kind: "navigate"; section: Section; id: number | null }
+    | {
+        kind: "navigate";
+        section: Section;
+        id: number | null;
+        target?: string | undefined;
+      }
     | { kind: "close" | "quit" };
   let pendingNavigation = $state<PendingAction | null>(null);
   let ownsPreview = false;
@@ -119,53 +153,19 @@
   const dirty = $derived(
     section === "audio"
       ? soundDirty
-      : section === "general"
-        ? desktopDirty
+      : ["general", "notifications", "contacts"].includes(section)
+        ? desktopDirty || preferencesDirty
         : section === "accounts" && accountDirty,
   );
   const needle = $derived(query.trim().toLocaleLowerCase("de"));
-  const sections = [
-    {
-      id: "general",
-      label: "Allgemein",
-      icon: "settings",
-      terms:
-        "autostart anmeldung starten mitteilungen benachrichtigungen hintergrund schließen",
-    },
-    {
-      id: "accounts",
-      label: "SIP-Konten",
-      icon: "contacts",
-      terms:
-        "konto konten server benutzername passwort telefonanlage verbindung",
-    },
-    {
-      id: "audio",
-      label: "Ton",
-      icon: "audio",
-      terms:
-        "audio ton mikrofon lautsprecher klingelton hörprobe testton aufzeichnung",
-    },
-    {
-      id: "contacts",
-      label: "Kontakte",
-      icon: "contacts",
-      terms:
-        "adressbuch kontakte freigabe datenschutz berechtigung zugriff macos",
-    },
-    {
-      id: "about",
-      label: "Über Ruf",
-      icon: "info",
-      terms:
-        "version changelog neuerungen änderungen autor mardu firma impressum datenschutz software sbom lizenzen open source speicherung schlüsselbund protokoll",
-    },
-  ] as const;
+  const sections = settingsSections;
+  const searchResults = $derived(searchSettings(query));
   const visibleSections = $derived(
     sections.filter(
       (s) =>
         !needle ||
-        `${s.label} ${s.terms}`.toLocaleLowerCase("de").includes(needle),
+        s.label.toLocaleLowerCase("de").includes(needle) ||
+        searchResults.some((result) => result.section === s.id),
     ),
   );
   const visibleAccounts = $derived(
@@ -197,13 +197,29 @@
     });
     feedback = "";
   }
-  function navigate(next: Section, id: number | null = editedId) {
-    if (busy || (next === section && id === editedId)) return;
-    if (dirty) {
-      showDiscard({ kind: "navigate", section: next, id });
+  function navigate(
+    next: Section,
+    id: number | null = editedId,
+    target?: string,
+  ) {
+    if (busy) {
+      if (readOnlySections.includes(next)) helpOverlay = next;
       return;
     }
-    applyNavigation(next, id);
+    if (helpOverlay && next === section && id === editedId && !target) {
+      helpOverlay = null;
+      return;
+    }
+    if (next === section && id === editedId && !target && !helpOverlay) return;
+    if (dirty && next !== section) {
+      showDiscard({ kind: "navigate", section: next, id, target });
+      return;
+    }
+    if (dirty && next === "accounts" && id !== editedId) {
+      showDiscard({ kind: "navigate", section: next, id, target });
+      return;
+    }
+    applyNavigation(next, id, target);
   }
   function showDiscard(action: PendingAction) {
     pendingNavigation = action;
@@ -213,6 +229,7 @@
     });
   }
   function continueEditing() {
+    helpOverlay = null;
     pendingNavigation = null;
     void tick().then(() => {
       if (editedControl?.isConnected && !editedControl.disabled)
@@ -256,21 +273,43 @@
     const action = pendingNavigation;
     pendingNavigation = null;
     if (!action) return;
-    if (action.kind === "navigate") applyNavigation(action.section, action.id);
+    if (action.kind === "navigate")
+      applyNavigation(action.section, action.id, action.target);
     else void finishWindowAction(action.kind);
   }
-  function applyNavigation(next: Section, id: number | null) {
-    if (section === "audio")
+  function applyNavigation(next: Section, id: number | null, target?: string) {
+    helpOverlay = null;
+    const leaving =
+      next !== section || (next === "accounts" && id !== editedId);
+    if (leaving && section === "audio")
       void stopOwnedPreview().catch((reason) => {
         if (mounted) error = errorMessage(reason);
       });
-    if (section === "audio" && soundDirty)
+    if (leaving && section === "audio" && soundDirty)
       resetSound(snapshot?.soundSettings ?? defaultSound());
-    if (section === "general" && desktopSettings) resetDesktop(desktopSettings);
-    account.password = "";
+    if (leaving && ["general", "notifications", "contacts"].includes(section))
+      discardPreferences();
+    if (leaving) account.password = "";
     section = next;
-    edit(id);
+    if (next === "accounts" && (id !== editedId || !accountDirty)) edit(id);
     pendingNavigation = null;
+    if (target) {
+      query = "";
+      void tick().then(() => {
+        const el = document.getElementById(target);
+        for (
+          let ancestor = el?.parentElement;
+          ancestor;
+          ancestor = ancestor.parentElement
+        ) {
+          if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+        }
+        el?.scrollIntoView({ block: "center" });
+        el?.focus({ preventScroll: true });
+        el?.classList.add("settings-search-target");
+        setTimeout(() => el?.classList.remove("settings-search-target"), 1800);
+      });
+    }
   }
   function applySnapshot(result: EngineSnapshot) {
     if (snapshot && result.revision < snapshot.revision) return;
@@ -326,6 +365,7 @@
   }
   onMount(() => {
     mounted = true;
+    void loadPreferences();
     document.title = "Ruf · Einstellungen";
     browser = !isTauri();
     const requested = new URLSearchParams(window.location.search).get(
@@ -438,19 +478,37 @@
     });
   }
   async function saveDesktop() {
-    if (busy || loading || browser || !desktopSettings || !desktopDirty) return;
+    if (
+      busy ||
+      browser ||
+      (!desktopDirty && !preferencesDirty) ||
+      (desktopDirty && !desktopSettings)
+    )
+      return;
     const current = ++epoch;
     busy = true;
     error = null;
     feedback = "";
     try {
-      const result = await saveDesktopSettings(
-        autostartEnabled,
-        notificationsEnabled,
-      );
-      if (!mounted || current !== epoch) return;
-      resetDesktop(result);
-      feedback = "Allgemeine Einstellungen gespeichert.";
+      if (desktopDirty) {
+        const result = await saveDesktopSettings(
+          autostartEnabled,
+          notificationsEnabled,
+        );
+        if (!mounted || current !== epoch) return;
+        resetDesktop(result);
+      }
+      if (preferencesDirty) {
+        const result = await savePreferences(
+          $state.snapshot(preferenceDraft),
+          confirmRetention,
+        );
+        if (!mounted || current !== epoch) return;
+        preferences = result;
+        preferenceDraft = structuredClone(result);
+        confirmRetention = false;
+      }
+      feedback = "Einstellungen gespeichert.";
     } catch (reason) {
       if (mounted && current === epoch) error = errorMessage(reason);
     } finally {
@@ -465,49 +523,59 @@
       if (!mounted || current !== epoch) return;
       if (!desktopDirty) resetDesktop(result);
       else desktopSettings = result;
-      permissionFeedback = "";
     } catch (reason) {
       if (mounted && current === epoch) error = errorMessage(reason);
     }
   }
-  async function allowNotifications() {
-    if (
-      busy ||
-      loading ||
-      browser ||
-      !notificationsEnabled ||
-      desktopSettings?.notificationPermission !== "notDetermined"
-    )
-      return;
-    const current = ++epoch;
-    busy = true;
-    error = null;
-    permissionFeedback = "";
+  async function loadPreferences() {
+    if (preferencesLoading || !isTauri()) return;
+    preferencesLoading = true;
+    preferencesError = null;
     try {
-      const result = await requestNotificationPermission();
-      if (!mounted || current !== epoch) return;
-      // Permission is OS state; preserve unsaved preference edits and their baseline.
-      desktopSettings = result;
-      const messages = {
-        authorized:
-          "Die Freigabe wurde aktualisiert. Speichere gegebenenfalls deine Änderungen.",
-        denied:
-          "Die Systemfreigabe ist weiterhin deaktiviert. Der Klingelton funktioniert unabhängig davon.",
-        notDetermined:
-          "Die Anfrage wurde noch nicht bestätigt. Du kannst sie erneut starten.",
-        unsupported:
-          "Die Freigabe konnte in diesem Startmodus nicht angefragt werden.",
-      };
-      permissionFeedback = messages[result.notificationPermission];
-    } catch (reason) {
-      if (mounted && current === epoch) error = errorMessage(reason);
+      const result = await getPreferences();
+      if (mounted) {
+        if (!preferencesDirty) preferenceDraft = structuredClone(result);
+        preferences = result;
+      }
+    } catch {
+      if (mounted)
+        preferencesError =
+          "Die zusätzlichen Einstellungen konnten nicht geladen werden. Versuche es erneut.";
     } finally {
-      if (mounted && current === epoch) busy = false;
+      if (mounted) preferencesLoading = false;
+    }
+  }
+  function discardPreferences() {
+    if (desktopSettings) resetDesktop(desktopSettings);
+    if (preferences)
+      preferenceDraft = structuredClone($state.snapshot(preferences));
+    confirmRetention = false;
+  }
+  async function chooseAccount(id: number) {
+    if (busy || !callIdle) return;
+    busy = true;
+    try {
+      applySnapshot(await selectAccount(id));
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      if (mounted) busy = false;
+    }
+  }
+  async function toggleAccount(id: number, enabled: boolean) {
+    if (busy || !callIdle) return;
+    busy = true;
+    try {
+      applySnapshot(await setAccountEnabled(id, enabled));
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      if (mounted) busy = false;
     }
   }
   function resetSound(value: SoundSettings) {
-    sound = { ...value };
-    soundBaseline = JSON.stringify(value);
+    sound = { ...defaultSound(), ...value };
+    soundBaseline = JSON.stringify(sound);
   }
   async function loadDevices() {
     if (devicesLoading || info?.telephony !== "linked") return;
@@ -579,8 +647,9 @@
       !target ||
       target.removing ||
       target.registration !== "failed" ||
-      (target.lastError?.code !== "credentialAccessRequired" &&
-        target.lastError?.code !== "credentialFailure")
+      target.enabled === false ||
+      target.lastError?.code === "credentialMissing" ||
+      target.lastError?.code === "storageFailure"
     )
       return;
     const current = ++epoch;
@@ -651,12 +720,25 @@
           onclick={() => (query = "")}><Icon name="close" size={13} /></button
         >{/if}
     </div>
+    {#if query.trim() && searchResults.length}<nav
+        class="settings-results"
+        aria-label="Gefundene Einstellungen"
+      >
+        {#each searchResults as result}<button
+            type="button"
+            disabled={busy && !readOnlySections.includes(result.section)}
+            onclick={() => navigate(result.section, editedId, result.target)}
+            ><span>{result.label}</span><small
+              >{sections.find((s) => s.id === result.section)?.label}</small
+            ></button
+          >{/each}
+      </nav>{/if}
     <nav class="settings-navigation" aria-label="Bereiche">
       {#each visibleSections as item}<button
           type="button"
-          class:current={section === item.id}
-          aria-current={section === item.id ? "page" : undefined}
-          disabled={busy}
+          class:current={activeSection === item.id}
+          aria-current={activeSection === item.id ? "page" : undefined}
+          disabled={busy && !readOnlySections.includes(item.id)}
           onclick={() => navigate(item.id)}
           ><Icon name={item.icon} size={16} /><span>{item.label}</span
           >{#if item.id === "accounts"}<span class="nav-count"
@@ -672,9 +754,11 @@
           class="icon-button"
           type="button"
           aria-label="SIP-Konto hinzufügen"
-          title="Konto hinzufügen"
+          title={accounts.length >= 8
+            ? "Maximal acht Konten"
+            : "Konto hinzufügen"}
           disabled={busy || loading || accounts.length >= 8}
-          onclick={() => navigate("accounts", null)}
+          onclick={() => navigate("accounts", null, "name")}
           ><Icon name="plus" size={16} /></button
         >
       </div>
@@ -686,7 +770,7 @@
             aria-current={section === "accounts" && editedId === item.id
               ? "page"
               : undefined}
-            onclick={() => navigate("accounts", item.id)}
+            onclick={() => navigate("accounts", item.id, "name")}
             ><span class="account-list-name"
               ><span
                 class="status-dot"
@@ -696,18 +780,20 @@
               ></span><span>{item.name}</span></span
             ><small>{item.username}@{item.registrar}</small><span
               class="sr-only"
-              >{item.registration === "registered"
-                ? "Verbunden"
-                : item.registration === "failed"
-                  ? "Anmeldung fehlgeschlagen"
-                  : "Nicht verbunden"}</span
+              >{item.enabled === false
+                ? "Deaktiviert"
+                : item.registration === "registered"
+                  ? "Verbunden"
+                  : item.registration === "failed"
+                    ? "Anmeldung fehlgeschlagen"
+                    : "Nicht verbunden"}</span
             ></button
           >{/each}
         {#if !accounts.length}<p class="accounts-empty">
             Noch keine Konten.<br />Füge dein erstes SIP-Konto hinzu.
           </p>{/if}
       </nav>
-      {#if accounts.length >= 8}<p class="accounts-empty">
+      {#if accounts.length >= 8}<p class="accounts-empty accounts-limit">
           Maximal acht Konten.
         </p>{/if}
     {:else if !visibleSections.length}<p class="accounts-empty" role="status">
@@ -720,7 +806,7 @@
   <main class="settings-main">
     <div class="settings-breadcrumb">
       Einstellungen<span aria-hidden="true">/</span><span
-        >{sections.find((s) => s.id === section)?.label}</span
+        >{sections.find((s) => s.id === activeSection)?.label}</span
       >
     </div>
     <div
@@ -756,9 +842,22 @@
             disabled={busy || loading}
             onclick={() => {
               void refresh();
+              void loadPreferences();
             }}>Status erneut laden</button
           >
         </div>{/if}
+      {#if preferencesError && ["general", "notifications", "contacts"].includes(activeSection)}
+        <div class="settings-feedback error" role="alert">
+          <p>{preferencesError}</p>
+          <button
+            type="button"
+            class="text-button"
+            disabled={preferencesLoading}
+            onclick={() => void loadPreferences()}
+            >Einstellungen erneut laden</button
+          >
+        </div>
+      {/if}
       {#if !callIdle && (section === "accounts" || section === "audio")}<p
           class="settings-feedback"
           role="status"
@@ -790,193 +889,45 @@
       {#if feedback && !dirty}<p class="settings-feedback" role="status">
           {feedback}
         </p>{/if}
-      {#if section === "general"}
-        <div class="settings-title">
-          <div>
-            <h1>Allgemein</h1>
-            <p>Start und Hinweise für eingehende Anrufe.</p>
-          </div>
-        </div>
-        <h2 class="settings-group">Start & Hintergrund</h2>
-        <fieldset disabled={loading || busy || browser || !desktopSettings}>
-          <div class="setting-row">
-            <div class="setting-description">
-              <label for="autostart-enabled">Bei der Anmeldung starten</label>
-              <p id="autostart-help">
-                Ruf startet im Hintergrund und bleibt für Anrufe erreichbar.
-              </p>
-              {#if !desktopSettings?.autostartAvailable}<p
-                  id="autostart-unavailable"
-                >
-                  Installiere Ruf an einem festen Ort. In Entwicklungs-Builds
-                  ist der automatische Start nicht verfügbar.
-                </p>{/if}
-            </div>
-            <div class="setting-control sound-toggle">
-              <input
-                id="autostart-enabled"
-                type="checkbox"
-                bind:checked={autostartEnabled}
-                disabled={!desktopSettings?.autostartAvailable}
-                aria-describedby={`autostart-help${!desktopSettings?.autostartAvailable ? " autostart-unavailable" : ""}`}
-              /><span aria-hidden="true"
-                >{autostartEnabled ? "Ein" : "Aus"}</span
-              >
-            </div>
-          </div>
-          <div class="setting-row">
-            <div class="setting-description">
-              <h3>Beim Schließen erreichbar bleiben</h3>
-              <p>
-                Schließt du das Telefonfenster, läuft Ruf weiter. Über das
-                Ruf-Symbol öffnest du es wieder. „Ruf beenden“ beendet auch die
-                Telefonie.
-              </p>
-            </div>
-          </div>
-          <h2 class="settings-group sound-group">Mitteilungen</h2>
-          <div class="setting-row">
-            <div class="setting-description">
-              <label for="notifications-enabled"
-                >Eingehende Anrufe anzeigen</label
-              >
-              <p id="notifications-help">
-                Zeigt Name oder Rufnummer mit „Annehmen“ und „Ablehnen“, auch
-                wenn das Telefonfenster verborgen ist. Beim Aktivieren kann das
-                Betriebssystem nach deiner Erlaubnis fragen.
-              </p>
-              {#if notificationsEnabled && desktopSettings}<p
-                  id="notifications-status"
-                >
-                  {#if desktopSettings.notificationPermission === "notDetermined"}
-                    Noch keine Freigabe erteilt. Klicke auf „Mitteilungen
-                    erlauben“, um die Systemabfrage zu öffnen.
-                  {:else if desktopSettings.notificationPermission === "denied"}
-                    Mitteilungen sind in den Systemeinstellungen für Ruf
-                    deaktiviert. Erlaube sie dort. Anrufe bleiben im
-                    Telefonfenster sichtbar.
-                  {:else if desktopSettings.notificationPermission === "authorized"}
-                    Mitteilungen sind erlaubt.
-                  {:else}
-                    Systemmitteilungen sind in diesem Startmodus nicht
-                    verfügbar. Nutze dafür die installierte App. Der Klingelton
-                    bleibt verfügbar.
-                  {/if}
-                </p>{/if}
-            </div>
-            <div class="setting-control sound-toggle">
-              <input
-                id="notifications-enabled"
-                type="checkbox"
-                bind:checked={notificationsEnabled}
-                aria-describedby={`notifications-help${notificationsEnabled && desktopSettings ? " notifications-status" : ""}`}
-              /><span aria-hidden="true"
-                >{notificationsEnabled ? "Ein" : "Aus"}</span
-              >
-            </div>
-          </div>
-          {#if notificationsEnabled && desktopSettings?.notificationPermission === "notDetermined"}
-            <div class="settings-form-actions">
-              <p>
-                Die Freigabe gilt für Systemmitteilungen auf diesem Computer.
-              </p>
-              <button
-                type="button"
-                class="secondary-button"
-                onclick={() => void allowNotifications()}
-              >
-                Mitteilungen erlauben
-              </button>
-            </div>
-          {/if}
-          {#if permissionFeedback}<p class="settings-feedback" role="status">
-              {permissionFeedback}
-            </p>{/if}
-          <div class="settings-form-actions">
-            <p>
-              {desktopDirty
-                ? "Deine Änderungen sind noch nicht gespeichert."
-                : "Gilt für Ruf auf deinem Computer."}
-            </p>
-            <button
-              class="primary-button"
-              type="button"
-              disabled={!desktopDirty ||
-                busy ||
-                loading ||
-                browser ||
-                !desktopSettings}
-              onclick={() => {
-                void saveDesktop();
-              }}>{busy ? "Bitte warten …" : "Allgemein speichern"}</button
-            >
-          </div>
-        </fieldset>
-      {:else if section === "contacts"}
-        <ContactsSettings />
-      {:else if section === "accounts"}
-        {#if removedDraft}<div class="settings-feedback error" role="alert">
-            <p>
-              Dieses Konto wurde entfernt. Dein Entwurf bleibt sichtbar. Verwirf
-              ihn, um ein anderes Konto zu bearbeiten.
-            </p>
-            <button
-              class="text-button"
-              type="button"
-              onclick={() => navigate("accounts", accounts[0]?.id ?? null)}
-              >Anderes Konto wählen</button
-            >
-          </div>{/if}
-        {#key editedId}<AccountSetup
-            bind:account
-            bind:name
-            {existing}
-            removed={removedDraft}
-            {busy}
-            disabled={disabled || removedDraft}
-            onconfigure={save}
-            onreconnect={() => {
-              void reconnect();
-            }}
-            onremove={() => {
-              void remove();
-            }}
-          />{/key}
-        <p class="settings-footnote">
-          Bis zu acht Konten bleiben gleichzeitig verbunden. Das Konto für
-          ausgehende Anrufe wählst du im Telefonfenster.
-        </p>
-      {:else if section === "audio"}
-        <SoundPanel
-          bind:value={sound}
-          {devices}
-          {devicesLoading}
-          {devicesError}
-          {disabled}
-          nativeAvailable={info?.telephony === "linked"}
-          {busy}
-          dirty={soundDirty}
-          playing={callIdle && (snapshot?.ringtonePlaying ?? false)}
-          testAudio={snapshot?.audioMode === "testTone"}
-          onrefresh={() => {
-            void loadDevices();
-          }}
-          onsave={() => {
-            const selected = { ...sound };
-            void soundOperation(() => saveSoundSettings(selected), true);
-          }}
-          onpreview={() => {
-            const device = sound.ringDevice;
-            ownsPreview = true;
-            void soundOperation(() => previewRingtone(device), false);
-          }}
-          onstop={() => {
-            ownsPreview = false;
-            void soundOperation(stopRingtonePreview, false);
-          }}
+      {#if activeSection === "general"}
+        <GeneralSettings
+          bind:autostart={autostartEnabled}
+          bind:startHidden={preferenceDraft.startHidden}
+          available={desktopSettings?.autostartAvailable ?? false}
+          disabled={busy ||
+            loading ||
+            browser ||
+            !desktopSettings ||
+            !preferences}
+          dirty={desktopDirty || preferencesDirty}
+          onsave={() => void saveDesktop()}
+          ondiscard={discardPreferences}
         />
+      {:else if activeSection === "notifications"}
+        <NotificationSettings
+          bind:enabled={notificationsEnabled}
+          bind:showCaller={preferenceDraft.showCallerInNotifications}
+          dirty={desktopDirty || preferencesDirty}
+          {busy}
+          canSave={!loading && !browser && !!desktopSettings && !!preferences}
+          onsave={() => void saveDesktop()}
+          ondiscard={discardPreferences}
+        />
+      {:else if activeSection === "contacts"}
+        <DataSettings
+          bind:value={preferenceDraft}
+          bind:confirmRetention
+          dirty={preferencesDirty}
+          disabled={busy || browser || !preferences || !callIdle}
+          onsave={() => void saveDesktop()}
+          ondiscard={discardPreferences}
+        />
+      {:else if activeSection === "privacy"}
+        <PrivacySettings />
+      {:else if activeSection === "diagnostics"}
+        <DiagnosticsSettings />
         <details class="settings-lab sound-developer">
-          <summary>Audio für Entwicklung</summary>
+          <summary id="developer-audio">Audio für Entwicklung</summary>
           <div class="setting-row">
             <div class="setting-description">
               <label for="audio-mode">Audioquelle</label>
@@ -998,12 +949,150 @@
             </div>
           </div>
           <p>
-            Der Testton ersetzt dein Mikrofon durch 440 Hz und zeichnet
+            Der Testton ersetzt das Mikrofon durch 440 Hz und zeichnet
             empfangenes Audio als received.wav im App-Cache auf. Im Testmodus
-            klingeln eingehende Anrufe nicht automatisch. Die Hörprobe bleibt
-            eine bewusste Aktion.
+            klingeln Anrufe nicht automatisch. Für normale Telefonie Mikrofon &
+            Lautsprecher verwenden.
           </p>
         </details>
+      {:else if activeSection === "accounts"}
+        <div class="settings-title">
+          <div>
+            <h1>SIP-Konten</h1>
+            <p>Anmeldung, Standardkonto und gespeicherte Konten.</p>
+          </div>
+        </div>
+        {#if accounts.length}<section
+            class="account-overview"
+            aria-labelledby="accounts-overview-heading"
+          >
+            <h2 class="settings-group" id="accounts-overview-heading">
+              Gespeicherte Konten
+            </h2>
+            {#each accounts as item}<div
+                class="setting-row"
+                role="group"
+                aria-labelledby={`overview-account-${item.id}`}
+              >
+                <div class="setting-description">
+                  <h3 id={`overview-account-${item.id}`}>{item.name}</h3>
+                  <p>
+                    {item.enabled === false
+                      ? "Deaktiviert"
+                      : item.registration === "registered"
+                        ? "Anmeldung bestätigt"
+                        : item.registration === "registering"
+                          ? "Wird angemeldet …"
+                          : "Nicht angemeldet"}{snapshot?.selectedAccountId ===
+                    item.id
+                      ? " · Ausgehendes Standardkonto"
+                      : ""}
+                  </p>
+                  {#if item.registeredAtMs}<p>
+                      Zuletzt bestätigt: {new Date(
+                        item.registeredAtMs,
+                      ).toLocaleString("de-DE")}
+                    </p>{/if}
+                </div>
+                <div class="settings-actions">
+                  <button
+                    type="button"
+                    class="text-button"
+                    disabled={busy ||
+                      accountDirty ||
+                      !callIdle ||
+                      item.removing ||
+                      snapshot?.selectedAccountId === item.id}
+                    aria-label={`Als Standard festlegen · ${item.name}`}
+                    onclick={() => void chooseAccount(item.id)}
+                    >Als Standard</button
+                  ><button
+                    type="button"
+                    class="secondary-button"
+                    disabled={busy ||
+                      accountDirty ||
+                      !callIdle ||
+                      item.removing ||
+                      item.enabledChanging}
+                    aria-label={`${item.enabled === false ? "Aktivieren" : "Deaktivieren"} · ${item.name}`}
+                    onclick={() =>
+                      void toggleAccount(item.id, item.enabled === false)}
+                    >{item.enabled === false
+                      ? "Aktivieren"
+                      : "Deaktivieren"}</button
+                  >
+                </div>
+              </div>{/each}
+          </section>{/if}
+        {#if removedDraft}<div class="settings-feedback error" role="alert">
+            <p>
+              Dieses Konto wurde entfernt. Dein Entwurf bleibt sichtbar. Verwirf
+              ihn, um ein anderes Konto zu bearbeiten.
+            </p>
+            <button
+              class="text-button"
+              type="button"
+              onclick={() => navigate("accounts", accounts[0]?.id ?? null)}
+              >Anderes Konto wählen</button
+            >
+          </div>{/if}
+        {#key editedId}<AccountSetup
+            embedded
+            bind:account
+            bind:name
+            {existing}
+            removed={removedDraft}
+            {busy}
+            disabled={disabled || removedDraft}
+            onconfigure={save}
+            onreconnect={() => {
+              void reconnect();
+            }}
+            onremove={() => {
+              void remove();
+            }}
+          />{/key}
+        <p class="settings-footnote">
+          Bis zu acht Konten können gespeichert werden. Aktivierte Konten melden
+          sich unabhängig an. Das Konto für ausgehende Anrufe wählst du hier
+          oder im Telefonfenster.
+        </p>
+      {:else if activeSection === "audio"}
+        <SoundPanel
+          bind:value={sound}
+          {devices}
+          {devicesLoading}
+          {devicesError}
+          {disabled}
+          nativeAvailable={info?.telephony === "linked"}
+          {busy}
+          dirty={soundDirty}
+          playing={callIdle && (snapshot?.ringtonePlaying ?? false)}
+          testAudio={snapshot?.audioMode === "testTone"}
+          onrefresh={() => {
+            void loadDevices();
+          }}
+          ondiscard={() =>
+            resetSound(snapshot?.soundSettings ?? defaultSound())}
+          onsave={() => {
+            const selected = { ...sound };
+            void soundOperation(() => saveSoundSettings(selected), true);
+          }}
+          onpreview={() => {
+            const device = sound.ringDevice;
+            ownsPreview = true;
+            void soundOperation(() => previewRingtone(device), false);
+          }}
+          onstop={() => {
+            ownsPreview = false;
+            void soundOperation(stopRingtonePreview, false);
+          }}
+        />
+        <AudioDiagnostics
+          {sound}
+          disabled={disabled || busy}
+          onprivacy={() => navigate("privacy")}
+        />
       {:else}
         <AboutPanel {info} />
       {/if}

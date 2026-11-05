@@ -17,10 +17,14 @@ struct RecoveryCredentials {
     entered: mpsc::Sender<()>,
     release: Mutex<mpsc::Receiver<()>>,
     interactive_reads: AtomicUsize,
+    background_reads: AtomicUsize,
     mutations: AtomicUsize,
 }
 impl store::CredentialStore for RecoveryCredentials {
     fn read(&self, _key: &str, interactive: bool) -> Result<String, PhoneError> {
+        if !interactive {
+            self.background_reads.fetch_add(1, Ordering::Relaxed);
+        }
         if interactive {
             self.interactive_reads.fetch_add(1, Ordering::Relaxed);
             self.entered.send(()).unwrap();
@@ -66,6 +70,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new(label: &str, permit: bool) -> Self {
+        Self::with_enabled(label, permit, true)
+    }
+    fn with_enabled(label: &str, permit: bool, enabled: bool) -> Self {
         let directory =
             std::env::temp_dir().join(format!("ruf-recovery-{label}-{}", std::process::id()));
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -73,6 +80,7 @@ impl Fixture {
         let key = "abcd-1234".to_owned();
         let saved = SavedSettings {
             accounts: vec![SavedAccount {
+                enabled,
                 key: key.clone(),
                 name: "Synthetic recovery".into(),
                 registrar: peer.local_addr().unwrap().to_string(),
@@ -94,6 +102,7 @@ impl Fixture {
             entered: entered_tx,
             release: Mutex::new(release_rx),
             interactive_reads: AtomicUsize::new(0),
+            background_reads: AtomicUsize::new(0),
             mutations: AtomicUsize::new(0),
         });
         let state = PhoneState::default();
@@ -104,11 +113,21 @@ impl Fixture {
             })
             .unwrap();
         let snapshot = state.with(|s| s.snapshot()).unwrap();
-        assert_eq!(snapshot.accounts[0].registration, RegistrationState::Failed);
-        assert_eq!(
-            snapshot.accounts[0].last_error.as_ref().unwrap().code,
-            ErrorCode::CredentialAccessRequired
-        );
+        assert_eq!(snapshot.accounts[0].enabled, enabled);
+        if enabled {
+            assert_eq!(snapshot.accounts[0].registration, RegistrationState::Failed);
+            assert_eq!(
+                snapshot.accounts[0].last_error.as_ref().unwrap().code,
+                ErrorCode::CredentialAccessRequired
+            );
+        } else {
+            assert_eq!(
+                snapshot.accounts[0].registration,
+                RegistrationState::Unconfigured
+            );
+            assert!(snapshot.accounts[0].last_error.is_none());
+            assert_eq!(credentials.background_reads.load(Ordering::Relaxed), 0);
+        }
         assert_eq!(
             credentials.interactive_reads.load(Ordering::Relaxed),
             0,
@@ -346,6 +365,7 @@ fn failed_removal_restores_the_outgoing_account_selection() {
         .state
         .with(|session| {
             let saved = SavedAccount {
+                enabled: true,
                 key: "abcd-2222".into(),
                 name: "Other account".into(),
                 registrar: fixture.peer.local_addr().unwrap().to_string(),
@@ -426,6 +446,7 @@ fn invalid_saved_password_does_not_discard_other_restored_accounts() {
             accounts: [("abcd-1111", "broken"), ("abcd-2222", "valid")]
                 .into_iter()
                 .map(|(key, username)| SavedAccount {
+                    enabled: true,
                     key: key.into(),
                     name: username.into(),
                     registrar: peer.local_addr().unwrap().to_string(),
@@ -525,4 +546,211 @@ fn failed_removal_keeps_an_account_with_a_malformed_saved_password() {
             Ok(())
         })
         .unwrap();
+}
+
+fn activate(
+    state: &PhoneState,
+    directory: PathBuf,
+    cache: PathBuf,
+    id: u32,
+    enabled: bool,
+) -> Result<EngineSnapshot, PhoneError> {
+    let intent = state.begin_activation(id)?;
+    state.apply_activation(directory, cache, id, enabled, intent)
+}
+
+#[test]
+fn disabled_account_load_never_reads_credentials_and_activation_preserves_identity_and_metadata() {
+    let _guard = NATIVE_RECOVERY_TEST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fixture = Fixture::with_enabled("activation", true, false);
+    let state = fixture.state.clone();
+    let directory = fixture.directory.clone();
+    let id = fixture.id;
+    let enabling =
+        std::thread::spawn(move || activate(&state, directory.clone(), directory, id, true));
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    assert!(!fixture.state.with(|s| s.snapshot()).unwrap().accounts[0].enabled);
+    fixture.release.send(()).unwrap();
+    let enabled = enabling.join().unwrap().unwrap();
+    assert_eq!(enabled.selected_account_id, Some(id));
+    assert!(enabled.accounts[0].enabled);
+    fixture.accept_registration();
+    let disabled = activate(
+        &fixture.state,
+        fixture.directory.clone(),
+        fixture.directory.clone(),
+        id,
+        false,
+    )
+    .unwrap();
+    assert_eq!(disabled.selected_account_id, Some(id));
+    assert!(!disabled.accounts[0].enabled);
+    assert!(disabled.accounts[0].registered_at_ms.is_none());
+    assert_eq!(
+        fixture
+            .credentials
+            .interactive_reads
+            .load(Ordering::Relaxed),
+        1
+    );
+    assert_eq!(
+        fixture.credentials.background_reads.load(Ordering::Relaxed),
+        0
+    );
+    let metadata = AccountStore {
+        path: fixture.directory.join("accounts.json"),
+    }
+    .load()
+    .unwrap();
+    assert!(!metadata.accounts[0].enabled);
+    assert_eq!(metadata.accounts[0].key, "abcd-1234");
+    fixture.state.shutdown().unwrap();
+    let mut reloaded = PhoneSession {
+        credentials: fixture.credentials.clone(),
+        ..Default::default()
+    };
+    reloaded
+        .load(fixture.directory.clone(), fixture.directory.clone())
+        .unwrap();
+    assert!(!reloaded.snapshot().unwrap().accounts[0].enabled);
+    assert_eq!(
+        fixture.credentials.background_reads.load(Ordering::Relaxed),
+        0
+    );
+    reloaded.shutdown().unwrap();
+}
+
+#[test]
+fn newer_disable_intent_cancels_an_enable_waiting_for_authorization() {
+    let _guard = NATIVE_RECOVERY_TEST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fixture = Fixture::with_enabled("activation-stale", true, false);
+    let state = fixture.state.clone();
+    let directory = fixture.directory.clone();
+    let id = fixture.id;
+    let enabling =
+        std::thread::spawn(move || activate(&state, directory.clone(), directory, id, true));
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    // Register the newer intent before releasing the OS authorization callback.
+    let disable_intent = fixture.state.begin_activation(id).unwrap();
+    fixture.release.send(()).unwrap();
+    assert_eq!(
+        enabling.join().unwrap().unwrap_err().code,
+        ErrorCode::InvalidState
+    );
+    let disabled = fixture
+        .state
+        .apply_activation(
+            fixture.directory.clone(),
+            fixture.directory.clone(),
+            id,
+            false,
+            disable_intent,
+        )
+        .unwrap();
+    assert!(!disabled.accounts[0].enabled);
+    assert_eq!(disabled.selected_account_id, Some(id));
+    fixture.unchanged();
+}
+
+#[test]
+fn failed_activation_metadata_write_preserves_disabled_state_and_credential_key() {
+    let _guard = NATIVE_RECOVERY_TEST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fixture = Fixture::with_enabled("activation-storage", true, false);
+    let state = fixture.state.clone();
+    let directory = fixture.directory.clone();
+    let id = fixture.id;
+    let enabling =
+        std::thread::spawn(move || activate(&state, directory.clone(), directory, id, true));
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    std::fs::create_dir(fixture.directory.join("accounts.json.tmp")).unwrap();
+    fixture.release.send(()).unwrap();
+    assert_eq!(
+        enabling.join().unwrap().unwrap_err().code,
+        ErrorCode::StorageFailure
+    );
+    assert!(
+        !fixture
+            .state
+            .with(|session| session.snapshot())
+            .unwrap()
+            .accounts[0]
+            .enabled
+    );
+    fixture.unchanged();
+}
+
+#[test]
+fn cancelled_enable_keeps_disabled_metadata_and_credentials_unchanged() {
+    let _guard = NATIVE_RECOVERY_TEST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fixture = Fixture::with_enabled("activation-denied", false, false);
+    let state = fixture.state.clone();
+    let directory = fixture.directory.clone();
+    let id = fixture.id;
+    let enabling =
+        std::thread::spawn(move || activate(&state, directory.clone(), directory, id, true));
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    fixture.release.send(()).unwrap();
+    assert_eq!(
+        enabling.join().unwrap().unwrap_err().code,
+        ErrorCode::CredentialAccessRequired
+    );
+    assert!(
+        !fixture
+            .state
+            .with(|session| session.snapshot())
+            .unwrap()
+            .accounts[0]
+            .enabled
+    );
+    fixture.unchanged();
+}
+
+#[test]
+fn shutdown_during_enable_authorization_prevents_native_start_and_metadata_changes() {
+    let _guard = NATIVE_RECOVERY_TEST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fixture = Fixture::with_enabled("activation-shutdown", true, false);
+    let state = fixture.state.clone();
+    let directory = fixture.directory.clone();
+    let id = fixture.id;
+    let enabling =
+        std::thread::spawn(move || activate(&state, directory.clone(), directory, id, true));
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    fixture.state.shutdown().unwrap();
+    fixture.release.send(()).unwrap();
+    assert_eq!(
+        enabling.join().unwrap().unwrap_err().code,
+        ErrorCode::InvalidState
+    );
+    assert!(
+        fixture
+            .state
+            .with(|session| Ok(session.engine.is_none()))
+            .unwrap()
+    );
+    fixture.unchanged();
 }

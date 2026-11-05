@@ -13,6 +13,11 @@ No HTTP server or HTTP status-code mapping is exposed. Frontend wrappers reject
 browser previews. Rust phone-core and ts-rs own the DTOs; `bun run types:generate`
 updates the TypeScript contract. All success responses are password-free.
 
+Additional settings contracts: [notifications](notifications.md),
+[anonymous diagnostics](diagnostics.md), [permission boundaries](permissions.md),
+[local preferences](preferences.md), [native audio diagnostics](audio-diagnostics.md)
+and [account activation](account-activation.md).
+
 ## Windows and permissions
 
 `main` reads app/engine state, opens settings, selects the outgoing account and
@@ -25,20 +30,20 @@ shared Rust session, registrations and any call. The main phone stays compact.
 
 ## Commands
 
-| Command               | Input                                                                                        | Result / behavior                                                                                                                                                                                                                        |
-| --------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_app_info`        | none                                                                                         | `AppInfo {version, telephony: "linked" \| "notLinked"}`. Compiled availability only; does not initialize SIP or read credentials.                                                                                                        |
-| `open_settings`       | optional `{section: "accounts" \| "audio" \| "general" \| "contacts" \| "about"}`, main only | `null` on success; opens/focuses the singleton settings window.                                                                                                                                                                          |
-| `get_engine_snapshot` | none                                                                                         | `EngineSnapshot`. Startup restores saved accounts in Rust independently of windows. Reads share the same managed session and can complete initialization if needed.                                                                      |
-| `save_account`        | `{id: number \| null, name: string, account: AccountConfig}`                                 | Null/missing ID creates; existing ID updates. Saves metadata/keychain credentials and waits for native configuration acceptance. Actual registration remains asynchronous.                                                               |
-| `reconnect_account`   | required `{id: number}`                                                                      | Settings only: explicitly authorize reading the saved password and reapply the existing account while idle. Preserves metadata, credentials and drafts; registration is asynchronous. See [credential recovery](credential-recovery.md). |
-| `select_account`      | `{id: number}`                                                                               | Persists outgoing selection without unregistering other accounts. Requires idle call state.                                                                                                                                              |
-| `remove_account`      | `{id: number}`                                                                               | Requires idle state. Waits for native removal, commits metadata deletion and removes the keychain secret. A native incoming-call rejection leaves saved data unchanged.                                                                  |
-| `configure_account`   | `{account: AccountConfig}`                                                                   | Compatibility command, settings only: save/replace the selected account, using username as its name. **Now durable**, unlike the earlier ephemeral API. New UI uses `save_account`.                                                      |
-| `dial`                | `{destination: string}`                                                                      | Reserves the single call slot on the selected, registered account. Number/extension: 1–64 ASCII digits or `+ * #`; arbitrary SIP URIs are unsupported.                                                                                   |
-| `answer`              | required `{callId: string}`                                                                  | Accepts the current incoming call on its own account, independent of outgoing selection.                                                                                                                                                 |
-| `reject`              | required `{callId: string}`                                                                  | Rejects only an unanswered incoming call; stale or already answered calls return `invalidState`. Main window only.                                                                                                                       |
-| `hangup`              | required `{callId: string}`                                                                  | Rejects/ends the current call; native completion follows through state.                                                                                                                                                                  |
+| Command               | Input                                                                                                                                         | Result / behavior                                                                                                                                                                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_app_info`        | none                                                                                                                                          | `AppInfo {version, telephony: "linked" \| "notLinked"}`. Compiled availability only; does not initialize SIP or read credentials.                                                                                                        |
+| `open_settings`       | optional `{section: "accounts" \| "audio" \| "general" \| "contacts" \| "about" \| "notifications" \| "privacy" \| "diagnostics"}`, main only | `null` on success; opens/focuses the singleton settings window.                                                                                                                                                                          |
+| `get_engine_snapshot` | none                                                                                                                                          | `EngineSnapshot`. Startup restores saved accounts in Rust independently of windows. Reads share the same managed session and can complete initialization if needed.                                                                      |
+| `save_account`        | `{id: number \| null, name: string, account: AccountConfig}`                                                                                  | Null/missing ID creates; existing ID updates. Saves metadata/keychain credentials and waits for native configuration acceptance. Actual registration remains asynchronous.                                                               |
+| `reconnect_account`   | required `{id: number}`                                                                                                                       | Settings only: explicitly authorize reading the saved password and reapply the existing account while idle. Preserves metadata, credentials and drafts; registration is asynchronous. See [credential recovery](credential-recovery.md). |
+| `select_account`      | `{id: number}`                                                                                                                                | Persists outgoing selection without unregistering other accounts. Requires idle call state.                                                                                                                                              |
+| `remove_account`      | `{id: number}`                                                                                                                                | Requires idle state. Waits for native removal, commits metadata deletion and removes the keychain secret. A native incoming-call rejection leaves saved data unchanged.                                                                  |
+| `configure_account`   | `{account: AccountConfig}`                                                                                                                    | Compatibility command, settings only: save/replace the selected account, using username as its name. **Now durable**, unlike the earlier ephemeral API. New UI uses `save_account`.                                                      |
+| `dial`                | `{destination: string}`                                                                                                                       | Reserves the single call slot on the selected, registered account. Number/extension: 1–64 ASCII digits or `+ * #`; arbitrary SIP URIs are unsupported.                                                                                   |
+| `answer`              | required `{callId: string}`                                                                                                                   | Accepts the current incoming call on its own account, independent of outgoing selection.                                                                                                                                                 |
+| `reject`              | required `{callId: string}`                                                                                                                   | Rejects only an unanswered incoming call; stale or already answered calls return `invalidState`. Main window only.                                                                                                                       |
+| `hangup`              | required `{callId: string}`                                                                                                                   | Rejects/ends the current call; native completion follows through state.                                                                                                                                                                  |
 
 `reject` is a main-window command with required `{callId: string}` input and an
 `EngineSnapshot` result. It rejects only an offered incoming call. Empty/stale
@@ -103,6 +108,8 @@ do not use this mode for private calls. The upstream path limit is 127 UTF-8 byt
   audioMode: "system" | "testTone" | null;
   soundSettings: SoundSettings;
   ringtonePlaying: boolean;
+  audioTest: AudioTestSnapshot | null;
+  audioTestError: PhoneError | null;
 }
 ```
 
@@ -131,7 +138,10 @@ documented in [contacts](contacts.md); `historyError` remains separate from SIP
 and registration errors as described in [history](history.md).
 
 `AccountSnapshot` contains required `id`, `name`, `registrar`, `username`,
-`registration`, nullable `lastError`, and boolean `removing`. Registration failures
+`registration`, nullable `lastError`, boolean `removing`, boolean `enabled`,
+boolean `enabledChanging` and nullable `registeredAtMs`. Activation and confirmed
+registration timestamps are documented in [account activation](account-activation.md).
+Registration failures
 are per account. Missing/inaccessible saved credentials restore a visibly failed
 account that can be repaired by supplying a password. No secret is read back.
 
@@ -152,9 +162,11 @@ A queued answer that runs after the same call already closed becomes an
 
 ## Persistence and credential cleanup
 
-`accounts.json` in Tauri's application data directory contains schema version 1,
-nonsecret account metadata, opaque credential keys, selected key, audio mode and
-`pendingDeletions` (default empty). It contains **no passwords**. Same-directory
+`accounts.json` in Tauri's application data directory contains schema version 2,
+nonsecret account metadata, activation flags, local preferences, opaque credential
+keys, selected key, audio mode and `pendingDeletions` (default empty). Version 1
+loads with compatibility defaults and is backed up before the first replacement;
+see [preference migration](preferences.md). It contains **no passwords**. Same-directory
 file replacement commits metadata. Unsupported/corrupt data is rejected rather
 than overwritten. macOS Keychain Services and Windows Credential Manager are used
 through keyring; other operating systems have no desktop secret-store backend in

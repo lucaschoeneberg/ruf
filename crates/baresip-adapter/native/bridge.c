@@ -5,10 +5,12 @@
 #include <math.h>
 #include <inttypes.h>
 #include "audio_devices.h"
+#include "audio_diagnostics.h"
 #include "network_roam.h"
 #include <re.h>
 #include <rem.h>
 #include <baresip.h>
+#include <re_atomic.h>
 
 #ifdef WIN32
 #include <windows.h>
@@ -36,8 +38,8 @@ struct sip_event {
 typedef void (*event_callback)(const struct sip_event *event, void *arg);
 enum { EV_READY=1, EV_REGISTERING, EV_REGISTERED, EV_REG_FAILED,
        EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE, EV_REMOVED, EV_REMOVE_FAILED, EV_ACCOUNT_APPLIED, EV_ACCOUNT_REJECTED, EV_AUDIO_APPLIED, EV_AUDIO_FAILED, EV_RING_STARTED, EV_RING_STOPPED, EV_ANSWER_FAILED, EV_BUSY_INCOMING, EV_DIAL_STARTED, EV_DIAL_FAILED, EV_LOCAL_END, EV_INTERRUPTING,
-       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED };
-enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE, OP_REJECT };
+       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED, EV_TEST_STARTED, EV_TEST_LEVEL, EV_TEST_STOPPED, EV_TEST_FAILED };
+enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE, OP_REJECT, OP_TEST_MIC, OP_TEST_SPEAKER, OP_TEST_STOP, OP_DISABLE, OP_ENABLE };
 
 struct request {
     struct request *next;
@@ -68,6 +70,15 @@ struct engine {
     char recording[128];
     int audio_mode;
     bool ringtone_enabled;
+    int ringtone_variant;
+    unsigned ringtone_volume;
+    uint64_t test_id, test_deadline;
+    int test_kind;
+    struct ausrc_st *test_source;
+    struct play *test_player;
+    struct tmr test_timer;
+    RE_ATOMIC unsigned test_peak;
+    RE_ATOMIC int test_error;
     bool preview;
     bool platform_audio_loaded;
     bool diagnostics;
@@ -264,16 +275,12 @@ static int start_ring(struct engine *e, const char *device, bool preview) {
     if (!error) error = ensure_platform_audio(e);
     if (error) return error;
     stop_ring(e);
-    /* Original two-pulse PCM ringtone; no file path, download or second audio pipeline. */
+    /* PCM is generated in RAM and played through the existing baresip player. */
     const uint32_t rate = 48000, samples = rate * 2;
     struct mbuf *tone = mbuf_alloc(samples * sizeof(int16_t));
     if (!tone) return ENOMEM;
     for (uint32_t i = 0; i < samples; ++i) {
-        double seconds = (double)i / rate;
-        double local = fmod(seconds, 0.6);
-        bool on = seconds < 1.0 && local < 0.4;
-        double fade = fmin(1.0, fmin(local / 0.01, (0.4 - local) / 0.01));
-        int16_t sample = on ? (int16_t)(2200.0 * fade * (sin(2.0 * 3.141592653589793 * 440 * seconds) + sin(2.0 * 3.141592653589793 * 480 * seconds))) : 0;
+        int16_t sample = sip_ringtone_sample(e->ringtone_variant, e->ringtone_volume, i);
         (void)mbuf_write_mem(tone, (const uint8_t *)&sample, sizeof(sample));
     }
     tone->pos = 0;
@@ -286,8 +293,83 @@ static int start_ring(struct engine *e, const char *device, bool preview) {
     }
     return error;
 }
+/* Only capture callbacks touch atomics. All ownership, events and frees stay on
+ * the existing libre loop; source destructors stop/join native callbacks. */
+static void emit_test(struct engine *e, int kind, int code, uint64_t id) {
+    const struct sip_event event = { kind, code, (uint32_t)e->test_kind, id, NULL, NULL, NULL };
+    e->callback(&event, e->callback_arg);
+}
+static void stop_audio_test(struct engine *e) {
+    uint64_t id = e->test_id;
+    if (!id) return;
+    tmr_cancel(&e->test_timer);
+    e->test_source = mem_deref(e->test_source);
+    e->test_player = mem_deref(e->test_player);
+    e->test_id = 0;
+    re_atomic_rlx_set(&e->test_peak, 0);
+    if (id) emit_test(e, EV_TEST_STOPPED, 0, id);
+}
+static void test_read(struct auframe *frame, void *arg) {
+    struct engine *e = arg;
+    if (frame->fmt != AUFMT_S16LE) { re_atomic_rlx_set(&e->test_error, ENOTSUP); return; }
+    unsigned peak = sip_audio_peak_s16(frame->sampv, frame->sampc);
+    unsigned previous = re_atomic_rlx(&e->test_peak);
+    while (previous < peak && !re_atomic_compare_exchange_weak(&e->test_peak, &previous, peak, re_memory_order_relaxed, re_memory_order_relaxed)) {}
+}
+static void test_source_error(int error, const char *text, void *arg) {
+    struct engine *e = arg;
+    (void)text;
+    re_atomic_rlx_set(&e->test_error, error ? error : EIO);
+}
+static void test_tick(void *arg) {
+    struct engine *e = arg;
+    int error = re_atomic_exchange(&e->test_error, 0, re_memory_order_relaxed);
+    if (error) { emit_test(e, EV_TEST_FAILED, error, e->test_id); stop_audio_test(e); return; }
+    if (tmr_jiffies() >= e->test_deadline) { stop_audio_test(e); return; }
+    if (e->test_kind == 0) emit_test(e, EV_TEST_LEVEL, (int)re_atomic_exchange(&e->test_peak, 0, re_memory_order_relaxed), e->test_id);
+    tmr_start(&e->test_timer, 100, test_tick, e);
+}
+static int start_audio_test(struct engine *e, const struct request *r) {
+    if (e->call || e->test_id || e->preview) return EBUSY;
+    if (!r->call_generation || strlen(r->registrar) > 127) return EINVAL;
+    bool microphone = r->operation == OP_TEST_MIC;
+    int error = 0;
+    if (!e->audio_mode) {
+        error = sip_audio_device_available(r->registrar, microphone);
+        if (!error) error = ensure_platform_audio(e);
+        if (error) return error;
+    }
+    e->test_kind = microphone ? 0 : 1;
+    re_atomic_rlx_set(&e->test_peak, 0);
+    re_atomic_rlx_set(&e->test_error, 0);
+    if (microphone) {
+        struct ausrc_prm parameters = { .srate=48000, .ch=1, .ptime=20, .fmt=AUFMT_S16LE };
+        error = ausrc_alloc(&e->test_source, baresip_ausrcl(), e->audio_mode ? "ausine" : platform_audio(),
+            &parameters, e->audio_mode ? "440" : *r->registrar ? r->registrar : "default", test_read, test_source_error, e);
+    } else {
+        const uint32_t rate = 48000, samples = rate * 2;
+        struct mbuf *tone = mbuf_alloc(samples * sizeof(int16_t));
+        if (!tone) return ENOMEM;
+        for (uint32_t i = 0; i < samples; ++i) {
+            double seconds = (double)i / rate;
+            double fade = fmin(1.0, fmin(seconds / 0.01, (2.0 - seconds) / 0.01));
+            int16_t sample = (int16_t)(2200.0 * fade * sin(2.0 * 3.141592653589793 * 440 * seconds));
+            (void)mbuf_write_mem(tone, (const uint8_t *)&sample, sizeof(sample));
+        }
+        tone->pos = 0;
+        error = play_tone(&e->test_player, baresip_player(), tone, rate, 1, 1,
+            e->audio_mode ? "aufile" : platform_audio(), e->audio_mode ? e->recording : *r->registrar ? r->registrar : "default");
+        mem_deref(tone);
+    }
+    if (error) { e->test_source = mem_deref(e->test_source); e->test_player = mem_deref(e->test_player); return error; }
+    e->test_id = r->call_generation;
+    e->test_deadline = tmr_jiffies() + (microphone ? 10000 : 2000);
+    emit_test(e, EV_TEST_STARTED, 0, e->test_id);
+    tmr_start(&e->test_timer, 100, test_tick, e);
+    return 0;
+}
 static int apply_sound(struct engine *e, const struct request *r) {
-    if (e->call) return EBUSY;
+    if (e->call || e->test_id) return EBUSY;
     if (strlen(r->registrar) > 127 || strlen(r->username) > 127 || strlen(r->password) > 127) return EINVAL;
     if (r->operation != OP_SOUND_RESTORE) {
         int error = sip_audio_device_available(r->registrar, 1);
@@ -295,11 +377,18 @@ static int apply_sound(struct engine *e, const struct request *r) {
         if (!error) error = sip_audio_device_available(r->password, 0);
         if (error) return error;
     }
+    unsigned enabled, volume;
+    int variant;
+    char trailing;
+    if (sscanf(r->destination, "%u:%d:%u%c", &enabled, &variant, &volume, &trailing) != 3 ||
+        enabled > 1 || variant < 0 || variant > 2 || volume > 100) return EINVAL;
     stop_ring(e);
     str_ncpy(e->input_device, r->registrar, sizeof(e->input_device));
     str_ncpy(e->output_device, r->username, sizeof(e->output_device));
     str_ncpy(e->ring_device, r->password, sizeof(e->ring_device));
-    e->ringtone_enabled = !strcmp(r->destination, "1");
+    e->ringtone_enabled = enabled != 0;
+    e->ringtone_variant = variant;
+    e->ringtone_volume = volume;
     if (!e->audio_mode) {
         struct config_audio *audio = &conf_config()->audio;
         str_ncpy(audio->src_dev, *e->input_device ? e->input_device : "default", sizeof(audio->src_dev));
@@ -333,7 +422,7 @@ static void shutdown_tick(void *arg) {
     struct engine *e = arg;
     bool stop;
     LOCK(&e->lock); stop = e->stop_requested; UNLOCK(&e->lock);
-    if (stop) { emit(e, EV_INTERRUPTING, 0); stop_ring(e); ua_stop_all(true); re_cancel(); }
+    if (stop) { emit(e, EV_INTERRUPTING, 0); stop_audio_test(e); stop_ring(e); ua_stop_all(true); re_cancel(); }
     else tmr_start(&e->shutdown_timer, 50, shutdown_tick, e);
 }
 
@@ -423,6 +512,7 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
     case BEVENT_REGISTER_OK: emit_account(e, EV_REGISTERED, 0, account->id); break;
     case BEVENT_REGISTER_FAIL: emit_account(e, EV_REG_FAILED, event_status(bevent_get_text(event), ' '), account->id); break;
     case BEVENT_CALL_INCOMING:
+        stop_audio_test(e);
         if (e->call && e->call != call) {
             emit_incoming(e, call, EV_BUSY_INCOMING, account->id, sip_engine_reserve_call_generation(e));
             ua_hangup(ua, call, 486, "Busy Here");
@@ -438,6 +528,7 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
         }
         break;
     case BEVENT_CALL_OUTGOING:
+        stop_audio_test(e);
         stop_ring(e);
         e->call_answered = false; e->call = call; e->call_ua = ua; e->call_account_id = account->id;
         emit(e, EV_CALLING, 0); break;
@@ -510,13 +601,23 @@ static void queue_handler(int id, void *data, void *arg) {
         return;
     }
     switch (r->operation) {
-    case OP_ACCOUNT: {
+    case OP_ACCOUNT:
+    case OP_ENABLE: {
         struct ua *replacement = NULL;
         if (e->call) { error = EBUSY; break; }
         if (!account) {
             for (size_t i = 0; i < 8; ++i) if (!e->accounts[i].id) { account = &e->accounts[i]; break; }
         }
         if (!account) { error = ENOSPC; break; }
+        if (r->operation == OP_ACCOUNT && !strcmp(r->destination, "0")) {
+            struct ua *previous = account->ua;
+            account->ua = NULL;
+            account->id = r->account_id;
+            str_ncpy(account->registrar, r->registrar, sizeof(account->registrar));
+            mem_deref(previous);
+            emit_account(e, EV_ACCOUNT_APPLIED, 0, r->account_id);
+            break;
+        }
         (void)snprintf(uri, sizeof(uri), "<sip:%s@%s>;regint=60;audio_codecs=PCMU/8000/1,PCMA/8000/1", r->username, r->registrar);
         error = ua_alloc(&replacement, uri);
         if (!error) error = account_set_call_transfer(ua_account(replacement), false);
@@ -549,6 +650,15 @@ static void queue_handler(int id, void *data, void *arg) {
         }
         break;
     }
+    case OP_DISABLE:
+        if (e->call) { error = EBUSY; break; }
+        if (account) {
+            struct ua *previous = account->ua;
+            account->ua = NULL;
+            mem_deref(previous);
+        }
+        emit_account(e, EV_ACCOUNT_APPLIED, 0, r->account_id);
+        break;
     case OP_REMOVE:
         if (e->call) { emit_account(e, EV_REMOVE_FAILED, EBUSY, r->account_id); break; }
         if (account) {
@@ -565,6 +675,7 @@ static void queue_handler(int id, void *data, void *arg) {
         const struct sip_event started = { EV_DIAL_STARTED, 0, r->account_id, dial_generation, NULL, destination, NULL };
         e->callback(&started, e->callback_arg);
         if (e->call) { error = EBUSY; break; }
+        stop_audio_test(e);
         e->call_generation = dial_generation;
         e->call_account_id = r->account_id;
         if (!e->audio_mode) {
@@ -612,7 +723,7 @@ static void queue_handler(int id, void *data, void *arg) {
         emit(e, error ? EV_AUDIO_FAILED : EV_AUDIO_APPLIED, error);
         break;
     case OP_PREVIEW:
-        if (e->call) error = EBUSY;
+        if (e->call || e->test_id) error = EBUSY;
         else if (strlen(r->registrar) > 127) error = EINVAL;
         else {
             error = sip_audio_device_available(r->registrar, 0);
@@ -624,15 +735,26 @@ static void queue_handler(int id, void *data, void *arg) {
         if (e->preview) stop_ring(e);
         emit(e, EV_AUDIO_APPLIED, 0);
         break;
+    case OP_TEST_MIC:
+    case OP_TEST_SPEAKER:
+        error = start_audio_test(e, r);
+        emit(e, error ? EV_AUDIO_FAILED : EV_AUDIO_APPLIED, error);
+        if (error) emit_test(e, EV_TEST_FAILED, error, r->call_generation);
+        break;
+    case OP_TEST_STOP:
+        if (e->test_id == r->call_generation) stop_audio_test(e);
+        emit(e, EV_AUDIO_APPLIED, 0);
+        break;
     case OP_STOP:
         emit(e, EV_INTERRUPTING, 0);
+        stop_audio_test(e);
         stop_ring(e);
         ua_stop_all(true);
         re_cancel();
         break;
     default: error = EINVAL;
     }
-    if (error && r->operation == OP_ACCOUNT) emit_account(e, EV_ACCOUNT_REJECTED, error, r->account_id);
+    if (error && (r->operation == OP_ACCOUNT || r->operation == OP_DISABLE || r->operation == OP_ENABLE)) emit_account(e, EV_ACCOUNT_REJECTED, error, r->account_id);
     if (error && r->operation == OP_DIAL) {
         const struct sip_event failed = { EV_DIAL_FAILED, error, r->account_id, dial_generation, NULL, NULL, NULL };
         e->callback(&failed, e->callback_arg);
@@ -640,7 +762,7 @@ static void queue_handler(int id, void *data, void *arg) {
     }
     /* Dial failures already carry the attempted generation above. A generic
      * error would attach that failed attempt to an incoming call that won. */
-    if (error && r->operation != OP_DIAL) emit(e, r->operation == OP_ANSWER ? EV_ANSWER_FAILED : EV_ERROR, error);
+    if (error && r->operation != OP_DIAL && r->operation != OP_TEST_MIC && r->operation != OP_TEST_SPEAKER) emit(e, r->operation == OP_ANSWER ? EV_ANSWER_FAILED : EV_ERROR, error);
     free_request(r);
 }
 
@@ -648,7 +770,8 @@ void *sip_engine_create(event_callback callback, void *arg, int audio_mode, cons
     struct engine *e = calloc(1, sizeof(*e));
     if (!e || !callback) { free(e); return NULL; }
     LOCK_INIT(&e->lock);
-    e->callback = callback; e->callback_arg = arg; e->audio_mode = audio_mode; e->ringtone_enabled = true;
+    e->callback = callback; e->callback_arg = arg; e->audio_mode = audio_mode; e->ringtone_enabled = true; e->ringtone_volume = 100;
+    re_atomic_rlx_set(&e->test_peak, 0); re_atomic_rlx_set(&e->test_error, 0);
     const char *diagnostics = getenv("SIP_DIAGNOSTICS");
     e->diagnostics = diagnostics && !strcmp(diagnostics, "1");
     str_ncpy(e->recording, recording ? recording : "", sizeof(e->recording));
@@ -741,6 +864,7 @@ int sip_engine_run(void *handle) {
     UNLOCK(&e->lock);
     if (initialized) {
         diagnostic_engine = NULL;
+        stop_audio_test(e);
         stop_ring(e);
         bevent_unregister(event_handler);
         e->call = NULL; e->call_ua = NULL;

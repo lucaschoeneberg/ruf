@@ -74,3 +74,27 @@ describe("contact phonebook search", () => {
     expect(contacts.map((c) => c.id)).toEqual(["c", "b", "a"]);
   });
 });
+
+test("contact display preferences can use alphabetical order without changing favorites or company search", () => {
+  const rows = contacts.map((contact) => ({
+    ...contact,
+    favorite: contact.id === "c",
+  }));
+  expect(searchContacts(rows, "").map((contact) => contact.id)).toEqual([
+    "c",
+    "a",
+    "b",
+  ]);
+  expect(
+    searchContacts(rows, "", false, false).map((contact) => contact.id),
+  ).toEqual(["a", "b", "c"]);
+  expect(
+    searchContacts(rows, "", true, false).map((contact) => contact.id),
+  ).toEqual(["c"]);
+  expect(
+    searchContacts(rows, "Beispiel Büro", false, false).map(
+      (contact) => contact.id,
+    ),
+  ).toEqual(["c"]);
+  expect(rows[0].favorite).toBe(true);
+});

@@ -10,6 +10,7 @@
 #endif
 #define SIP_NOTIFICATION_AUTHORIZATION_TIMEOUT_NS (180 * NSEC_PER_SEC)
 
+static NSString *const test_identifier_prefix = @"org.sipsoftphone.settings-test.";
 static NSString *const category_id = @"org.sipsoftphone.incoming";
 static NSString *const accept_id = @"accept";
 static NSString *const reject_id = @"reject";
@@ -54,7 +55,7 @@ didReceiveNotificationResponse:(UNNotificationResponse *)response
         else if ([response.actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier]) action = 3;
         NSString *token = response.notification.request.identifier;
         const char *bytes = token.UTF8String;
-        if (action && action_callback && token_value(bytes) &&
+        if (![token hasPrefix:test_identifier_prefix] && action && action_callback && token_value(bytes) &&
             strlen(bytes) == [token lengthOfBytesUsingEncoding:NSUTF8StringEncoding]) {
             /* Rust copies the opaque token immediately and returns without executing SIP. */
             action_callback(action, bytes);
@@ -242,6 +243,36 @@ int sip_call_notifications_dismiss(const char *token_bytes) {
                 }
             });
             return result;
+        } @catch (NSException *exception) {
+            (void)exception;
+            return 1;
+        }
+    }
+}
+
+int sip_test_notification_show(void) {
+    if (!center || NSThread.isMainThread) return 1;
+    @autoreleasepool {
+        @try {
+            int permission;
+            if (read_permission(&permission) || permission != 2) return 1;
+            UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+            content.title = @"Testbenachrichtigung";
+            content.body = @"Benachrichtigungen von Ruf sind aktiviert.";
+            NSString *identifier = [test_identifier_prefix stringByAppendingString:NSUUID.UUID.UUIDString];
+            UNNotificationRequest *notification = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil];
+            dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+            __block BOOL failed = NO;
+            /* Independent of real-call delivery_queue/active_token. ARC retains
+             * the block, semaphore and byref result until even a late callback
+             * finishes; no stack pointer or per-call registry escapes. */
+            [center addNotificationRequest:notification withCompletionHandler:^(NSError *error) {
+                failed = error != nil;
+                dispatch_semaphore_signal(completed);
+            }];
+            if (dispatch_semaphore_wait(completed,
+                    dispatch_time(DISPATCH_TIME_NOW, SIP_NOTIFICATION_SERVICE_TIMEOUT_NS))) return 1;
+            return failed ? 1 : 0;
         } @catch (NSException *exception) {
             (void)exception;
             return 1;

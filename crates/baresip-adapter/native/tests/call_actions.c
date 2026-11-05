@@ -7,6 +7,7 @@
 static int answer_result;
 static unsigned ring_destructions, answer_failures, errors, failed_dials;
 static uint64_t failed_dial_generation;
+static unsigned activation_failures;
 
 int test_ua_answer(struct ua *ua, struct call *call, enum vidmode mode) {
     assert(ua && call && mode == VIDMODE_OFF);
@@ -24,6 +25,7 @@ static void observed(const struct sip_event *event, void *arg) {
     (void)arg;
     if (event->kind == EV_ANSWER_FAILED) ++answer_failures;
     if (event->kind == EV_ERROR) ++errors;
+    if (event->kind == EV_ACCOUNT_REJECTED) { assert(event->code == EBUSY); ++activation_failures; }
     if (event->kind == EV_DIAL_FAILED) {
         ++failed_dials;
         failed_dial_generation = event->call_generation;
@@ -33,6 +35,7 @@ static void execute(struct engine *engine, int operation) {
     struct request *request = calloc(1, sizeof(*request));
     assert(request);
     request->operation = operation;
+    if (operation == OP_DISABLE || operation == OP_ENABLE) request->account_id = 77;
     request->call_generation = engine->call_generation;
     queue_handler(operation, request, engine);
 }
@@ -75,6 +78,15 @@ int main(void) {
     assert(failed_dials == 1 && failed_dial_generation == 43);
     assert(engine.call && engine.call_generation == 42);
     assert(errors == 0);
+    /* An incoming/dialing call winning after Rust validation must reject both
+       queued toggles before touching the owned UA or account identity. */
+    engine.accounts[0].id = 77;
+    engine.accounts[0].ua = (struct ua *)&engine;
+    execute(&engine, OP_DISABLE);
+    execute(&engine, OP_ENABLE);
+    assert(activation_failures == 2);
+    assert(engine.accounts[0].id == 77 && engine.accounts[0].ua == (struct ua *)&engine);
+    assert(engine.call && engine.call_generation == 42);
     LOCK_CLOSE(&engine.lock);
     puts("call_actions: answer failure retains ringtone; queued duplicate hangup and losing dial preserve the current call");
     return 0;

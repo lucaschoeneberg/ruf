@@ -56,7 +56,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> tauri::Result<()> {
         })
         .build(app)?;
     app.on_menu_event(|app, event| dispatch(app, event.id().as_ref()));
-    let hidden = shell_policy::start_hidden(&std::env::args().collect::<Vec<_>>());
+    let hidden = desktop::start_hidden(app.handle(), &std::env::args().collect::<Vec<_>>());
     if hidden {
         sync_activation(app.handle());
     } else {

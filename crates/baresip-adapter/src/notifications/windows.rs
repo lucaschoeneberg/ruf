@@ -44,6 +44,7 @@ use windows::{
 const ACTIVATOR: GUID = GUID::from_u128(0xa14373db_08e7_45ea_9e24_26cb70bfa7b1);
 const ACTIVATOR_TEXT: &str = "{A14373DB-08E7-45EA-9E24-26CB70BFA7B1}";
 const GROUP: &str = "sip-calls";
+const TEST_GROUP: &str = "sip-settings";
 const TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TOASTS: usize = 32;
 static INIT_LOCK: Mutex<()> = Mutex::new(());
@@ -52,6 +53,7 @@ type Reply<T> = Sender<Result<T, PhoneError>>;
 
 enum Command {
     Permission(Reply<NotificationPermission>),
+    Test(Reply<()>),
     Show {
         token: String,
         title: String,
@@ -129,6 +131,16 @@ pub(super) fn show(token: &str, title: &str, body: &str) -> Result<(), PhoneErro
         body: body.into(),
         reply,
     })
+}
+
+pub(super) fn show_test() -> Result<(), PhoneError> {
+    if SERVICE.get().and_then(Option::as_ref).is_none() {
+        return Err(PhoneError::new(
+            ErrorCode::EngineUnavailable,
+            "Native test notifications are unavailable in this launch context.",
+        ));
+    }
+    request(Command::Test)
 }
 
 pub(super) fn dismiss(token: &str) -> Result<(), PhoneError> {
@@ -244,6 +256,9 @@ impl Worker {
                         .map_err(|_| failure());
                     let _ = reply.send(result);
                 }
+                Command::Test(reply) => {
+                    let _ = reply.send(self.show_test().map_err(|_| failure()));
+                }
                 Command::Show {
                     token,
                     title,
@@ -302,6 +317,22 @@ impl Worker {
         self.notifier.Show(&active.toast)?;
         self.toasts.insert(token.to_owned(), active);
         Ok(())
+    }
+    fn show_test(&self) -> windows::core::Result<()> {
+        // Recheck at delivery time without requesting access. This toast has no
+        // call action handler and never replaces entries in self.toasts.
+        if self.notifier.Setting()? != NotificationSetting::Enabled {
+            return Err(windows::core::Error::from_hresult(
+                windows::Win32::Foundation::E_ACCESSDENIED,
+            ));
+        }
+        let document = XmlDocument::new()?;
+        document.LoadXml(&HSTRING::from(windows_payload::test_toast_xml()))?;
+        let toast = ToastNotification::CreateToastNotification(&document)?;
+        toast.SetTag(&HSTRING::from("settings-test"))?;
+        toast.SetGroup(&HSTRING::from(TEST_GROUP))?;
+        toast.SetExpiresOnReboot(true)?;
+        self.notifier.Show(&toast)
     }
     fn dismiss(&mut self, token: &str) -> windows::core::Result<()> {
         let hide = if let Some(active) = self.toasts.remove(token) {

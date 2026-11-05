@@ -79,6 +79,26 @@ pub async fn reconnect_account(
     state.reconnect_account(directory, cache, id).await
 }
 
+/// Toggle saved account activation, preserving identity, credentials and selection.
+/// Requires a known idle account. Only enabling may authorize saved credentials;
+/// native acknowledgment and newer-intent guards determine the returned snapshot.
+#[tauri::command]
+pub async fn set_account_enabled(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PhoneState>,
+    id: u32,
+    enabled: bool,
+) -> Result<EngineSnapshot, PhoneError> {
+    let directory = crate::store::data_directory(&app)?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| crate::store::storage_error())?;
+    state
+        .set_account_enabled(directory, cache, id, enabled)
+        .await
+}
+
 /// Compatibility command: save/replace the selected account using its username as name.
 #[tauri::command]
 pub async fn configure_account(
@@ -179,7 +199,14 @@ pub async fn open_settings(
     let section = section.unwrap_or_else(|| "accounts".into());
     if !matches!(
         section.as_str(),
-        "general" | "accounts" | "audio" | "contacts" | "about"
+        "general"
+            | "accounts"
+            | "audio"
+            | "contacts"
+            | "about"
+            | "notifications"
+            | "privacy"
+            | "diagnostics"
     ) {
         return Err(PhoneError::new(
             ErrorCode::InvalidInput,
@@ -307,4 +334,349 @@ pub async fn stop_ringtone_preview(
     state: tauri::State<'_, PhoneState>,
 ) -> Result<EngineSnapshot, PhoneError> {
     with_session(app, state, |session| session.stop_preview()).await
+}
+
+/// Read OS notification authorization without accounts, metadata or a permission prompt.
+#[tauri::command]
+pub async fn get_notification_permission(
+    app: tauri::AppHandle,
+) -> Result<phone_core::NotificationPermission, PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let permission = crate::call_notifications::permission(false)?;
+        crate::call_notifications::authorization_observed(&app, permission);
+        Ok(permission)
+    })
+    .await
+    .map_err(|_| window_error())?
+}
+
+/// Open the fixed OS notification pane; never changes permission or accepts a URL.
+#[tauri::command]
+pub async fn open_notification_settings() -> Result<(), PhoneError> {
+    tauri::async_runtime::spawn_blocking(|| open_permission_settings(false))
+        .await
+        .map_err(|_| window_error())?
+}
+/// Open the fixed OS microphone privacy pane; never changes permission.
+#[tauri::command]
+pub async fn open_microphone_settings() -> Result<(), PhoneError> {
+    tauri::async_runtime::spawn_blocking(|| open_permission_settings(true))
+        .await
+        .map_err(|_| window_error())?
+}
+fn open_permission_settings(microphone: bool) -> Result<(), PhoneError> {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("/usr/bin/open").arg(if microphone {
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+    } else { "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=org.rufapp.desktop" }).status();
+    #[cfg(windows)]
+    let result = std::process::Command::new("cmd")
+        .args([
+            "/C",
+            "start",
+            "",
+            if microphone {
+                "ms-settings:privacy-microphone"
+            } else {
+                "ms-settings:notifications"
+            },
+        ])
+        .status();
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = microphone;
+        return Err(PhoneError::new(
+            ErrorCode::EngineUnavailable,
+            "System permission settings are unavailable on this platform.",
+        ));
+    }
+    #[cfg(any(target_os = "macos", windows))]
+    if result.is_ok_and(|status| status.success()) {
+        Ok(())
+    } else {
+        Err(PhoneError::new(
+            ErrorCode::NativeFailure,
+            "System permission settings could not be opened.",
+        ))
+    }
+}
+
+static TEST_NOTICE_PENDING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+/// Explicit anonymous test after five seconds. Never asks for access or changes SIP/call state.
+/// Completion means native submission, not proof that Focus/OS showed a banner.
+#[tauri::command]
+pub async fn test_notification() -> Result<(), PhoneError> {
+    use std::sync::atomic::Ordering;
+    if TEST_NOTICE_PENDING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err(PhoneError::new(
+            ErrorCode::Busy,
+            "A notification test is already pending.",
+        ));
+    }
+    struct Pending;
+    impl Drop for Pending {
+        fn drop(&mut self) {
+            TEST_NOTICE_PENDING.store(false, Ordering::Release);
+        }
+    }
+    let pending = Pending;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _pending = pending;
+        if crate::call_notifications::permission(false)?
+            != phone_core::NotificationPermission::Authorized
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidState,
+                "Notification authorization is required for a test.",
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        baresip_adapter::show_test_notification()
+    })
+    .await
+    .map_err(|_| window_error())?
+}
+/// Read microphone authorization without opening an audio stream or prompting.
+#[tauri::command]
+pub async fn get_microphone_permission() -> Result<phone_core::MicrophonePermission, PhoneError> {
+    tauri::async_runtime::spawn_blocking(|| baresip_adapter::microphone_permission(false))
+        .await
+        .map_err(|_| window_error())?
+}
+/// Explicit foreground request for undecided microphone access; never starts capture.
+#[tauri::command]
+pub async fn request_microphone_permission() -> Result<phone_core::MicrophonePermission, PhoneError>
+{
+    tauri::async_runtime::spawn_blocking(|| baresip_adapter::microphone_permission(true))
+        .await
+        .map_err(|_| window_error())?
+}
+/// Begin one bounded idle-only native audio test on the specified opaque endpoint.
+#[tauri::command]
+pub async fn start_audio_test(
+    app: tauri::AppHandle,
+    kind: phone_core::AudioTestKind,
+    device: String,
+) -> Result<String, PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::desktop::with_session(&app, |session| {
+            session.engine()?.start_audio_test(kind, &device)
+        })
+    })
+    .await
+    .map_err(|_| window_error())?
+}
+/// Stop only the owned test; stale IDs do not stop a replacement or a real call.
+#[tauri::command]
+pub async fn stop_audio_test(app: tauri::AppHandle, id: String) -> Result<(), PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::desktop::with_session(&app, |session| session.engine()?.stop_audio_test(&id))
+    })
+    .await
+    .map_err(|_| window_error())?
+}
+
+/// Read an anonymous whitelist of health metadata without restoring accounts,
+/// reading credentials, enumerating contacts or opening audio capture/playback.
+/// Individual failed readings stay null; only worker failure rejects the command.
+#[tauri::command]
+pub async fn get_diagnostics(
+    app: tauri::AppHandle,
+) -> Result<phone_core::DiagnosticsReport, PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || read_diagnostics(&app))
+        .await
+        .map_err(|_| diagnostic_error())
+}
+
+/// Copy a newly read anonymous report as compact JSON; accepts no caller content.
+/// Clipboard support/failures retain the existing native clipboard error codes.
+#[tauri::command]
+pub async fn copy_diagnostics(app: tauri::AppHandle) -> Result<(), PhoneError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let text =
+            serde_json::to_string(&read_diagnostics(&app)).map_err(|_| diagnostic_error())?;
+        baresip_adapter::copy_plain_text(&text)
+    })
+    .await
+    .map_err(|_| diagnostic_error())?
+}
+
+fn diagnostic_error() -> PhoneError {
+    PhoneError::new(
+        ErrorCode::NativeFailure,
+        "The diagnostic report could not be processed.",
+    )
+}
+
+fn read_diagnostics(app: &tauri::AppHandle) -> phone_core::DiagnosticsReport {
+    let snapshot = app.state::<PhoneState>().diagnostics_snapshot();
+    diagnostic_report(
+        snapshot,
+        crate::call_notifications::permission(false),
+        baresip_adapter::microphone_permission(false),
+        baresip_adapter::audio_devices(),
+        crate::history::recording_error(app),
+    )
+}
+
+fn diagnostic_report(
+    snapshot: Option<EngineSnapshot>,
+    notification: Result<phone_core::NotificationPermission, PhoneError>,
+    microphone: Result<phone_core::MicrophonePermission, PhoneError>,
+    devices: Result<AudioDevices, PhoneError>,
+    history_error: Option<PhoneError>,
+) -> phone_core::DiagnosticsReport {
+    // Select explicit fields. Never serialize a snapshot or raw native error text.
+    let snapshot_errors: Vec<_> = snapshot
+        .iter()
+        .flat_map(|snapshot| {
+            snapshot.last_error.iter().chain(
+                snapshot
+                    .accounts
+                    .iter()
+                    .filter_map(|account| account.last_error.as_ref()),
+            )
+        })
+        .collect();
+    let credential_error = snapshot_errors.iter().map(|error| error.code).find(|code| {
+        matches!(
+            code,
+            ErrorCode::CredentialAccessRequired
+                | ErrorCode::CredentialMissing
+                | ErrorCode::CredentialFailure
+        )
+    });
+    let last_error = snapshot_errors
+        .first()
+        .map(|error| error.code)
+        .or_else(|| history_error.as_ref().map(|error| error.code))
+        .or_else(|| notification.as_ref().err().map(|error| error.code))
+        .or_else(|| microphone.as_ref().err().map(|error| error.code))
+        .or_else(|| devices.as_ref().err().map(|error| error.code));
+    phone_core::DiagnosticsReport {
+        version: env!("CARGO_PKG_VERSION").into(),
+        platform: std::env::consts::OS.into(),
+        telephony: baresip_adapter::status(),
+        accounts_total: snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.accounts.len() as u32),
+        accounts_registered: snapshot.as_ref().map(|snapshot| {
+            snapshot
+                .accounts
+                .iter()
+                .filter(|account| account.registration == phone_core::RegistrationState::Registered)
+                .count() as u32
+        }),
+        call_active: snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.call != phone_core::CallState::Idle),
+        notification_permission: notification.ok(),
+        microphone_permission: microphone.ok(),
+        audio_devices_available: devices
+            .ok()
+            .map(|devices| !devices.inputs.is_empty() && !devices.outputs.is_empty()),
+        credential_error,
+        history_available: history_error.is_none(),
+        last_error,
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn report_whitelists_counts_and_error_codes_and_excludes_identity() {
+        let mut snapshot = EngineSnapshot {
+            call: phone_core::CallState::Incoming,
+            call_id: Some("PRIVATE_CALL_TOKEN".into()),
+            caller: Some(phone_core::CallerIdentity {
+                name: Some("PRIVATE_CALLER".into()),
+                number: Some("+4930555000".into()),
+            }),
+            accounts: vec![phone_core::AccountSnapshot {
+                id: 7,
+                name: "PRIVATE_ACCOUNT".into(),
+                registrar: "private.example.test".into(),
+                username: "PRIVATE_USER".into(),
+                enabled: true,
+                enabled_changing: false,
+                registered_at_ms: Some(12345),
+                registration: phone_core::RegistrationState::Registered,
+                last_error: Some(PhoneError::new(
+                    ErrorCode::CredentialAccessRequired,
+                    "PRIVATE_ERROR_PAYLOAD",
+                )),
+                removing: false,
+            }],
+            ..Default::default()
+        };
+        let mut unregistered = snapshot.accounts[0].clone();
+        unregistered.id = 8;
+        unregistered.registration = phone_core::RegistrationState::Failed;
+        unregistered.last_error = None;
+        snapshot.accounts.push(unregistered);
+        snapshot.caller_contact = Some(phone_core::ContactReference {
+            id: "PRIVATE_CONTACT_ID".into(),
+            source: phone_core::ContactSource::Macos,
+            name: "PRIVATE_CONTACT_NAME".into(),
+        });
+        let report = diagnostic_report(
+            Some(snapshot),
+            Ok(phone_core::NotificationPermission::Denied),
+            Ok(phone_core::MicrophonePermission::Authorized),
+            Ok(AudioDevices::default()),
+            None,
+        );
+        assert_eq!(report.accounts_total, Some(2));
+        assert_eq!(report.accounts_registered, Some(1));
+        assert_eq!(report.call_active, Some(true));
+        assert_eq!(
+            report.credential_error,
+            Some(ErrorCode::CredentialAccessRequired)
+        );
+        assert_eq!(report.audio_devices_available, Some(false));
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value.as_object().unwrap().len(), 12);
+        let text = serde_json::to_string(&report).unwrap();
+        assert!(text.len() <= 1024);
+        for private in ["PRIVATE_", "private.example.test", "+4930555000", "12345"] {
+            assert!(!text.contains(private));
+        }
+    }
+    #[test]
+    fn unavailable_readings_remain_unknown_and_errors_are_classified_only() {
+        let report = diagnostic_report(
+            None,
+            Err(PhoneError::new(
+                ErrorCode::NativeFailure,
+                "PRIVATE_NATIVE_DETAIL",
+            )),
+            Err(PhoneError::new(
+                ErrorCode::NativeFailure,
+                "PRIVATE_MIC_DETAIL",
+            )),
+            Err(PhoneError::new(
+                ErrorCode::EngineUnavailable,
+                "PRIVATE_DEVICE_DETAIL",
+            )),
+            Some(PhoneError::new(
+                ErrorCode::StorageFailure,
+                "PRIVATE_STORAGE_DETAIL",
+            )),
+        );
+        assert_eq!(report.accounts_total, None);
+        assert_eq!(report.accounts_registered, None);
+        assert_eq!(report.call_active, None);
+        assert_eq!(report.notification_permission, None);
+        assert_eq!(report.microphone_permission, None);
+        assert_eq!(report.audio_devices_available, None);
+        assert_eq!(report.credential_error, None);
+        assert!(!report.history_available);
+        assert_eq!(report.last_error, Some(ErrorCode::StorageFailure));
+        assert!(!serde_json::to_string(&report).unwrap().contains("PRIVATE_"));
+    }
 }

@@ -124,3 +124,14 @@ This distinction uses native evidence rather than the optimistic `answering`
 snapshot. Established calls ended by the media watchdog retain their observed
 connection duration and existing `completed` history classification; the current
 engine snapshot exposes the separate `nativeFailure` media error.
+
+## Collection and retention preferences
+
+[Application preferences](preferences.md) expose explicit metadata collection and
+retention settings with current-behavior defaults. The ordered history worker
+latches collection at each native start event, excludes ignored calls permanently,
+and prunes only completed rows strictly before the selected start-time cutoff.
+Startup recovery still marks unfinished prior-process rows `interrupted` before
+retention. Daily cleanup and configuration failures use the existing independent
+history storage warning; SIP continues. `clear_history` keeps its existing
+completed-only semantics and confirmation remains in the frontend.

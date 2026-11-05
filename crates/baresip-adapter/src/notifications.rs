@@ -107,6 +107,32 @@ pub fn show_call_notification(token: &str, title: &str, body: &str) -> Result<()
     }
 }
 
+/// Deliver one anonymous, silent settings-test notification without call actions.
+/// Never requests authorization; the native service rechecks it before submission.
+/// Call on a blocking worker. Success means OS acceptance, not guaranteed display.
+/// macOS settings and acceptance each have a five-second deadline; late callbacks
+/// remain safe and never modify live-call delivery. Windows uses its existing COM
+/// worker and a separate notification group, without touching the live-call map.
+/// Returns `NativeFailure` on denial, timeout or service failure and
+/// `EngineUnavailable` on unsupported platforms or Windows launch contexts.
+pub fn show_test_notification() -> Result<(), PhoneError> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::show_test()
+    }
+    #[cfg(windows)]
+    {
+        windows::show_test()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        Err(PhoneError::new(
+            ErrorCode::EngineUnavailable,
+            "Native test notifications are unavailable on this platform.",
+        ))
+    }
+}
+
 /// Remove both pending and delivered notifications for this token. Call off the UI thread.
 pub fn dismiss_call_notification(token: &str) -> Result<(), PhoneError> {
     validate_token(token)?;

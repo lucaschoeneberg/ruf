@@ -2,7 +2,11 @@
   import { onMount, tick, untrack } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import type { Contact, ContactsSnapshot } from "../generated/AppInfo";
+  import type {
+    Contact,
+    ContactsPreferences,
+    ContactsSnapshot,
+  } from "../generated/AppInfo";
   import {
     getContacts,
     refreshContacts,
@@ -10,6 +14,7 @@
     setContactFavorite,
     openContactsSettings,
   } from "../contacts-api";
+  import { getPreferences } from "../api";
   import { searchContacts } from "../contacts";
   import Icon from "./Icon.svelte";
   import ContactRow from "./ContactRow.svelte";
@@ -29,6 +34,12 @@
   } = $props();
 
   let snapshot = $state<ContactsSnapshot | null>(null);
+  let preferences = $state<ContactsPreferences>({
+    favoritesFirst: true,
+    showOrganization: true,
+  });
+  let preferencesError = $state<string | null>(null);
+  let preferencesRequest = 0;
   let query = $state("");
   let favoritesOnly = $state(false);
   let expandedId = $state<string | null>(null);
@@ -47,9 +58,30 @@
   const permission = $derived(snapshot?.permission);
   const accessible = $derived(permission === "authorized");
   const results = $derived(
-    searchContacts(snapshot?.contacts ?? [], query, favoritesOnly),
+    searchContacts(
+      snapshot?.contacts ?? [],
+      query,
+      favoritesOnly,
+      preferences.favoritesFirst,
+    ),
   );
   const visible = $derived(results.slice(0, limit));
+
+  async function refreshPreferences() {
+    if (!mounted || !desktop) return;
+    const request = ++preferencesRequest;
+    try {
+      const next = await getPreferences();
+      if (mounted && request === preferencesRequest) {
+        preferences = next.contacts;
+        preferencesError = null;
+      }
+    } catch {
+      if (mounted && request === preferencesRequest)
+        preferencesError =
+          "Die Kontaktanzeige konnte nicht geladen werden. Die zuletzt bekannte Ansicht bleibt erhalten.";
+    }
+  }
 
   async function refresh(requestAccess = false, force = true) {
     if (!mounted || !desktop) return;
@@ -88,9 +120,12 @@
       appliedFocus = id;
       query = "";
       favoritesOnly = false;
-      const index = searchContacts(contacts, "").findIndex(
-        (contact) => contact.id === id,
-      );
+      const index = searchContacts(
+        contacts,
+        "",
+        false,
+        preferences.favoritesFirst,
+      ).findIndex((contact) => contact.id === id);
       limit = Math.max(50, index + 1);
       expandedId = id;
       void tick().then(() => {
@@ -183,6 +218,7 @@
   onMount(() => {
     mounted = true;
     desktop = isTauri();
+    void refreshPreferences();
     let unlisten: UnlistenFn | undefined;
     if (desktop)
       void (async () => {
@@ -200,7 +236,10 @@
         if (mounted) void refresh(false, false);
       })();
     const reload = () => {
-      if (document.visibilityState !== "hidden") void refresh();
+      if (document.visibilityState !== "hidden") {
+        void refresh();
+        void refreshPreferences();
+      }
     };
     window.addEventListener("focus", reload);
     document.addEventListener("visibilitychange", reload);
@@ -208,6 +247,7 @@
     return () => {
       mounted = false;
       ++requestId;
+      ++preferencesRequest;
       unlisten?.();
       window.removeEventListener("keydown", keyboard);
       window.removeEventListener("focus", reload);
@@ -239,6 +279,9 @@
         onclick={() => void refresh()}><Icon name="refresh" size={15} /></button
       >{/if}
   </div>
+  {#if preferencesError}<p class="contacts-note" role="status">
+      {preferencesError}
+    </p>{/if}
   {#if privacyError}<p class="contacts-note contacts-error" role="alert">
       {privacyError}
     </p>{/if}
@@ -368,6 +411,7 @@
         {#each visible as contact (contact.id)}
           <ContactRow
             {contact}
+            showOrganization={preferences.showOrganization}
             {canDial}
             {oncall}
             {onhistory}

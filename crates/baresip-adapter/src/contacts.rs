@@ -17,7 +17,7 @@ type ContactCallback = unsafe extern "C" fn(
 
 unsafe extern "C" {
     fn sip_contacts_revision() -> u64;
-    fn sip_copy_phone_number(number: *const c_char) -> c_int;
+    fn sip_copy_plain_text(text: *const c_char) -> c_int;
     fn sip_contacts_permission(request_access: c_int, permission: *mut c_int) -> c_int;
     fn sip_contacts_read(
         request_access: c_int,
@@ -32,18 +32,18 @@ pub(crate) fn revision() -> u64 {
     unsafe { sip_contacts_revision() }
 }
 
-pub(crate) fn copy_number(number: &str) -> Result<(), PhoneError> {
-    let number = CString::new(number).map_err(|_| {
+pub(crate) fn copy_text(text: &str) -> Result<(), PhoneError> {
+    let text = CString::new(text).map_err(|_| {
         PhoneError::new(
             ErrorCode::InvalidInput,
-            "The selected number cannot contain NUL characters.",
+            "Clipboard text cannot contain NUL characters.",
         )
     })?;
     // SAFETY: native code synchronously copies this NUL-terminated UTF-8 value.
-    if unsafe { sip_copy_phone_number(number.as_ptr()) } != 0 {
+    if unsafe { sip_copy_plain_text(text.as_ptr()) } != 0 {
         return Err(PhoneError::new(
             ErrorCode::NativeFailure,
-            "The selected number could not be copied to the clipboard.",
+            "The text could not be copied to the clipboard.",
         ));
     }
     Ok(())

@@ -24,7 +24,7 @@ else()
     endif()
 endif()
 
-add_executable(call_actions_test call_actions.c)
+add_executable(call_actions_test call_actions.c ../audio_diagnostics.c)
 target_compile_features(call_actions_test PRIVATE c_std_11)
 target_include_directories(call_actions_test PRIVATE
     "${SIP_SDK_PREFIX}/include" "${SIP_SDK_PREFIX}/include/re")

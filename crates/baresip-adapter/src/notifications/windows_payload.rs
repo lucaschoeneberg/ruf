@@ -26,6 +26,10 @@ pub(super) fn toast_xml(token: &str, title: &str, body: &str) -> String {
     )
 }
 
+pub(super) fn test_toast_xml() -> String {
+    "<toast launch=\"settings-test\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\"><text>Testbenachrichtigung</text><text>Benachrichtigungen von Ruf sind aktiviert.</text></binding></visual><audio silent=\"true\"/></toast>".into()
+}
+
 fn escape_text(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
@@ -48,6 +52,29 @@ fn escape_text(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_test_payload_is_anonymous_and_never_routes_call_actions() {
+        let xml = test_toast_xml();
+        assert!(xml.contains("Testbenachrichtigung"));
+        assert!(xml.contains("<audio silent=\"true\"/>"));
+        for forbidden in [
+            "<actions>",
+            "answer:",
+            "reject:",
+            "open:",
+            "incomingCall",
+            "sip:",
+            "@",
+            "+49",
+        ] {
+            assert!(
+                !xml.contains(forbidden),
+                "unexpected call/personal data: {forbidden}"
+            );
+        }
+        assert!(parse_activation("settings-test").is_none());
+    }
 
     #[test]
     fn actions_keep_the_exact_opaque_call_token() {

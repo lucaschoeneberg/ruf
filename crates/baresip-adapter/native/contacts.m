@@ -152,13 +152,13 @@ uint64_t sip_contacts_revision(void) {
     return atomic_load_explicit(&contact_revision, memory_order_relaxed);
 }
 
-int sip_copy_phone_number(const char *number) {
-    if (!number) return 1;
+int sip_copy_plain_text(const char *text_bytes) {
+    if (!text_bytes) return 1;
     @autoreleasepool {
         @try {
-            size_t length = strlen(number);
+            size_t length = strlen(text_bytes);
             if (!length || length > 1024) return 1;
-            NSString *text = [[NSString alloc] initWithBytes:number length:length encoding:NSUTF8StringEncoding];
+            NSString *text = [[NSString alloc] initWithBytes:text_bytes length:length encoding:NSUTF8StringEncoding];
             if (!text || [text rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return 1;
             __block int result = 1;
             void (^copy)(void) = ^{

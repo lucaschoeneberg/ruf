@@ -1,6 +1,6 @@
 use phone_core::{
-    AccountConfig, AccountSnapshot, AudioMode, CallState, EngineSnapshot, ErrorCode, PhoneError,
-    RegistrationState, SoundSettings,
+    AccountConfig, AccountSnapshot, AudioMode, AudioTestKind, CallState, EngineSnapshot, ErrorCode,
+    PhoneError, RegistrationState, SoundSettings,
 };
 use std::{
     collections::BTreeMap,
@@ -143,12 +143,100 @@ impl Engine {
             Err(state_error())
         }
     }
+    /// Start an explicit, idle-only native audio diagnostic on an opaque device ID.
+    /// Microphone capture requires prior authorization where the OS supports querying it,
+    /// otherwise the explicitly requested capture determines access. Stops after ten seconds;
+    /// speaker output stops after two seconds. Incoming/outgoing calls preempt both.
+    /// Returns an owner token for `stop_audio_test`; Busy rejects concurrent audio.
+    /// Invalid device/token input returns InvalidInput, unlinked builds EngineUnavailable,
+    /// and unavailable hardware/authorization returns NativeFailure without prompting.
+    pub fn start_audio_test(
+        &mut self,
+        kind: AudioTestKind,
+        device: &str,
+    ) -> Result<String, PhoneError> {
+        SoundSettings {
+            input_device: device.into(),
+            ..Default::default()
+        }
+        .validate()?;
+        self.reserve_sound_operation()?;
+        #[cfg(feature = "native")]
+        {
+            if kind == AudioTestKind::Microphone
+                && self.audio == AudioMode::System
+                && !matches!(
+                    crate::microphone_permission(false)?,
+                    phone_core::MicrophonePermission::Authorized
+                        | phone_core::MicrophonePermission::Unsupported
+                )
+            {
+                return Err(PhoneError::new(
+                    ErrorCode::NativeFailure,
+                    "Authorize microphone access before starting the test.",
+                ));
+            }
+            let id = self.native.reserve_call_generation()?;
+            self.snapshot
+                .lock()
+                .map_err(|_| state_error())?
+                .snapshot
+                .audio_test_error = None;
+            self.native.audio_test_request(
+                match kind {
+                    AudioTestKind::Microphone => 12,
+                    AudioTestKind::Speaker => 13,
+                },
+                id,
+                device,
+            )?;
+            self.wait_sound_operation()?;
+            Ok(id.to_string())
+        }
+        #[cfg(not(feature = "native"))]
+        {
+            let _ = kind;
+            Err(PhoneError::new(
+                ErrorCode::EngineUnavailable,
+                "Native audio diagnostics are not linked.",
+            ))
+        }
+    }
+    /// Idempotently stop only the named test; stale owner tokens never stop a later
+    /// diagnostic or an incoming-call ringtone. Does not require an idle call slot.
+    pub fn stop_audio_test(&mut self, id: &str) -> Result<(), PhoneError> {
+        let token = id
+            .parse::<u64>()
+            .ok()
+            .filter(|value| *value != 0 && value.to_string() == id)
+            .ok_or_else(|| PhoneError::new(ErrorCode::InvalidInput, "Invalid audio test token."))?;
+        #[cfg(feature = "native")]
+        {
+            self.snapshot
+                .lock()
+                .map_err(|_| state_error())?
+                .sound_result = None;
+            self.native.audio_test_request(14, token, "")?;
+            self.wait_sound_operation()
+        }
+        #[cfg(not(feature = "native"))]
+        {
+            let _ = token;
+            Err(PhoneError::new(
+                ErrorCode::EngineUnavailable,
+                "Native audio diagnostics are not linked.",
+            ))
+        }
+    }
     fn reserve_sound_operation(&self) -> Result<(), PhoneError> {
         let mut state = self.snapshot.lock().map_err(|_| state_error())?;
-        if state.snapshot.call != CallState::Idle {
+        if state.snapshot.call != CallState::Idle
+            || state.snapshot.audio_test.is_some()
+            || state.snapshot.ringtone_playing
+        {
             return Err(PhoneError::new(
                 ErrorCode::Busy,
-                "End the call before changing or previewing sound.",
+                "Stop the current call or audio preview before changing sound.",
             ));
         }
         state.sound_result = None;
@@ -249,7 +337,19 @@ impl Engine {
             ));
         }
         // Hold the state lock until the entry exists: queued callbacks cannot race insertion.
-        self.request(1, id, Some(config), None, 0)?;
+        let enabled = state
+            .snapshot
+            .accounts
+            .iter()
+            .find(|a| a.id == id)
+            .is_none_or(|a| a.enabled);
+        self.request(
+            1,
+            id,
+            Some(config),
+            Some(if enabled { "1" } else { "0" }),
+            0,
+        )?;
         let previous = state.snapshot.accounts.iter().find(|a| a.id == id).cloned();
         state.pending_accounts.insert(id, previous);
         state.account_results.remove(&id);
@@ -258,9 +358,16 @@ impl Engine {
             name: name.into(),
             registrar: config.registrar.clone(),
             username: config.username.clone(),
-            registration: RegistrationState::Registering,
+            registration: if enabled {
+                RegistrationState::Registering
+            } else {
+                RegistrationState::Unconfigured
+            },
             last_error: None,
             removing: false,
+            enabled,
+            enabled_changing: true,
+            registered_at_ms: None,
         };
         if let Some(existing) = state.snapshot.accounts.iter_mut().find(|a| a.id == id) {
             *existing = account;
@@ -271,6 +378,103 @@ impl Engine {
             state.snapshot.selected_account_id = Some(id);
         }
         state.snapshot.last_error = None;
+        state.snapshot.sync_selected_registration();
+        Ok(id)
+    }
+
+    /// Activate/deactivate an existing identity without deleting it or changing selection.
+    /// Enabling requires its validated saved config; disabling never needs a secret.
+    /// Waits for native application, not SIP registration. Busy rejects pending account
+    /// work or an occupied call slot; a losing native call race restores prior state.
+    pub fn set_account_enabled(
+        &mut self,
+        id: u32,
+        enabled: bool,
+        config: Option<&AccountConfig>,
+    ) -> Result<(), PhoneError> {
+        {
+            let mut state = self.snapshot.lock().map_err(|_| state_error())?;
+            if state.snapshot.call != CallState::Idle || state.pending_accounts.contains_key(&id) {
+                return Err(PhoneError::new(
+                    ErrorCode::Busy,
+                    "End the call or pending account update before changing activation.",
+                ));
+            }
+            let previous = state
+                .snapshot
+                .accounts
+                .iter()
+                .find(|a| a.id == id && !a.removing)
+                .cloned()
+                .ok_or_else(|| {
+                    PhoneError::new(ErrorCode::InvalidInput, "Unknown or removing account.")
+                })?;
+            if previous.enabled == enabled {
+                return Ok(());
+            }
+            if enabled {
+                let config = config.ok_or_else(|| {
+                    PhoneError::new(
+                        ErrorCode::InvalidInput,
+                        "Enabling an account requires its saved configuration.",
+                    )
+                })?;
+                config.validate()?;
+                if config.audio_mode != self.audio
+                    || config.registrar != previous.registrar
+                    || config.username != previous.username
+                {
+                    return Err(PhoneError::new(
+                        ErrorCode::InvalidInput,
+                        "Activation cannot replace the saved SIP identity.",
+                    ));
+                }
+            }
+            self.request(if enabled { 16 } else { 15 }, id, config, Some("1"), 0)?;
+            state.pending_accounts.insert(id, Some(previous));
+            state.account_results.remove(&id);
+            let account = state
+                .snapshot
+                .accounts
+                .iter_mut()
+                .find(|a| a.id == id)
+                .ok_or_else(state_error)?;
+            account.enabled = enabled;
+            account.enabled_changing = true;
+            account.registration = if enabled {
+                RegistrationState::Registering
+            } else {
+                RegistrationState::Unconfigured
+            };
+            account.registered_at_ms = None;
+            account.last_error = None;
+            state.snapshot.sync_selected_registration();
+        }
+        self.wait_account_update(id)
+    }
+
+    /// Restore disabled, nonsecret saved metadata without creating a native UA.
+    /// Config contains a caller-owned placeholder password; no credential is read.
+    pub fn restore_disabled_account(
+        &mut self,
+        name: &str,
+        config: &AccountConfig,
+    ) -> Result<u32, PhoneError> {
+        let id = self.restore_unavailable_account(
+            name,
+            config,
+            PhoneError::new(ErrorCode::InvalidState, "Account disabled."),
+        )?;
+        let mut state = self.snapshot.lock().map_err(|_| state_error())?;
+        let account = state
+            .snapshot
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(state_error)?;
+        account.enabled = false;
+        account.registration = RegistrationState::Unconfigured;
+        account.last_error = None;
         state.snapshot.sync_selected_registration();
         Ok(id)
     }
@@ -348,6 +552,9 @@ impl Engine {
             registration: RegistrationState::Failed,
             last_error: Some(error),
             removing: false,
+            enabled: true,
+            enabled_changing: false,
+            registered_at_ms: None,
         });
         if state.snapshot.selected_account_id.is_none() {
             state.snapshot.selected_account_id = Some(id);
@@ -372,6 +579,12 @@ impl Engine {
             return Err(PhoneError::new(
                 ErrorCode::Busy,
                 "End the current call before removing accounts.",
+            ));
+        }
+        if state.pending_accounts.contains_key(&id) {
+            return Err(PhoneError::new(
+                ErrorCode::Busy,
+                "An account update is still pending.",
             ));
         }
         let account = state
@@ -1042,5 +1255,79 @@ mod action_tests {
             engine.answer_call("current").unwrap_err().code,
             ErrorCode::InvalidState
         );
+    }
+}
+
+#[cfg(all(test, feature = "native"))]
+mod audio_diagnostic_tests {
+    use super::*;
+    use phone_core::AudioTestKind;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn native_audio_tests_are_exclusive_bounded_and_owner_scoped() {
+        let _guard = crate::NATIVE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let recording =
+            std::env::temp_dir().join(format!("ruf-audio-diagnostics-{}.wav", std::process::id()));
+        let mut engine = Engine::start(AudioMode::TestTone, Some(recording.clone())).unwrap();
+        let first = engine
+            .start_audio_test(AudioTestKind::Microphone, "")
+            .unwrap();
+        assert_eq!(
+            engine
+                .start_audio_test(AudioTestKind::Speaker, "")
+                .unwrap_err()
+                .code,
+            ErrorCode::Busy
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while engine
+            .snapshot()
+            .unwrap()
+            .audio_test
+            .as_ref()
+            .unwrap()
+            .level
+            == 0.0
+        {
+            assert!(
+                Instant::now() < deadline,
+                "synthetic ausine input must reach the meter"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        engine.stop_audio_test(&first).unwrap();
+        assert!(engine.snapshot().unwrap().audio_test.is_none());
+        let second = engine.start_audio_test(AudioTestKind::Speaker, "").unwrap();
+        assert_ne!(first, second);
+        engine.stop_audio_test(&first).unwrap();
+        assert_eq!(engine.snapshot().unwrap().audio_test.unwrap().id, second);
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while engine.snapshot().unwrap().audio_test.is_some() {
+            assert!(
+                Instant::now() < deadline,
+                "speaker test must stop after two seconds"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        engine
+            .start_audio_test(AudioTestKind::Microphone, "")
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(12);
+        while engine.snapshot().unwrap().audio_test.is_some() {
+            assert!(
+                Instant::now() < deadline,
+                "capture must stop after ten seconds"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        engine
+            .start_audio_test(AudioTestKind::Microphone, "")
+            .unwrap();
+        engine.shutdown().unwrap();
+        assert!(engine.snapshot().unwrap().audio_test.is_none());
+        let _ = std::fs::remove_file(recording);
     }
 }

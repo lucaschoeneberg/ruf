@@ -14,11 +14,12 @@ function phoneSearch(value: string): string | null {
   return digits || null;
 }
 
-/** Filter source contacts without merging namesakes or changing the original order. */
+/** Filter and sort contacts without merging namesakes or mutating the source. */
 export function searchContacts(
   contacts: readonly Contact[],
   query: string,
   favoritesOnly = false,
+  favoritesFirst = true,
 ): Contact[] {
   const text = searchable(query.trim());
   const telephone = phoneSearch(text);
@@ -43,7 +44,7 @@ export function searchContacts(
     })
     .sort(
       (a, b) =>
-        Number(b.favorite) - Number(a.favorite) ||
+        (favoritesFirst ? Number(b.favorite) - Number(a.favorite) : 0) ||
         a.name.localeCompare(b.name, "de", { sensitivity: "base" }) ||
         a.id.localeCompare(b.id),
     );

@@ -10,6 +10,7 @@ mod notifications;
 pub use notifications::{
     CallNotificationAction, NotificationPermission, call_notification_permission,
     dismiss_call_notification, init_call_notifications, show_call_notification,
+    show_test_notification,
 };
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
@@ -17,6 +18,29 @@ mod contacts;
 #[cfg(feature = "native")]
 #[allow(unsafe_code)]
 mod ffi;
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod microphone;
+
+/// Query microphone authorization without capturing audio or reading account metadata.
+/// `false` never prompts. `true` may prompt only for an undecided decision and must
+/// follow an explicit user action. Denied/restricted results require OS settings.
+/// Native read/timeout failures return NativeFailure; other platforms return Unsupported.
+/// Call on a blocking worker while the application main loop runs.
+pub fn microphone_permission(
+    request_access: bool,
+) -> Result<phone_core::MicrophonePermission, phone_core::PhoneError> {
+    #[cfg(target_os = "macos")]
+    {
+        microphone::permission(request_access)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = request_access;
+        Ok(phone_core::MicrophonePermission::Unsupported)
+    }
+}
 
 /// Check system contacts authorization without enumerating any contact records.
 ///
@@ -83,10 +107,29 @@ pub fn contacts_revision() -> u64 {
 /// On macOS, call from a blocking worker while the application's main loop runs;
 /// pasteboard work is dispatched synchronously to the main thread when needed.
 pub fn copy_phone_number(number: &str) -> Result<(), phone_core::PhoneError> {
-    validate_clipboard_number(number)?;
+    copy_plain_text(number)
+}
+
+fn validate_clipboard_text(text: &str) -> Result<(), phone_core::PhoneError> {
+    if text.is_empty() || text.len() > 1024 || text.chars().any(char::is_control) {
+        return Err(phone_core::PhoneError::new(
+            phone_core::ErrorCode::InvalidInput,
+            "Clipboard text must contain 1–1024 UTF-8 bytes without control characters.",
+        ));
+    }
+    Ok(())
+}
+
+/// Copy bounded plain text using the existing native pasteboard bridge.
+/// Accepts 1–1024 UTF-8 bytes without control characters. Invalid text returns
+/// `InvalidInput`; native write failures return `NativeFailure`, unsupported
+/// platforms return `EngineUnavailable`. Does not request Contacts authorization.
+/// Call from a blocking worker while the application's main loop runs.
+pub fn copy_plain_text(text: &str) -> Result<(), phone_core::PhoneError> {
+    validate_clipboard_text(text)?;
     #[cfg(target_os = "macos")]
     {
-        contacts::copy_number(number)
+        contacts::copy_text(text)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -95,16 +138,6 @@ pub fn copy_phone_number(number: &str) -> Result<(), phone_core::PhoneError> {
             "Native clipboard access is not available on this platform.",
         ))
     }
-}
-
-fn validate_clipboard_number(number: &str) -> Result<(), phone_core::PhoneError> {
-    if number.is_empty() || number.len() > 1024 || number.chars().any(char::is_control) {
-        return Err(phone_core::PhoneError::new(
-            phone_core::ErrorCode::InvalidInput,
-            "The selected number must contain 1–1024 UTF-8 bytes without control characters.",
-        ));
-    }
-    Ok(())
 }
 
 /// Report linkage only; account registration is returned by the engine snapshot.
@@ -156,10 +189,25 @@ mod clipboard_tests {
         }
     }
     #[test]
+    fn generic_clipboard_rejects_invalid_payloads_before_native_access() {
+        for text in [
+            "",
+            "report\nsecond line",
+            "report\0suffix",
+            &"x".repeat(1025),
+        ] {
+            assert_eq!(
+                copy_plain_text(text).unwrap_err().code,
+                phone_core::ErrorCode::InvalidInput
+            );
+        }
+    }
+
+    #[test]
     fn selected_number_is_validated_without_normalizing_its_text() {
         for number in ["+49 (30) 123-45", "123 ext. 7", "*123#", &"1".repeat(1024)] {
-            assert!(validate_clipboard_number(number).is_ok());
+            assert!(validate_clipboard_text(number).is_ok());
         }
-        assert!(validate_clipboard_number(&"é".repeat(513)).is_err());
+        assert!(validate_clipboard_text(&"é".repeat(513)).is_err());
     }
 }

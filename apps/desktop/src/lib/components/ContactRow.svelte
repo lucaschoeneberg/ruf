@@ -8,6 +8,7 @@
     expanded,
     canDial,
     favoriteBusy,
+    showOrganization = true,
     onexpand,
     onfavorite,
     oncall,
@@ -17,6 +18,7 @@
     expanded: boolean;
     canDial: boolean;
     favoriteBusy: boolean;
+    showOrganization?: boolean;
     onexpand: () => void;
     onfavorite: () => void;
     oncall: (destination: string) => void;
@@ -72,7 +74,7 @@
       <span class="contact-copy">
         <span class="contact-name">{contact.name}</span>
         <span class="contact-summary">
-          {#if contact.organization && contact.organization !== contact.name}{contact.organization}{" · "}{/if}
+          {#if showOrganization && contact.organization && contact.organization !== contact.name}{contact.organization}{" · "}{/if}
           {multiple
             ? `${contact.phones.length} Nummern`
             : (first?.number ?? "Keine Nummer")}

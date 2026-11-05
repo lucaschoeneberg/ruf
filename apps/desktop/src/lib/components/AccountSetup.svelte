@@ -13,6 +13,7 @@
     name = $bindable(),
     existing,
     removed = false,
+    embedded = false,
     busy,
     disabled,
     onconfigure,
@@ -23,6 +24,7 @@
     name: string;
     existing: AccountSnapshot | null;
     removed?: boolean;
+    embedded?: boolean;
     busy: boolean;
     disabled: boolean;
     onconfigure: (account: AccountConfig, name: string) => Promise<void>;
@@ -37,9 +39,10 @@
     existing?.lastError?.code === "credentialMissing",
   );
   const canReconnect = $derived(
-    existing?.registration === "failed" &&
-      (existing.lastError?.code === "credentialAccessRequired" ||
-        existing.lastError?.code === "credentialFailure"),
+    existing?.enabled !== false &&
+      existing?.registration === "failed" &&
+      existing.lastError?.code !== "credentialMissing" &&
+      existing.lastError?.code !== "storageFailure",
   );
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -66,27 +69,31 @@
     await onconfigure(normalized, name.trim());
   }
   const status = $derived(
-    existing?.removing
-      ? "Wird entfernt …"
-      : existing?.registration === "registered"
-        ? "Verbunden"
-        : existing?.registration === "registering"
-          ? "Wird verbunden …"
-          : existing?.registration === "failed"
-            ? "Anmeldung fehlgeschlagen"
-            : "Noch nicht verbunden",
+    existing?.enabledChanging
+      ? "Wird geändert …"
+      : existing?.enabled === false
+        ? "Deaktiviert"
+        : existing?.removing
+          ? "Wird entfernt …"
+          : existing?.registration === "registered"
+            ? "Verbunden"
+            : existing?.registration === "registering"
+              ? "Wird verbunden …"
+              : existing?.registration === "failed"
+                ? "Anmeldung fehlgeschlagen"
+                : "Noch nicht verbunden",
   );
 </script>
 
 <div class="settings-title">
   <div>
-    <h1>
+    <svelte:element this={embedded ? "h2" : "h1"}>
       {removed
         ? "Konto entfernt"
         : existing
           ? existing.name
           : "Konto hinzufügen"}
-    </h1>
+    </svelte:element>
     <p>
       {removed
         ? `${account.username}@${account.registrar}`
@@ -115,7 +122,9 @@
 
 <form bind:this={form} onsubmit={submit} novalidate>
   <fieldset disabled={disabled || busy || removed || existing?.removing}>
-    <h2 class="settings-group">Kontoinformationen</h2>
+    <svelte:element this={embedded ? "h3" : "h2"} class="settings-group"
+      >Kontoinformationen</svelte:element
+    >
     <div class="setting-row">
       <div class="setting-description">
         <label for="name">Name</label>
@@ -220,7 +229,7 @@
           </p>{/if}
       </div>
     </div>
-    <div class="settings-form-actions">
+    <div class="settings-form-actions settings-save-bar">
       <p>Änderungen werden mit dem Speichern übernommen.</p>
       <button class="primary-button" type="submit"
         >{removed

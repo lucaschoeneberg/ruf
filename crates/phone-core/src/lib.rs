@@ -3,8 +3,12 @@
 use serde::Serialize;
 use ts_rs::TS;
 
+mod audio_diagnostics;
+pub use audio_diagnostics::*;
 mod phone;
 pub use phone::*;
+mod diagnostics;
+pub use diagnostics::*;
 mod desktop;
 pub use desktop::*;
 mod contacts;

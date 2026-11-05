@@ -9,6 +9,9 @@
     dial,
     errorMessage,
     getAppInfo,
+    getDesktopSettings,
+    getNotificationPermission,
+    type SettingsSection,
     getEngineSnapshot,
     hangup,
     reject,
@@ -19,6 +22,7 @@
     ContactReference,
     EngineSnapshot,
     RegistrationState,
+    NotificationPermission,
   } from "./lib/generated/AppInfo";
   import Icon from "./lib/components/Icon.svelte";
   import Dialpad from "./lib/components/Dialpad.svelte";
@@ -115,6 +119,14 @@
   let loading = $state(true);
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let notificationPermission = $state<NotificationPermission | null>(null);
+  let notificationsEnabled = $state<boolean | null>(null);
+  let notificationRequest = 0;
+  const notificationHint = $derived(
+    notificationsEnabled === true &&
+      (notificationPermission === "denied" ||
+        notificationPermission === "notDetermined"),
+  );
   let lastNativeError: string | null = null;
   let operationEpoch = 0;
   let mounted = false;
@@ -168,6 +180,7 @@
     nativeAvailable &&
       !audioUnknown &&
       registered &&
+      selectedAccount?.enabled !== false &&
       callIdle &&
       /^[0-9+*#]{1,64}$/.test(destination),
   );
@@ -194,7 +207,9 @@
           ? "Telefonie nicht eingebunden"
           : !snapshot
             ? "Status nicht verfügbar"
-            : registrationLabels[registration],
+            : selectedAccount?.enabled === false
+              ? "Konto deaktiviert"
+              : registrationLabels[registration],
   );
   const tabs = [
     { id: "dialer", label: "Tastatur", icon: "keypad" },
@@ -216,11 +231,13 @@
       ? "Status erneut laden"
       : browser || !nativeAvailable
         ? "Starthilfe öffnen"
-        : registration === "failed"
-          ? "Verbindung prüfen"
-          : registration === "registering"
-            ? "Anmeldung läuft · Angaben ansehen"
-            : "SIP-Konto verbinden",
+        : selectedAccount?.enabled === false
+          ? "Konto aktivieren"
+          : registration === "failed"
+            ? "Verbindung prüfen"
+            : registration === "registering"
+              ? "Anmeldung läuft · Angaben ansehen"
+              : "SIP-Konto verbinden",
   );
   const connectionHint = $derived(
     audioUnknown
@@ -303,6 +320,30 @@
       if (mounted) loading = false;
     }
   }
+  function refreshNotificationStatus() {
+    if (!mounted || browser || document.visibilityState === "hidden") return;
+    const request = ++notificationRequest;
+    // OS status remains readable even if unrelated account metadata is broken.
+    void getNotificationPermission()
+      .then((permission) => {
+        if (mounted && request === notificationRequest)
+          notificationPermission = permission;
+      })
+      .catch(() => {
+        if (mounted && request === notificationRequest)
+          notificationPermission = null;
+      });
+    void getDesktopSettings()
+      .then((settings) => {
+        if (mounted && request === notificationRequest)
+          notificationsEnabled = settings.notificationsEnabled;
+      })
+      .catch(() => {
+        if (mounted && request === notificationRequest)
+          notificationsEnabled = null;
+      });
+  }
+
   onMount(() => {
     mounted = true;
     try {
@@ -314,6 +355,7 @@
       ? hasSeenIntroduction(introductionStorage)
       : false;
     browser = !isTauri();
+    refreshNotificationStatus();
     let polling = false;
     if (browser) {
       loading = false;
@@ -332,8 +374,10 @@
         });
     const contactFocus = () => {
       if (!browser) void refreshHistoryScope();
+      refreshNotificationStatus();
     };
     window.addEventListener("focus", contactFocus);
+    document.addEventListener("visibilitychange", refreshNotificationStatus);
     if (!browser)
       void listen<EngineSnapshot>("phone-state-changed", ({ payload }) => {
         if (!mounted) return;
@@ -384,11 +428,16 @@
     document.addEventListener("visibilitychange", poll);
     return () => {
       mounted = false;
+      ++notificationRequest;
       clearInterval(timer);
       clearInterval(clock);
       unlistenState?.();
       unlistenContacts?.();
       window.removeEventListener("focus", contactFocus);
+      document.removeEventListener(
+        "visibilitychange",
+        refreshNotificationStatus,
+      );
       document.removeEventListener("visibilitychange", poll);
     };
   });
@@ -413,13 +462,17 @@
     }
   }
   let openingSettings = $state(false);
-  async function showSettings() {
+  async function showSettings(section?: SettingsSection) {
     if (openingSettings) return;
     openingSettings = true;
     try {
       if (browser)
-        window.open("?window=settings", "sip-settings", "width=900,height=660");
-      else await openSettings();
+        window.open(
+          `?window=settings${section ? `&section=${section}` : ""}`,
+          "sip-settings",
+          "width=900,height=660",
+        );
+      else await openSettings(section);
       markIntroduction();
     } catch (reason) {
       error = errorMessage(reason);
@@ -510,6 +563,19 @@
       >
     </div>
   </header>
+
+  {#if notificationHint}
+    <div class="notification-hint" role="status">
+      <p>Mitteilungen für eingehende Anrufe sind nicht freigegeben.</p>
+      <button
+        class="text-button"
+        type="button"
+        disabled={openingSettings}
+        onclick={() => void showSettings("notifications")}
+        >Mitteilungen prüfen</button
+      >
+    </div>
+  {/if}
 
   {#if snapshot?.historyError}<p class="error-notice" role="alert">
       Der Anrufverlauf kann gerade nicht gespeichert werden. Prüfe den Zugriff
@@ -645,3 +711,24 @@
       >{/each}
   </nav>
 </div>
+
+<style>
+  .notification-hint {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .notification-hint p {
+    margin: 0;
+  }
+  .notification-hint button {
+    font-size: 11px;
+  }
+</style>

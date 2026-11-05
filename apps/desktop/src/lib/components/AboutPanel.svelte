@@ -135,7 +135,7 @@
   <div>
     <div class="about-heading">
       <img src="/ruf.svg" alt="" width="28" height="28" />
-      <h1>Über Ruf</h1>
+      <h1 id="about-heading" tabindex="-1">Über Ruf</h1>
     </div>
     <p>Ein kompaktes Telefon für deinen Desktop.</p>
   </div>
@@ -151,28 +151,15 @@
 <Changelog />
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Konten & Passwörter</h3>
-    <p>
-      Konten bleiben nach einem Neustart erhalten. Passwörter liegen im
-      macOS-Schlüsselbund bzw. Windows Credential Manager und werden nie an
-      diese Ansicht zurückgegeben.
-    </p>
-  </div>
-</div>
-<div class="setting-row">
-  <div class="setting-description">
     <h3>Telefonie</h3>
     <p>
       Derzeit SIP/UDP ohne Verschlüsselung und G.711. Nutze diese
       Entwicklungsversion nur im isolierten Testnetz. Ein Gespräch gleichzeitig.
-      macOS-Kontakte lassen sich nach deiner Freigabe durchsuchen und anrufen.
-      Der lokale Verlauf zeigt deine Anrufe mit Ergebnis, Dauer und dem
-      verwendeten Konto.
     </p>
   </div>
 </div>
 <details class="settings-lab">
-  <summary>Software & Lizenzen</summary>
+  <summary id="software-licenses">Software & Lizenzen</summary>
   <p>Software Bill of Materials (SBOM)</p>
   <ul class="about-components" aria-label="Zentrale Softwarekomponenten">
     {#each primary as item}
@@ -235,7 +222,7 @@
   </details>
 
   <details class="about-license-text">
-    <summary>Projektinventar (SBOM)</summary>
+    <summary id="software-inventory">Projektinventar (SBOM)</summary>
     <p>
       Komponenten und Abhängigkeitsbeziehungen für diesen Build. Reine
       Build-Abhängigkeiten sind mit „excluded“ gekennzeichnet.

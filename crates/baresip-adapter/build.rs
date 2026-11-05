@@ -10,6 +10,14 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-fblocks")
             .compile("sip_contacts");
+        println!("cargo:rerun-if-changed=native/microphone_permission.m");
+        cc::Build::new()
+            .env("MACOSX_DEPLOYMENT_TARGET", "14.0")
+            .file("native/microphone_permission.m")
+            .flag("-fobjc-arc")
+            .flag("-fblocks")
+            .compile("sip_microphone_permission");
+        println!("cargo:rustc-link-lib=framework=AVFoundation");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=Contacts");
         println!("cargo:rustc-link-lib=framework=Foundation");
@@ -35,6 +43,8 @@ fn build_telephony() {
         .join(&target);
     println!("cargo:rerun-if-changed=native/bridge.c");
     println!("cargo:rerun-if-changed=native/audio_devices.c");
+    println!("cargo:rerun-if-changed=native/audio_diagnostics.c");
+    println!("cargo:rerun-if-changed=native/audio_diagnostics.h");
     println!("cargo:rerun-if-changed=native/audio_devices.h");
     println!("cargo:rerun-if-changed=native/network_roam.c");
     println!("cargo:rerun-if-changed=native/network_roam.h");
@@ -83,6 +93,7 @@ fn build_telephony() {
     bridge
         .file("native/bridge.c")
         .file("native/audio_devices.c")
+        .file("native/audio_diagnostics.c")
         .file("native/network_roam.c")
         .include(prefix.join("include"))
         .include(prefix.join("include/re"))

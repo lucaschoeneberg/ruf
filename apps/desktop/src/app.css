@@ -955,7 +955,8 @@ summary:focus-visible {
 .settings-title > div {
   min-width: 0;
 }
-.settings-title h1 {
+.settings-title h1,
+.settings-title h2 {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: normal;
@@ -1002,6 +1003,9 @@ summary:focus-visible {
 }
 .setting-description {
   min-width: 0;
+}
+.account-overview .setting-description h3 {
+  overflow-wrap: anywhere;
 }
 .setting-description label,
 .setting-description h3 {
@@ -1266,4 +1270,77 @@ input {
   line-height: 1.4;
   margin: 4px 0 0;
   overflow-wrap: anywhere;
+}
+
+/* Settings retain a stable document width and independently scrollable identities. */
+.settings-shell {
+  width: 100%;
+  min-width: 0;
+}
+.settings-document #app {
+  justify-items: stretch;
+}
+.settings-navigation {
+  flex-shrink: 0;
+}
+.settings-search,
+.accounts-heading,
+.settings-sidebar-footer {
+  flex-shrink: 0;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.settings-results {
+  display: grid;
+  gap: 3px;
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 10px;
+}
+.settings-results button {
+  display: grid;
+  text-align: left;
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+.settings-results small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.settings-save-bar {
+  position: sticky;
+  bottom: -24px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+  z-index: 1;
+}
+.settings-search-target {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+@media (max-width: 820px) {
+  .settings-save-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .setting-row .settings-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-height: 500px) {
+  .settings-navigation {
+    margin: 8px 0;
+  }
+  .accounts-limit {
+    display: none;
+  }
 }

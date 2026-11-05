@@ -798,3 +798,95 @@ fn simultaneous_answer_and_hangup_release_the_slot_and_preserve_future_incoming_
     }
     lab.engine.shutdown().unwrap();
 }
+
+#[test]
+fn incoming_call_preempts_each_native_audio_test_and_stale_stop_preserves_call() {
+    use phone_core::AudioTestKind;
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for (kind, label) in [
+        (AudioTestKind::Microphone, "audio-preempt-mic"),
+        (AudioTestKind::Speaker, "audio-preempt-speaker"),
+    ] {
+        let mut lab = Lab::new(label);
+        let token = lab.engine.start_audio_test(kind, "").unwrap();
+        assert!(lab.engine.snapshot().unwrap().audio_test.is_some());
+        lab.offer();
+        let state = lab.engine.snapshot().unwrap();
+        assert!(
+            state.audio_test.is_none(),
+            "real incoming offer must release test resources first"
+        );
+        assert!(state.audio_test_error.is_none());
+        assert_eq!(
+            lab.engine.start_audio_test(kind, "").unwrap_err().code,
+            ErrorCode::Busy
+        );
+        lab.engine.stop_audio_test(&token).unwrap();
+        assert_eq!(lab.engine.snapshot().unwrap().call, CallState::Incoming);
+        lab.engine.hangup().unwrap();
+        lab.wait(|state| state.call == CallState::Idle);
+        lab.engine.shutdown().unwrap();
+    }
+}
+
+#[test]
+fn disabled_account_retains_selection_and_requires_ack_before_native_registration() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut lab = Lab::new("account-activation");
+    let id = lab.engine.snapshot().unwrap().selected_account_id.unwrap();
+    assert!(
+        lab.engine.snapshot().unwrap().accounts[0]
+            .registered_at_ms
+            .is_some()
+    );
+    lab.engine.set_account_enabled(id, false, None).unwrap();
+    let disabled = lab.engine.snapshot().unwrap();
+    assert_eq!(disabled.selected_account_id, Some(id));
+    assert!(!disabled.accounts[0].enabled);
+    assert!(disabled.accounts[0].registered_at_ms.is_none());
+    assert_eq!(
+        lab.engine.dial("4321").unwrap_err().code,
+        ErrorCode::NotRegistered
+    );
+    lab.settle();
+    let config = AccountConfig {
+        registrar: lab.peer.local_addr().unwrap().to_string(),
+        username: "events-test".into(),
+        password: "synthetic-only".into(),
+        audio_mode: AudioMode::TestTone,
+    };
+    let updated_id = lab
+        .engine
+        .save_account(Some(id), "Edited disabled account", &config)
+        .unwrap();
+    lab.engine.wait_account_update(updated_id).unwrap();
+    assert!(
+        !lab.engine.snapshot().unwrap().accounts[0].enabled,
+        "editing a disabled account must not register it"
+    );
+    assert_eq!(lab.engine.snapshot().unwrap().selected_account_id, Some(id));
+    lab.engine
+        .set_account_enabled(id, true, Some(&config))
+        .unwrap();
+    let registration = lab.receive("enabled registration", |packet| {
+        packet.starts_with("REGISTER ")
+    });
+    lab.reply(&registration, "200 OK", "", "");
+    lab.wait(|state| state.registration == RegistrationState::Registered);
+    lab.offer();
+    assert_eq!(
+        lab.engine
+            .set_account_enabled(id, false, None)
+            .unwrap_err()
+            .code,
+        ErrorCode::Busy
+    );
+    assert!(lab.engine.snapshot().unwrap().accounts[0].enabled);
+    lab.engine.hangup().unwrap();
+    lab.wait(|state| state.call == CallState::Idle);
+    lab.engine.shutdown().unwrap();
+}

@@ -31,6 +31,15 @@ pub struct SoundSettings {
     pub ring_device: String,
     /// Play the built-in ringtone for incoming calls (lab test-tone mode stays silent).
     pub ringtone_enabled: bool,
+    /// Built-in incoming-call tone; missing legacy values use Classic.
+    #[serde(default)]
+    pub ringtone: crate::Ringtone,
+    /// PCM amplitude percentage, 0..=100; defaults to the original 100 percent.
+    #[serde(default = "default_ringtone_volume")]
+    pub ringtone_volume: u8,
+}
+const fn default_ringtone_volume() -> u8 {
+    100
 }
 impl Default for SoundSettings {
     fn default() -> Self {
@@ -39,12 +48,20 @@ impl Default for SoundSettings {
             output_device: String::new(),
             ring_device: String::new(),
             ringtone_enabled: true,
+            ringtone: crate::Ringtone::Classic,
+            ringtone_volume: default_ringtone_volume(),
         }
     }
 }
 impl SoundSettings {
     /// Respect the native 128-byte device fields without truncation or control bytes.
     pub fn validate(&self) -> Result<(), PhoneError> {
+        if self.ringtone_volume > 100 {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidInput,
+                "Ringtone volume must be between 0 and 100.",
+            ));
+        }
         for id in [&self.input_device, &self.output_device, &self.ring_device] {
             if id.len() > 127 || id.chars().any(char::is_control) {
                 return Err(PhoneError::new(
@@ -315,6 +332,14 @@ pub struct AccountSnapshot {
     pub registrar: String,
     /// SIP authentication username, without the password.
     pub username: String,
+    /// Saved activation intent; disabled accounts retain identity and credentials.
+    pub enabled: bool,
+    /// A native activation/configuration acknowledgment is pending; dialing is blocked.
+    pub enabled_changing: bool,
+    /// Most recent confirmed native registration, in Unix milliseconds; null before
+    /// successful registration or after replacement/disable. Does not prove reachability.
+    #[ts(type = "number | null")]
+    pub registered_at_ms: Option<u64>,
     /// This account's independent registration state.
     pub registration: RegistrationState,
     /// Safe registration error, or null.
@@ -379,6 +404,10 @@ pub struct EngineSnapshot {
     pub sound_settings: SoundSettings,
     /// A preview or incoming-call ringtone is currently playing through baresip.
     pub ringtone_playing: bool,
+    /// Current bounded native diagnostic, or null; never stored with preferences/history.
+    pub audio_test: Option<crate::AudioTestSnapshot>,
+    /// Safe diagnostic failure, separate from SIP/call errors; reset by the next explicit test.
+    pub audio_test_error: Option<PhoneError>,
 }
 
 impl AccountConfig {
@@ -466,7 +495,12 @@ impl EngineSnapshot {
         self.registration = self
             .accounts
             .iter()
-            .find(|a| Some(a.id) == self.selected_account_id && !a.removing)
+            .find(|a| {
+                Some(a.id) == self.selected_account_id
+                    && !a.removing
+                    && a.enabled
+                    && !a.enabled_changing
+            })
             .map_or(RegistrationState::Unconfigured, |a| a.registration);
     }
 

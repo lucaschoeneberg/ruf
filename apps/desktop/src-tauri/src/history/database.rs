@@ -232,6 +232,61 @@ impl HistoryDb {
         transaction.commit().map_err(|_| storage_error())?;
         Ok(changed)
     }
+    pub(super) fn configure(
+        &mut self,
+        previous: &HistoryPreferences,
+        next: &HistoryPreferences,
+        confirmed: bool,
+        now_ms: u64,
+        persist: impl FnOnce() -> Result<(), PhoneError>,
+    ) -> Result<bool, PhoneError> {
+        next.validate()?;
+        let cutoff = retention_cutoff(next, now_ms)
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| storage_error())?;
+        let shorter = next
+            .retention_days
+            .is_some_and(|days| previous.retention_days.is_none_or(|old| days < old));
+        let transaction = self.connection.transaction().map_err(|_| storage_error())?;
+        let changed = if let Some(cutoff) = cutoff {
+            let expired: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM calls WHERE outcome!='inProgress' AND started_at < ?1)", [cutoff], |row| row.get(0)).map_err(|_| storage_error())?;
+            if expired && shorter && !confirmed {
+                return Err(PhoneError::new(
+                    ErrorCode::InvalidInput,
+                    "Confirm deletion of existing history before shortening retention.",
+                ));
+            }
+            transaction
+                .execute(
+                    "DELETE FROM calls WHERE outcome!='inProgress' AND started_at < ?1",
+                    [cutoff],
+                )
+                .map_err(|_| storage_error())?
+                > 0
+        } else {
+            false
+        };
+        // Keep the SQLite deletion uncommitted until metadata replacement succeeds.
+        persist()?;
+        transaction.commit().map_err(|_| storage_error())?;
+        Ok(changed)
+    }
+
+    pub(super) fn prune_before(&mut self, cutoff_ms: u64) -> Result<bool, PhoneError> {
+        let cutoff = i64::try_from(cutoff_ms).map_err(|_| storage_error())?;
+        let transaction = self.connection.transaction().map_err(|_| storage_error())?;
+        let changed = transaction
+            .execute(
+                "DELETE FROM calls WHERE outcome!='inProgress' AND started_at < ?1",
+                [cutoff],
+            )
+            .map_err(|_| storage_error())?
+            > 0;
+        transaction.commit().map_err(|_| storage_error())?;
+        Ok(changed)
+    }
+
     pub(super) fn clear(&mut self) -> Result<bool, PhoneError> {
         let transaction = self.connection.transaction().map_err(|_| storage_error())?;
         let changed = transaction
@@ -256,6 +311,9 @@ mod tests {
             registration: RegistrationState::Registered,
             last_error: None,
             removing: false,
+            enabled: true,
+            enabled_changing: false,
+            registered_at_ms: None,
         }
     }
     fn started(id: u64) -> ObservedCallEvent {
@@ -279,6 +337,132 @@ mod tests {
     }
     fn db() -> HistoryDb {
         HistoryDb::open_connection(Connection::open_in_memory().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn collection_disabled_at_start_never_writes_later_and_recorded_calls_can_finish() {
+        let mut db = db();
+        let mut policy = RecordingPolicy::new(false);
+        let start = started(1);
+        if policy.record(&start) {
+            db.observe(start).unwrap();
+        }
+        policy.enabled = true;
+        for event in [
+            event(1, 120, ObservedCallKind::Connected),
+            event(
+                1,
+                130,
+                ObservedCallKind::Finished {
+                    outcome: CallOutcome::Completed,
+                    sip_status: None,
+                    duration_ms: Some(10),
+                },
+            ),
+        ] {
+            if policy.record(&event) {
+                db.observe(event).unwrap();
+            }
+        }
+        assert!(db.entries(HistoryFilter::All).unwrap().is_empty());
+        let start = started(2);
+        if policy.record(&start) {
+            db.observe(start).unwrap();
+        }
+        policy.enabled = false;
+        let finish = event(
+            2,
+            140,
+            ObservedCallKind::Finished {
+                outcome: CallOutcome::Failed,
+                sip_status: None,
+                duration_ms: None,
+            },
+        );
+        if policy.record(&finish) {
+            db.observe(finish).unwrap();
+        }
+        let rows = db.entries(HistoryFilter::All).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].outcome, CallOutcome::Failed);
+        assert_eq!(rows[0].ended_at_ms, Some(140));
+    }
+
+    #[test]
+    fn shorter_retention_requires_confirmation_and_failed_persistence_rolls_back_deletion() {
+        let mut db = db();
+        db.observe(started(1)).unwrap();
+        db.observe(event(
+            1,
+            101,
+            ObservedCallKind::Finished {
+                outcome: CallOutcome::Completed,
+                sip_status: None,
+                duration_ms: None,
+            },
+        ))
+        .unwrap();
+        let previous = HistoryPreferences::default();
+        let next = HistoryPreferences {
+            retention_days: Some(30),
+            ..previous.clone()
+        };
+        let now = 31 * 24 * 60 * 60 * 1000;
+        let error = db
+            .configure(&previous, &next, false, now, || {
+                panic!("unconfirmed deletion must not persist preferences")
+            })
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+        assert_eq!(db.entries(HistoryFilter::All).unwrap().len(), 1);
+        assert_eq!(
+            db.configure(&previous, &next, true, now, || Err(storage_error()))
+                .unwrap_err()
+                .code,
+            ErrorCode::StorageFailure
+        );
+        assert_eq!(db.entries(HistoryFilter::All).unwrap().len(), 1);
+        assert!(
+            db.configure(&previous, &next, true, now, || Ok(()))
+                .unwrap()
+        );
+        assert!(db.entries(HistoryFilter::All).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retention_uses_exclusive_start_cutoff_and_protects_active_calls() {
+        let mut db = db();
+        for id in 1..=3 {
+            let mut start = started(id);
+            start.at_ms = if id == 2 { 200 } else { 100 };
+            db.observe(start).unwrap();
+            if id != 3 {
+                db.observe(event(
+                    id,
+                    300,
+                    ObservedCallKind::Finished {
+                        outcome: CallOutcome::Completed,
+                        sip_status: None,
+                        duration_ms: None,
+                    },
+                ))
+                .unwrap();
+            }
+        }
+        assert!(db.prune_before(200).unwrap());
+        let rows = db.entries(HistoryFilter::All).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().any(|row| row.started_at_ms == 200));
+        assert!(
+            rows.iter()
+                .any(|row| row.outcome == CallOutcome::InProgress)
+        );
+        db.connection.execute_batch("PRAGMA query_only=ON").unwrap();
+        assert_eq!(
+            db.prune_before(201).unwrap_err().code,
+            ErrorCode::StorageFailure
+        );
+        assert_eq!(db.entries(HistoryFilter::All).unwrap().len(), 2);
     }
 
     #[test]

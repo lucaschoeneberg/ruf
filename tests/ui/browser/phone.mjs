@@ -54,6 +54,12 @@ export default async function phoneRegressions(page) {
     }
     const fixture = {
       state,
+      commands: [],
+      permission: "authorized",
+      notificationsEnabled: true,
+      failPermission: false,
+      holdPermission: false,
+      resolvePermission: null,
       failSnapshot: location.search.includes("snapshot-error"),
       failSelect: false,
       holdSnapshot: false,
@@ -89,6 +95,27 @@ export default async function phoneRegressions(page) {
         return id;
       },
       async invoke(command, args) {
+        fixture.commands.push({ command, args });
+        if (command === "get_desktop_settings")
+          return {
+            notificationsEnabled: fixture.notificationsEnabled,
+            autostartEnabled: false,
+            autostartAvailable: false,
+            notificationPermission: "authorized",
+            notificationsGranted: true,
+          };
+        if (command === "get_notification_permission") {
+          if (fixture.failPermission)
+            throw new Error("Synthetic permission read failure");
+          const captured = fixture.permission;
+          if (fixture.holdPermission) {
+            fixture.holdPermission = false;
+            return new Promise((resolve) => {
+              fixture.resolvePermission = () => resolve(captured);
+            });
+          }
+          return captured;
+        }
         if (command === "plugin:event|listen") {
           const id = nextId++;
           listeners.set(id, { event: args.event, handler: args.handler });
@@ -211,6 +238,77 @@ export default async function phoneRegressions(page) {
     await page.getByRole("button", { name: "Anrufen", exact: true }).waitFor();
   }
   await page.setViewportSize({ width: 340, height: 500 });
+  await check(
+    "notification hint refreshes independently and links to notification settings without prompts",
+    async () => {
+      await fresh("?snapshot-error");
+      await page.evaluate(() => {
+        window.__phoneFixture.permission = "denied";
+        window.dispatchEvent(new Event("focus"));
+      });
+      await page
+        .getByRole("button", { name: "Mitteilungen prüfen", exact: true })
+        .waitFor();
+      await page
+        .getByRole("button", { name: "Mitteilungen prüfen", exact: true })
+        .click();
+      const linked = await page.evaluate(() =>
+        window.__phoneFixture.commands.some(
+          (item) =>
+            item.command === "open_settings" &&
+            item.args?.section === "notifications",
+        ),
+      );
+      if (!linked) throw new Error("Hint did not open notification settings");
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.failPermission = true;
+        window.dispatchEvent(new Event("focus"));
+      });
+      await page.waitForFunction(
+        () => !document.querySelector(".notification-hint"),
+      );
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.failPermission = false;
+        f.notificationsEnabled = false;
+        window.dispatchEvent(new Event("focus"));
+      });
+      await page.waitForTimeout(100);
+      if (await page.locator(".notification-hint").count())
+        throw new Error("Disabled application notices must not show hint");
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.notificationsEnabled = true;
+        f.holdPermission = true;
+        window.dispatchEvent(new Event("focus"));
+      });
+      await page.waitForFunction(
+        () => typeof window.__phoneFixture.resolvePermission === "function",
+      );
+      await page.evaluate(() => {
+        const f = window.__phoneFixture;
+        f.permission = "authorized";
+        window.dispatchEvent(new Event("focus"));
+      });
+      await page.waitForTimeout(100);
+      await page.evaluate(() => window.__phoneFixture.resolvePermission());
+      await page.waitForTimeout(100);
+      if (await page.locator(".notification-hint").count())
+        throw new Error("Late denied read replaced newer authorization");
+      if (
+        await page.evaluate(() =>
+          window.__phoneFixture.commands.some(
+            (item) => item.command === "request_notification_permission",
+          ),
+        )
+      )
+        throw new Error(
+          "Opening/focusing main phone prompted for OS permission",
+        );
+    },
+  );
+
   await check(
     "invalid number exposes its correction to assistive technology",
     async () => {

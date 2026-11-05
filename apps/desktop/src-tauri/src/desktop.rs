@@ -22,6 +22,25 @@ pub(crate) fn with_session<T>(
     })
 }
 
+/// Read startup presentation only for Ruf-owned login launches. Explicit
+/// background/notification activation stays hidden; manual open stays visible.
+/// A failed metadata read conservatively keeps an automatic login launch hidden.
+pub(crate) fn start_hidden(app: &tauri::AppHandle, args: &[String]) -> bool {
+    start_hidden_with(args, || {
+        let path = store::data_directory(app)?.join("accounts.json");
+        store::AccountStore { path }
+            .load()
+            .map(|settings| settings.preferences.start_hidden)
+    })
+}
+
+fn start_hidden_with(args: &[String], read: impl FnOnce() -> Result<bool, PhoneError>) -> bool {
+    if crate::shell_policy::start_hidden(args) {
+        return true;
+    }
+    args.iter().any(|arg| arg == "--autostart") && read().unwrap_or(true)
+}
+
 pub(crate) fn installed_path(executable: &Path, installation_roots: &[std::path::PathBuf]) -> bool {
     installation_roots.iter().any(|root| {
         executable.strip_prefix(root).is_ok_and(|relative| {
@@ -68,7 +87,11 @@ pub(crate) fn autostart_available(app: &tauri::AppHandle) -> bool {
 }
 
 pub(crate) fn settings(app: &tauri::AppHandle) -> Result<DesktopSettings, PhoneError> {
-    let preferences = with_session(app, |session| Ok(session.desktop_preferences()))?;
+    let preferences = store::AccountStore {
+        path: store::data_directory(app)?.join("accounts.json"),
+    }
+    .load()?
+    .desktop;
     let available = autostart_available(app);
     let notification_permission = crate::call_notifications::permission(false)?;
     crate::call_notifications::authorization_observed(app, notification_permission);
@@ -100,14 +123,8 @@ pub(crate) fn save_settings(
         ));
     }
     let mut preferences = with_session(app, |session| Ok(session.desktop_preferences()))?;
-    // Authorization can fail or wait for a user decision. Do it before changing
-    // login-start state, and without holding the phone-session mutex.
-    if notifications && !preferences.notifications_enabled {
-        if crate::call_notifications::permission(false)? == NotificationPermission::NotDetermined {
-            crate::call_notifications::permission(true)?;
-        }
-        crate::call_notifications::refresh_authorization(app);
-    }
+    // Saving the app preference never requests OS authorization. The dedicated
+    // notification-permission command owns that explicit foreground action.
     let previous = available && app.autolaunch().is_enabled().map_err(|_| desktop_error())?;
     if available {
         set_autostart(app, autostart)?;
@@ -151,20 +168,63 @@ pub(crate) fn configure_login_once(app: &tauri::AppHandle) -> Result<bool, Phone
     try_preferences_update(|| configure_login(app))
 }
 
+/// Migrate this installed app's existing enabled login entry independently of
+/// SIP/account restoration. Never enables login for an unconfigured or disabled installation.
+pub(crate) fn refresh_configured_login_entry(app: &tauri::AppHandle) -> Result<(), PhoneError> {
+    if !autostart_available(app) {
+        return Ok(());
+    }
+    try_preferences_update(|| {
+        let configured = store::AccountStore {
+            path: store::data_directory(app)?.join("accounts.json"),
+        }
+        .load()?
+        .desktop
+        .autostart_configured;
+        refresh_configured_login_entry_with(
+            configured,
+            || app.autolaunch().is_enabled().map_err(|_| desktop_error()),
+            || set_autostart(app, true),
+        )
+    })
+    .map(|_| ())
+}
+
+fn refresh_configured_login_entry_with(
+    configured: bool,
+    enabled: impl FnOnce() -> Result<bool, PhoneError>,
+    refresh: impl FnOnce() -> Result<(), PhoneError>,
+) -> Result<(), PhoneError> {
+    if configured {
+        refresh_enabled_login_entry(enabled()?, refresh)?;
+    }
+    Ok(())
+}
+
 fn configure_login(app: &tauri::AppHandle) -> Result<(), PhoneError> {
     if !autostart_available(app) {
         return Ok(());
     }
     let mut preferences = with_session(app, |session| Ok(session.desktop_preferences()))?;
-    if preferences.autostart_configured {
-        return Ok(());
-    }
     let previous = app.autolaunch().is_enabled().map_err(|_| desktop_error())?;
+    if preferences.autostart_configured {
+        return refresh_enabled_login_entry(previous, || set_autostart(app, true));
+    }
     set_autostart(app, true)?;
     preferences.autostart_configured = true;
     if let Err(error) = with_session(app, |session| session.save_desktop_preferences(preferences)) {
         set_autostart(app, previous)?;
         return Err(error);
+    }
+    Ok(())
+}
+
+fn refresh_enabled_login_entry(
+    enabled: bool,
+    refresh: impl FnOnce() -> Result<(), PhoneError>,
+) -> Result<(), PhoneError> {
+    if enabled {
+        refresh()?;
     }
     Ok(())
 }
@@ -179,6 +239,81 @@ fn desktop_error() -> PhoneError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_refresh_never_enables_an_unconfigured_or_disabled_entry() {
+        refresh_configured_login_entry_with(
+            false,
+            || panic!("unconfigured startup must not query login state"),
+            || panic!("unconfigured startup must not enable login"),
+        )
+        .unwrap();
+        refresh_configured_login_entry_with(
+            true,
+            || Ok(false),
+            || panic!("disabled startup must not enable login"),
+        )
+        .unwrap();
+        let refreshed = std::cell::Cell::new(false);
+        refresh_configured_login_entry_with(
+            true,
+            || Ok(true),
+            || {
+                refreshed.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(refreshed.get());
+    }
+
+    #[test]
+    fn existing_login_entries_refresh_only_if_enabled() {
+        assert!(
+            refresh_enabled_login_entry(false, || panic!(
+                "disabled login entry must stay disabled"
+            ))
+            .is_ok()
+        );
+        let refreshed = std::cell::Cell::new(false);
+        refresh_enabled_login_entry(true, || {
+            refreshed.set(true);
+            Ok(())
+        })
+        .unwrap();
+        assert!(refreshed.get());
+        assert_eq!(
+            refresh_enabled_login_entry(true, || Err(desktop_error()))
+                .unwrap_err()
+                .code,
+            ErrorCode::NativeFailure
+        );
+    }
+
+    #[test]
+    fn only_login_launches_read_start_hidden_and_errors_remain_hidden() {
+        let args = |flag: &str| vec!["Ruf".into(), flag.into()];
+        assert!(!start_hidden_with(&args(""), || panic!(
+            "manual launch must not read metadata"
+        )));
+        for explicit in ["--background", "--notification-activation"] {
+            assert!(start_hidden_with(&args(explicit), || panic!(
+                "explicit policy must not read metadata"
+            )));
+        }
+        assert!(start_hidden_with(&args("--autostart"), || Ok(true)));
+        assert!(!start_hidden_with(&args("--autostart"), || Ok(false)));
+        assert!(start_hidden_with(&args("--autostart"), || Err(
+            store::storage_error()
+        )));
+        assert!(start_hidden_with(
+            &["--autostart".into(), "--background".into()],
+            || Ok(false)
+        ));
+        assert!(!start_hidden_with(&args("--autostart=false"), || panic!(
+            "arguments must match exactly"
+        )));
+    }
 
     #[test]
     fn pending_foreground_preferences_defer_automatic_setup_without_blocking_observation() {

@@ -29,4 +29,11 @@ int sip_call_notifications_show(const char *token, const char *title, const char
  * this exact token. Unknown tokens are harmless. No authorization prompt. */
 int sip_call_notifications_dismiss(const char *token);
 
+/* Anonymous settings test, no call actions/category/token. Never prompts and
+ * rechecks authorization immediately before submitting. Independent of real-call
+ * delivery/withdrawal; bounded five-second settings and OS-acceptance waits.
+ * Returns zero only after OS acceptance; nonzero covers missing authorization,
+ * unsupported context, native failure or timeout. Late completions remain safe. */
+int sip_test_notification_show(void);
+
 #endif

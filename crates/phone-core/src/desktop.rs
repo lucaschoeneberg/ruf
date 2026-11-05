@@ -46,3 +46,117 @@ pub struct DesktopSettings {
     /// and null for unsupported. Use notificationPermission to choose recovery actions.
     pub notifications_granted: Option<bool>,
 }
+
+#[cfg(test)]
+mod preferences_tests {
+    use super::*;
+
+    #[test]
+    fn preferences_default_preserves_behavior_and_retention_is_bounded() {
+        let defaults = AppPreferences::default();
+        assert!(defaults.start_hidden);
+        assert!(defaults.show_caller_in_notifications);
+        assert!(defaults.contacts.favorites_first);
+        assert!(defaults.contacts.show_organization);
+        assert!(defaults.history.recording_enabled);
+        assert_eq!(defaults.history.retention_days, None);
+        for days in [30, 90, 365] {
+            assert!(
+                HistoryPreferences {
+                    retention_days: Some(days),
+                    ..Default::default()
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        for days in [0, 1, 29, 31, 366, u16::MAX] {
+            assert_eq!(
+                HistoryPreferences {
+                    retention_days: Some(days),
+                    ..Default::default()
+                }
+                .validate()
+                .unwrap_err()
+                .code,
+                crate::ErrorCode::InvalidInput
+            );
+        }
+    }
+}
+
+/// Local display, login-launch and call-history preferences. Contains no credentials.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppPreferences {
+    /// Hide the phone window on login launches only; manual launches remain visible.
+    pub start_hidden: bool,
+    /// Include caller details in native notifications; false uses anonymous text.
+    pub show_caller_in_notifications: bool,
+    /// Contact list presentation; does not change contact authorization or records.
+    pub contacts: ContactsPreferences,
+    /// Local call-history collection and retention.
+    pub history: HistoryPreferences,
+}
+impl Default for AppPreferences {
+    fn default() -> Self {
+        Self {
+            start_hidden: true,
+            show_caller_in_notifications: true,
+            contacts: ContactsPreferences::default(),
+            history: HistoryPreferences::default(),
+        }
+    }
+}
+
+/// Presentation preferences applied to existing contacts and favorites.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContactsPreferences {
+    /// Sort favorite contacts before other contacts.
+    pub favorites_first: bool,
+    /// Show organization text alongside contact names.
+    pub show_organization: bool,
+}
+impl Default for ContactsPreferences {
+    fn default() -> Self {
+        Self {
+            favorites_first: true,
+            show_organization: true,
+        }
+    }
+}
+
+/// Collection of call metadata only; this does not enable audio recording.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryPreferences {
+    /// Record future calls. Changing this requires an idle phone and preserves existing rows.
+    pub recording_enabled: bool,
+    /// Completed-call retention by start timestamp: null (unlimited), 30, 90 or 365 days.
+    /// In-progress records are always protected. Shortening requires explicit confirmation.
+    pub retention_days: Option<u16>,
+}
+impl Default for HistoryPreferences {
+    fn default() -> Self {
+        Self {
+            recording_enabled: true,
+            retention_days: None,
+        }
+    }
+}
+impl HistoryPreferences {
+    /// Reject unsupported retention intervals with `InvalidInput` before saving or deleting.
+    pub fn validate(&self) -> Result<(), crate::PhoneError> {
+        if self
+            .retention_days
+            .is_some_and(|days| !matches!(days, 30 | 90 | 365))
+        {
+            return Err(crate::PhoneError::new(
+                crate::ErrorCode::InvalidInput,
+                "History retention must be unlimited, 30, 90 or 365 days.",
+            ));
+        }
+        Ok(())
+    }
+}

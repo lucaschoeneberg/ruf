@@ -17,6 +17,7 @@ unsafe extern "C" {
         title: *const c_char,
         body: *const c_char,
     ) -> c_int;
+    fn sip_test_notification_show() -> c_int;
     fn sip_call_notifications_dismiss(token: *const c_char) -> c_int;
 }
 
@@ -69,6 +70,11 @@ pub(super) fn show(token: &str, title: &str, body: &str) -> Result<(), PhoneErro
     native_result(unsafe {
         sip_call_notifications_show(token.as_ptr(), title.as_ptr(), body.as_ptr())
     })
+}
+
+pub(super) fn show_test() -> Result<(), PhoneError> {
+    // SAFETY: no borrowed buffers or callback context cross this synchronous call.
+    native_result(unsafe { sip_test_notification_show() })
 }
 
 pub(super) fn dismiss(token: &str) -> Result<(), PhoneError> {
@@ -124,6 +130,9 @@ unsafe fn callback_token(token: *const c_char) -> Option<String> {
 }
 
 fn action_from_native(action: c_int, token: String) -> Option<CallNotificationAction> {
+    if token.starts_with("org.sipsoftphone.settings-test.") {
+        return None;
+    }
     match action {
         1 => Some(CallNotificationAction::Answer(token)),
         2 => Some(CallNotificationAction::Reject(token)),
@@ -168,6 +177,16 @@ mod tests {
         );
         assert!(action_from_native(0, "call-a".into()).is_none());
         assert!(action_from_native(4, "call-a".into()).is_none());
+    }
+
+    #[test]
+    fn settings_test_activation_never_enters_the_call_action_receiver() {
+        for action in 1..=3 {
+            assert!(
+                action_from_native(action, "org.sipsoftphone.settings-test.synthetic".into())
+                    .is_none()
+            );
+        }
     }
 
     #[test]

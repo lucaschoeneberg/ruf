@@ -127,6 +127,7 @@ try {
     ["settings", settings],
     ["layout", layout],
   ]) {
+    if (process.env.SIP_UI_FLOW && process.env.SIP_UI_FLOW !== name) continue;
     const path = join(temporary, `${name}.js`);
     writeFileSync(
       path,

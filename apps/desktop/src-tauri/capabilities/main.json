@@ -5,6 +5,9 @@
   "windows": ["main"],
   "permissions": [
     "allow-get-app-info",
+    "allow-get-preferences",
+    "allow-get-desktop-settings",
+    "allow-get-notification-permission",
     "allow-get-contacts",
     "allow-refresh-contacts",
     "allow-copy-phone-number",

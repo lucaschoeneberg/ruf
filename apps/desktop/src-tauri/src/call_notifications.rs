@@ -68,7 +68,13 @@ impl NotificationState {
         }
     }
 
-    fn deliver(&self, snapshot: &EngineSnapshot, enabled: bool, apply: impl FnOnce(Change)) {
+    fn deliver(
+        &self,
+        snapshot: &EngineSnapshot,
+        enabled: bool,
+        show_details: bool,
+        apply: impl FnOnce(Change),
+    ) {
         let Ok(_delivery) = self.delivery.lock() else {
             return;
         };
@@ -79,7 +85,9 @@ impl NotificationState {
             .registry
             .lock()
             .map_err(|_| error())
-            .and_then(|mut registry| registry.update(snapshot, enabled, Instant::now(), token));
+            .and_then(|mut registry| {
+                registry.update(snapshot, enabled, show_details, Instant::now(), token)
+            });
         // Never hold the action registry or phone session while calling the OS.
         if let Ok(change) = change {
             apply(change);
@@ -124,6 +132,7 @@ impl Registry {
         &mut self,
         snapshot: &EngineSnapshot,
         enabled: bool,
+        show_details: bool,
         now: Instant,
         make_token: impl FnOnce() -> Result<String, PhoneError>,
     ) -> Result<Change, PhoneError> {
@@ -146,7 +155,7 @@ impl Registry {
                 .claimed
                 .is_some_and(|at| now.saturating_duration_since(at) >= REOFFER_DELAY)
             {
-                let caption = banner_text(snapshot);
+                let caption = banner_text(snapshot, show_details);
                 if offer.claimed.is_none() && offer.caption != caption {
                     offer.caption = caption.clone();
                     change.show = Some(Banner {
@@ -173,7 +182,7 @@ impl Registry {
         }
         let token = make_token()?;
         change.dismiss = self.active.take().map(|offer| offer.token);
-        let (title, body) = banner_text(snapshot);
+        let (title, body) = banner_text(snapshot, show_details);
         self.seen_call = Some(id.to_owned());
         self.active = Some(Offer {
             token: token.clone(),
@@ -248,7 +257,13 @@ impl Registry {
 fn plain(value: &str) -> String {
     value.chars().filter(|c| !c.is_control() && !matches!(c, '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}')).collect::<String>().trim().to_owned()
 }
-fn banner_text(snapshot: &EngineSnapshot) -> (String, String) {
+fn banner_text(snapshot: &EngineSnapshot, show_details: bool) -> (String, String) {
+    if !show_details {
+        return (
+            "Eingehender Anruf".into(),
+            "Ruf öffnen, um den Anruf anzusehen.".into(),
+        );
+    }
     let caller = snapshot.caller.as_ref();
     let name = snapshot
         .caller_contact
@@ -357,7 +372,12 @@ pub(crate) fn sync(app: &tauri::AppHandle, snapshot: &EngineSnapshot, enabled: b
 
 fn deliver(app: &tauri::AppHandle, snapshot: &EngineSnapshot, enabled: bool) {
     let state = app.state::<NotificationState>();
-    state.deliver(snapshot, enabled, |change| {
+    // A contended or not-yet-loaded session is anonymous. This try-lock read never
+    // waits for SIP, loads metadata or retains a phone lock across native calls.
+    let show_details = app
+        .state::<crate::phone::PhoneState>()
+        .notification_details_allowed();
+    state.deliver(snapshot, enabled, show_details, |change| {
         if let Some(token) = change.dismiss {
             let _ = baresip_adapter::dismiss_call_notification(&token);
         }
@@ -497,9 +517,72 @@ mod tests {
         token: &str,
     ) -> Change {
         registry
-            .update(snapshot, true, now, || Ok(token.into()))
+            .update(snapshot, true, true, now, || Ok(token.into()))
             .unwrap()
     }
+    #[test]
+    fn privacy_hides_all_identity_details_without_changing_bound_actions() {
+        let mut registry = Registry::default();
+        let now = Instant::now();
+        let mut snapshot = incoming("private-call");
+        snapshot.call_account_id = Some(7);
+        snapshot.accounts.push(phone_core::AccountSnapshot {
+            id: 7,
+            name: "Private account name".into(),
+            registrar: "private.example.test".into(),
+            username: "private-user".into(),
+            enabled: true,
+            enabled_changing: false,
+            registered_at_ms: None,
+            registration: phone_core::RegistrationState::Registered,
+            last_error: None,
+            removing: false,
+        });
+        snapshot.caller_contact = Some(phone_core::ContactReference {
+            id: "private-contact".into(),
+            source: phone_core::ContactSource::Macos,
+            name: "Private address book name".into(),
+        });
+        let first = registry
+            .update(&snapshot, true, true, now, || Ok("bound".into()))
+            .unwrap()
+            .show
+            .unwrap();
+        assert_eq!(first.title, "Private address book name");
+        assert_eq!(first.body, "+4930123456 · Private account name");
+        let private = registry
+            .update(&snapshot, true, false, now, || {
+                panic!("privacy keeps the call token")
+            })
+            .unwrap()
+            .show
+            .unwrap();
+        assert_eq!(private.token, "bound");
+        assert_eq!(
+            (private.title, private.body),
+            (
+                "Eingehender Anruf".into(),
+                "Ruf öffnen, um den Anruf anzusehen.".into()
+            )
+        );
+        assert!(
+            registry
+                .update(&snapshot, true, false, now, || panic!())
+                .unwrap()
+                .show
+                .is_none()
+        );
+        let action = registry
+            .claim(
+                CallNotificationAction::Answer("bound".into()),
+                &snapshot,
+                now,
+            )
+            .unwrap();
+        assert_eq!(action.call_id, "private-call");
+        assert_eq!(action.choice, Choice::Answer);
+    }
+
     #[test]
     fn contact_caption_changes_replace_the_bound_notice_without_rotating_actions() {
         let mut registry = Registry::default();
@@ -771,7 +854,7 @@ mod tests {
         let s = incoming("1");
         assert!(
             registry
-                .update(&s, false, now, || panic!("no token while disabled"))
+                .update(&s, false, true, now, || panic!("no token while disabled"))
                 .unwrap()
                 .show
                 .is_none()
@@ -779,7 +862,7 @@ mod tests {
         assert!(next(&mut registry, &s, now, "a").show.is_some());
         assert_eq!(
             registry
-                .update(&s, false, now, || panic!())
+                .update(&s, false, true, now, || panic!())
                 .unwrap()
                 .dismiss
                 .as_deref(),
@@ -794,7 +877,7 @@ mod tests {
         next(&mut registry, &incoming("1"), now, "old");
         assert!(
             registry
-                .update(&incoming("2"), true, now, || Err(error()))
+                .update(&incoming("2"), true, true, now, || Err(error()))
                 .is_err()
         );
         assert_eq!(
@@ -807,11 +890,14 @@ mod tests {
     #[test]
     fn caller_caption_is_plain_and_uses_number_or_unknown_fallback() {
         let mut s = incoming("1");
-        assert_eq!(banner_text(&s), ("Ada Weber".into(), "+4930123456".into()));
+        assert_eq!(
+            banner_text(&s, true),
+            ("Ada Weber".into(), "+4930123456".into())
+        );
         s.caller.as_mut().unwrap().name = None;
-        assert_eq!(banner_text(&s).0, "+4930123456");
+        assert_eq!(banner_text(&s, true).0, "+4930123456");
         s.caller = None;
-        assert_eq!(banner_text(&s).0, "Unbekannter Anrufer");
+        assert_eq!(banner_text(&s, true).0, "Unbekannter Anrufer");
         assert_eq!(plain(" Ada\n\u{202e} Weber "), "Ada Weber");
     }
     #[test]
@@ -849,7 +935,7 @@ mod tests {
             let state = Arc::clone(&state);
             let visible = Arc::clone(&visible);
             std::thread::spawn(move || {
-                state.deliver(&incoming("1"), true, |change| {
+                state.deliver(&incoming("1"), true, true, |change| {
                     started.send(()).unwrap();
                     wait.recv().unwrap();
                     *visible.lock().unwrap() = change.show.map(|banner| banner.token);

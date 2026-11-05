@@ -2,9 +2,9 @@
 
 use crate::engine::EngineState;
 use phone_core::{
-    AccountConfig, AudioDevice, AudioDevices, AudioMode, CallDirection, CallEvent, CallEventKind,
-    CallState, CallerIdentity, EngineSnapshot, ErrorCode, PhoneError, RegistrationState,
-    SoundSettings,
+    AccountConfig, AudioDevice, AudioDevices, AudioMode, AudioTestKind, AudioTestSnapshot,
+    CallDirection, CallEvent, CallEventKind, CallState, CallerIdentity, EngineSnapshot, ErrorCode,
+    PhoneError, RegistrationState, SoundSettings,
 };
 use std::{
     ffi::{CStr, CString, c_void},
@@ -117,6 +117,45 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             return;
         }
         if let Ok(mut engine) = context.snapshot.lock() {
+            if (35..=38).contains(&kind) {
+                let id = call_generation.to_string();
+                match kind {
+                    35 => {
+                        engine.snapshot.audio_test = Some(AudioTestSnapshot {
+                            id,
+                            kind: if account_id == 0 {
+                                AudioTestKind::Microphone
+                            } else {
+                                AudioTestKind::Speaker
+                            },
+                            level: 0.0,
+                        })
+                    }
+                    36 => {
+                        if let Some(test) = engine
+                            .snapshot
+                            .audio_test
+                            .as_mut()
+                            .filter(|test| test.id == id)
+                        {
+                            test.level = (code.clamp(0, 1000) as f32) / 1000.0;
+                        }
+                    }
+                    37 => {
+                        if engine
+                            .snapshot
+                            .audio_test
+                            .as_ref()
+                            .is_some_and(|test| test.id == id)
+                        {
+                            engine.snapshot.audio_test = None;
+                        }
+                    }
+                    38 => engine.snapshot.audio_test_error = Some(native_error(code)),
+                    _ => {}
+                }
+                return;
+            }
             // Journal events run synchronously before any UI snapshot projection.
             match kind {
                 7 | 22 | 23 => {
@@ -196,6 +235,15 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             if kind == 15 || kind == 16 {
                 let previous = engine.pending_accounts.remove(&account_id);
                 let result = if kind == 15 {
+                    if let Some(account) = engine
+                        .snapshot
+                        .accounts
+                        .iter_mut()
+                        .find(|account| account.id == account_id)
+                    {
+                        account.enabled_changing = false;
+                    }
+                    engine.snapshot.sync_selected_registration();
                     Ok(())
                 } else {
                     if let Some(previous) = previous {
@@ -243,7 +291,17 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             let state = &mut engine.snapshot;
             match kind {
                 2..=4 => {
-                    if let Some(account) = state.accounts.iter_mut().find(|a| a.id == account_id) {
+                    if let Some(account) = state
+                        .accounts
+                        .iter_mut()
+                        .find(|a| a.id == account_id && a.enabled)
+                    {
+                        if kind == 3 {
+                            account.registered_at_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .ok()
+                                .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+                        }
                         account.registration = match kind {
                             2 => RegistrationState::Registering,
                             3 => RegistrationState::Registered,
@@ -338,6 +396,8 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     state.last_error = Some(native_error(code));
                 }
                 11 => {
+                    state.audio_test = None;
+                    state.ringtone_playing = false;
                     state.registration = RegistrationState::Unconfigured;
                     state.call = CallState::Idle;
                     state.call_account_id = None;
@@ -603,8 +663,25 @@ impl NativeEngine {
             &settings.input_device,
             &settings.output_device,
             &settings.ring_device,
-            if settings.ringtone_enabled { "1" } else { "0" },
+            &format!(
+                "{}:{}:{}",
+                u8::from(settings.ringtone_enabled),
+                match settings.ringtone {
+                    phone_core::Ringtone::Classic => 0,
+                    phone_core::Ringtone::Soft => 1,
+                    phone_core::Ringtone::Short => 2,
+                },
+                settings.ringtone_volume
+            ),
         )
+    }
+    pub(crate) fn audio_test_request(
+        &self,
+        operation: i32,
+        id: u64,
+        device: &str,
+    ) -> Result<(), PhoneError> {
+        self.request_strings(operation, 0, id, device, "", "", "")
     }
     pub(crate) fn preview_request(&self, operation: i32, device: &str) -> Result<(), PhoneError> {
         self.request_strings(operation, 0, 0, device, "", "", "")
@@ -815,6 +892,56 @@ mod observation_tests {
             callback(&event, (&mut *self.context as *mut CallbackContext).cast());
         }
     }
+    #[test]
+    fn activation_rejection_restores_prior_identity_and_confirmed_registration() {
+        let mut h = Harness::new();
+        let previous = phone_core::AccountSnapshot {
+            id: 42,
+            name: "Original".into(),
+            registrar: "pbx.test".into(),
+            username: "synthetic".into(),
+            enabled: true,
+            enabled_changing: false,
+            registered_at_ms: Some(123),
+            registration: RegistrationState::Registered,
+            last_error: None,
+            removing: false,
+        };
+        {
+            let mut state = h.context.snapshot.lock().unwrap();
+            state.snapshot.selected_account_id = Some(42);
+            state.pending_accounts.insert(42, Some(previous.clone()));
+            state.snapshot.accounts.push(phone_core::AccountSnapshot {
+                enabled: false,
+                enabled_changing: true,
+                registered_at_ms: None,
+                registration: RegistrationState::Unconfigured,
+                ..previous
+            });
+        }
+        h.event(16, 16, 0, "", "");
+        let mut state = h.context.snapshot.lock().unwrap();
+        assert!(state.snapshot.accounts[0].enabled);
+        assert!(!state.snapshot.accounts[0].enabled_changing);
+        assert_eq!(state.snapshot.accounts[0].registered_at_ms, Some(123));
+        assert_eq!(state.snapshot.selected_account_id, Some(42));
+        assert_eq!(
+            state.account_results.remove(&42).unwrap().unwrap_err().code,
+            ErrorCode::Busy
+        );
+        state.snapshot.accounts[0].enabled = false;
+        state.snapshot.accounts[0].registered_at_ms = None;
+        state.snapshot.accounts[0].registration = RegistrationState::Unconfigured;
+        drop(state);
+        h.event(3, 0, 0, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        assert!(state.snapshot.accounts[0].registered_at_ms.is_none());
+        assert_eq!(
+            state.snapshot.accounts[0].registration,
+            RegistrationState::Unconfigured
+        );
+    }
+
     #[test]
     fn hold_resume_preserves_caller_and_native_connection_time() {
         let mut h = Harness::new();
@@ -1027,6 +1154,9 @@ mod observation_tests {
                 registration: RegistrationState::Registered,
                 last_error: None,
                 removing: false,
+                enabled: true,
+                enabled_changing: false,
+                registered_at_ms: None,
             };
             {
                 let mut state = h.context.snapshot.lock().unwrap();
@@ -1173,5 +1303,61 @@ mod observation_tests {
                 ..
             }
         ));
+    }
+}
+
+#[cfg(test)]
+mod audio_dsp_tests {
+    unsafe extern "C" {
+        fn sip_audio_peak_s16(samples: *const i16, count: usize) -> u32;
+        fn sip_ringtone_sample(variant: i32, volume: u32, index: u32) -> i16;
+    }
+    #[test]
+    fn synthetic_meter_handles_silence_half_scale_and_minimum_sample() {
+        for (samples, expected) in [
+            ([0, 0, 0], 0),
+            ([0, 16384, -100], 500),
+            ([0, -32768, 0], 1000),
+        ] {
+            assert_eq!(
+                unsafe { sip_audio_peak_s16(samples.as_ptr(), samples.len()) },
+                expected
+            );
+        }
+    }
+    #[test]
+    fn pcm_ringtones_preserve_classic_and_scale_amplitude_without_clipping() {
+        let mut peaks = [0_i32; 3];
+        for i in 0..96000 {
+            let seconds = f64::from(i) / 48000.0;
+            let local = seconds % 0.6;
+            let expected = if seconds < 1.0 && local < 0.4 {
+                (2200.0
+                    * 1.0_f64.min((local / 0.01).min((0.4 - local) / 0.01))
+                    * ((2.0 * std::f64::consts::PI * 440.0 * seconds).sin()
+                        + (2.0 * std::f64::consts::PI * 480.0 * seconds).sin()))
+                    as i16
+            } else {
+                0
+            };
+            assert_eq!(unsafe { sip_ringtone_sample(0, 100, i) }, expected);
+            for variant in 0..3 {
+                let sample = unsafe { sip_ringtone_sample(variant, 100, i) };
+                peaks[variant as usize] = peaks[variant as usize].max(i32::from(sample).abs());
+                assert_eq!(unsafe { sip_ringtone_sample(variant, 0, i) }, 0);
+                assert!(
+                    (i32::from(unsafe { sip_ringtone_sample(variant, 50, i) }) * 2
+                        - i32::from(sample))
+                    .abs()
+                        <= 1
+                );
+            }
+            if i >= 12000 {
+                assert_eq!(unsafe { sip_ringtone_sample(2, 100, i) }, 0);
+            }
+        }
+        assert!(peaks[0] <= 4400 && peaks[0] > 4000);
+        assert!(peaks[1] < peaks[0]);
+        assert!(peaks[2] > 0);
     }
 }

@@ -25,8 +25,10 @@ int sip_contacts_read(int request_access, int *permission,
  * The retained store/observer live until process exit. */
 uint64_t sip_contacts_revision(void);
 
-/* Copies validated UTF-8 text to the macOS pasteboard. May synchronously dispatch
+/* Copies 1–1024 UTF-8 bytes without control characters to the macOS pasteboard.
+ * Never requests Contacts authorization. Nonzero means invalid input/write failure.
+ * May synchronously dispatch
  * to the main thread; call from a worker while the main event loop runs. */
-int sip_copy_phone_number(const char *number);
+int sip_copy_plain_text(const char *text);
 
 #endif

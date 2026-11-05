@@ -11,6 +11,8 @@ export default async function settingsRegressions(
       outputDevice: "",
       ringDevice: scenario === "devices-failure" ? "saved-speaker" : "",
       ringtoneEnabled: true,
+      ringtone: "classic",
+      ringtoneVolume: 100,
     };
     const saved = {
       id: 1,
@@ -20,6 +22,9 @@ export default async function settingsRegressions(
       registration: "registered",
       lastError: null,
       removing: false,
+      enabled: true,
+      enabledChanging: false,
+      registeredAtMs: 1730000000000,
     };
     const snapshot = {
       revision: 1,
@@ -39,6 +44,8 @@ export default async function settingsRegressions(
       audioMode: "system",
       soundSettings,
       ringtonePlaying: false,
+      audioTest: null,
+      audioTestError: null,
     };
     const credentialCode = {
       "credential-access": "credentialAccessRequired",
@@ -79,10 +86,19 @@ export default async function settingsRegressions(
     window.__settingsTest = {
       snapshot,
       desktop,
+      preferences: {
+        startHidden: true,
+        showCallerInNotifications: true,
+        contacts: { favoritesFirst: true, showOrganization: true },
+        history: { recordingEnabled: true, retentionDays: null },
+      },
       requestPermissionResult: "authorized",
       commands: [],
       closed: false,
       failDesktopSave: true,
+      failTestNotification: false,
+      failOpenNotificationSettings: false,
+      failPreferences: scenario === "preferences-failure",
       deviceAttempts: 0,
       holdSnapshot: false,
       resolveSnapshot: null,
@@ -151,6 +167,103 @@ export default async function settingsRegressions(
             };
           return structuredClone(state.desktop);
         }
+        if (command === "get_preferences") {
+          if (state.failPreferences)
+            throw {
+              code: "storageFailure",
+              message: "Synthetic preference read failure",
+            };
+          return structuredClone(state.preferences);
+        }
+        if (command === "save_preferences") {
+          if (
+            args.preferences.history.retentionDays !== null &&
+            !args.confirmHistoryDeletion
+          )
+            throw {
+              code: "invalidState",
+              message: "Retention requires confirmation",
+            };
+          state.preferences = structuredClone(args.preferences);
+          return state.preferences;
+        }
+        if (command === "get_notification_permission") {
+          if (scenario === "permission-failure")
+            throw {
+              code: "nativeFailure",
+              message: "Synthetic permission read failure",
+            };
+          return state.desktop.notificationPermission;
+        }
+        if (command === "get_microphone_permission") {
+          if (state.holdMicrophonePermission)
+            return new Promise((resolve) => {
+              state.resolveMicrophonePermission = () => resolve("authorized");
+            });
+          return "notDetermined";
+        }
+        if (command === "start_audio_test") {
+          state.snapshot.audioTest = {
+            id: "owned-test",
+            kind: args.kind,
+            level: 0.2,
+          };
+          return "owned-test";
+        }
+        if (command === "stop_audio_test") {
+          if (state.snapshot.audioTest?.id === args.id)
+            state.snapshot.audioTest = null;
+          return;
+        }
+        if (command === "test_notification" && state.failTestNotification)
+          throw {
+            code: "nativeFailure",
+            message: "Synthetic failed test delivery",
+          };
+        if (
+          command === "open_notification_settings" &&
+          state.failOpenNotificationSettings
+        )
+          throw {
+            code: "nativeFailure",
+            message: "Synthetic failed system settings open",
+          };
+        if (
+          command === "open_notification_settings" ||
+          command === "open_microphone_settings" ||
+          command === "test_notification"
+        )
+          return;
+        if (command === "get_diagnostics")
+          return {
+            version: "0.1.0",
+            platform: "macos",
+            telephony: "linked",
+            accountsTotal: 1,
+            accountsRegistered: 1,
+            callActive: false,
+            notificationPermission: state.desktop.notificationPermission,
+            historyAvailable: true,
+            lastError: null,
+            microphonePermission: "notDetermined",
+            audioDevicesAvailable: true,
+            credentialError: null,
+          };
+        if (command === "copy_diagnostics" || command === "clear_history")
+          return;
+        if (command === "set_account_enabled") {
+          state.snapshot.accounts[0].enabled = args.enabled;
+          state.snapshot.accounts[0].registration = args.enabled
+            ? "registered"
+            : "unconfigured";
+          state.snapshot.revision++;
+          return structuredClone(state.snapshot);
+        }
+        if (command === "select_account") {
+          state.snapshot.selectedAccountId = args.id;
+          state.snapshot.revision++;
+          return structuredClone(state.snapshot);
+        }
         if (command === "request_notification_permission") {
           state.desktop.notificationPermission = state.requestPermissionResult;
           state.desktop.notificationsGranted =
@@ -165,7 +278,16 @@ export default async function settingsRegressions(
               code: "nativeFailure",
               message: "Device enumeration failed",
             };
-          return { inputs: [], outputs: [] };
+          return {
+            inputs: [],
+            outputs: [
+              {
+                id: "draft-output",
+                name: "Synthetic speaker",
+                selectable: true,
+              },
+            ],
+          };
         }
         if (command === "save_desktop_settings") {
           if (state.failDesktopSave)
@@ -250,6 +372,227 @@ export default async function settingsRegressions(
       failures.push(`${name}: ${error.message}`);
     }
   };
+  await check(
+    "test notification failure preserves known authorization and caller draft",
+    "notification-permission",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.desktop.notificationPermission = "authorized";
+        window.__settingsTest.failTestNotification = true;
+      });
+      await page
+        .getByRole("button", { name: "Mitteilungen", exact: true })
+        .click();
+      await page.getByText("Erlaubt", { exact: true }).waitFor();
+      await page
+        .getByLabel("Anruferdetails anzeigen", { exact: true })
+        .uncheck();
+      await page
+        .getByRole("button", { name: "Testmitteilung senden", exact: true })
+        .click();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "Die Testmitteilung konnte nicht" })
+        .waitFor();
+      if (
+        (await page.locator(".permission-state").textContent()).trim() !==
+        "Erlaubt"
+      )
+        throw Error("Test delivery failure replaced known OS authorization");
+      if (
+        await page
+          .getByLabel("Anruferdetails anzeigen", { exact: true })
+          .isChecked()
+      )
+        throw Error("Delivery failure reset caller draft");
+      if (
+        await page
+          .getByText("Die Testmitteilung wird in fünf Sekunden angefordert.", {
+            exact: false,
+          })
+          .count()
+      )
+        throw Error("Failed delivery still claims to be pending");
+      await page.evaluate(() => {
+        window.__settingsTest.failTestNotification = false;
+      });
+      await page
+        .getByRole("button", { name: "Testmitteilung senden", exact: true })
+        .click();
+      await page
+        .getByText("Testmitteilung angefordert. Fokus und Systemregeln", {
+          exact: false,
+        })
+        .waitFor();
+      if (await page.getByRole("alert").count())
+        throw Error("Successful retry retained old delivery error");
+    },
+  );
+  await check(
+    "opening system settings failure does not masquerade as permission query failure",
+    "notification-denied",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.failOpenNotificationSettings = true;
+      });
+      await page
+        .getByRole("button", { name: "Mitteilungen", exact: true })
+        .click();
+      await page.getByText("Im System blockiert", { exact: true }).waitFor();
+      await page
+        .getByRole("button", {
+          name: "Systemeinstellungen öffnen",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "konnten nicht geöffnet" })
+        .waitFor();
+      if (
+        (await page.locator(".permission-state").textContent()).trim() !==
+        "Im System blockiert"
+      )
+        throw Error("Open failure erased denied authorization state");
+    },
+  );
+  await check(
+    "version search focuses the actual About heading",
+    "",
+    async () => {
+      await page
+        .getByLabel("Konten und Bereiche suchen", { exact: true })
+        .fill("Version");
+      await page
+        .getByRole("button", {
+          name: "Version und Software Über Ruf",
+          exact: true,
+        })
+        .click();
+      await page.waitForFunction(
+        () => document.activeElement?.id === "about-heading",
+        {},
+        { timeout: 1500 },
+      );
+    },
+  );
+  await check(
+    "account overview actions identify each account and headings follow the section",
+    "",
+    async () => {
+      await page
+        .getByRole("button", { name: "Deaktivieren · Büro", exact: true })
+        .waitFor({ timeout: 1500 });
+      await page
+        .getByRole("group", { name: "Büro", exact: true })
+        .waitFor({ timeout: 1500 });
+      await page
+        .getByRole("heading", { name: "SIP-Konten", level: 1, exact: true })
+        .waitFor({ timeout: 1500 });
+      await page
+        .getByRole("heading", { name: "Büro", level: 2, exact: true })
+        .waitFor({ timeout: 1500 });
+      await page
+        .getByRole("heading", {
+          name: "Kontoinformationen",
+          level: 3,
+          exact: true,
+        })
+        .waitFor({ timeout: 1500 });
+    },
+  );
+  await check(
+    "long valid account names cannot overflow the inner content or overlap actions",
+    "",
+    async () => {
+      await page.setViewportSize({ width: 740, height: 540 });
+      await page.evaluate(() => {
+        const state = window.__settingsTest;
+        state.snapshot.accounts = Array.from({ length: 8 }, (_, i) => ({
+          ...state.snapshot.accounts[0],
+          id: i + 1,
+          name: i === 0 ? "W".repeat(64) : "Auditkonto " + (i + 1),
+        }));
+        state.emit(state.snapshot);
+      });
+      const layout = await page
+        .locator(".settings-scroll")
+        .evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      if (layout.scroll > layout.client + 1)
+        throw Error(
+          `Inner settings overflow: ${layout.scroll}/${layout.client}`,
+        );
+      const row = page.locator(".account-overview .setting-row").first();
+      const name = await row.locator("h3").boundingBox(),
+        actions = await row.locator(".settings-actions").boundingBox();
+      if (!name || !actions || name.x + name.width > actions.x)
+        throw Error("Account name overlaps actions");
+      await page.setViewportSize({ width: 900, height: 660 });
+    },
+  );
+  await check(
+    "every normal visible setting label resolves to its actual control",
+    "",
+    async () => {
+      for (const section of [
+        "general",
+        "accounts",
+        "audio",
+        "notifications",
+        "contacts",
+        "privacy",
+        "diagnostics",
+        "about",
+      ]) {
+        await page.goto(`${baseUrl}/?window=settings&section=${section}`);
+        await page.waitForFunction(
+          () =>
+            !document.body.textContent.includes("Einstellungen werden geladen"),
+        );
+        const missing = await page.evaluate(async () => {
+          const { searchSettings } =
+            await import("/src/lib/settings-navigation.ts");
+          return [...document.querySelectorAll("main label[for]")]
+            .filter(
+              (el) =>
+                el.getClientRects().length &&
+                !el.closest("details:not([open])"),
+            )
+            .map((el) => ({ label: el.textContent.trim(), target: el.htmlFor }))
+            .filter(
+              ({ label, target }) =>
+                !searchSettings(label).some(
+                  (result) => result.target === target,
+                ),
+            );
+        });
+        if (missing.length)
+          throw Error(
+            `${section}: visible labels missing from search ${JSON.stringify(missing)}`,
+          );
+      }
+    },
+  );
+  await check(
+    "search opens the existing parent disclosure before focusing SBOM",
+    "",
+    async () => {
+      await page
+        .getByLabel("Konten und Bereiche suchen", { exact: true })
+        .fill("SBOM");
+      await page
+        .getByRole("button", {
+          name: "Projektinventar (SBOM) Über Ruf",
+          exact: true,
+        })
+        .click();
+      await page.waitForFunction(
+        () => document.activeElement?.id === "software-inventory",
+      );
+      if (!(await page.locator("#software-inventory").isVisible()))
+        throw Error("SBOM search target remains inside closed disclosure");
+    },
+  );
   await check(
     "About shows authorship, company links and offline licenses",
     "",
@@ -713,7 +1056,10 @@ export default async function settingsRegressions(
         "Neuer Kontoname"
       )
         throw new Error("Older event discarded the newer saved account name");
-      await page.getByRole("button", { name: /Neuer Kontoname/ }).waitFor();
+      await page
+        .getByRole("navigation", { name: "SIP-Konten", exact: true })
+        .getByRole("button", { name: /Neuer Kontoname/ })
+        .waitFor();
     },
   );
   await check("failed account save keeps retry draft", "", async () => {
@@ -791,7 +1137,7 @@ export default async function settingsRegressions(
     "notification-permission",
     async () => {
       await page
-        .getByRole("button", { name: "Allgemein", exact: true })
+        .getByRole("button", { name: "Mitteilungen", exact: true })
         .click();
       if (
         !(await page
@@ -801,7 +1147,7 @@ export default async function settingsRegressions(
         throw new Error("Saved enabled notification preference was lost");
       if (
         !(await page
-          .getByRole("button", { name: "Allgemein speichern", exact: true })
+          .getByRole("button", { name: "Mitteilungen speichern", exact: true })
           .isDisabled())
       )
         throw new Error("Unchanged defaults were marked dirty");
@@ -825,7 +1171,7 @@ export default async function settingsRegressions(
     "notification-denied",
     async () => {
       await page
-        .getByRole("button", { name: "Allgemein", exact: true })
+        .getByRole("button", { name: "Mitteilungen", exact: true })
         .click();
       if (
         await page
@@ -837,7 +1183,8 @@ export default async function settingsRegressions(
         );
       await page
         .getByText(
-          /Mitteilungen.*Systemeinstellungen|Systemeinstellungen.*Mitteilungen/,
+          "Mitteilungen sind in den Systemeinstellungen für Ruf deaktiviert.",
+          { exact: false },
         )
         .waitFor();
     },
@@ -847,7 +1194,7 @@ export default async function settingsRegressions(
     "notification-permission",
     async () => {
       await page
-        .getByRole("button", { name: "Allgemein", exact: true })
+        .getByRole("button", { name: "Mitteilungen", exact: true })
         .click();
       await page.evaluate(
         () => (window.__settingsTest.requestPermissionResult = "unsupported"),
@@ -885,11 +1232,11 @@ export default async function settingsRegressions(
     "notification-denied",
     async () => {
       await page
-        .getByRole("button", { name: "Allgemein", exact: true })
+        .getByRole("button", { name: "Mitteilungen", exact: true })
         .click();
       await page
-        .getByLabel("Bei der Anmeldung starten", { exact: true })
-        .check();
+        .getByLabel("Anruferdetails anzeigen", { exact: true })
+        .uncheck();
       await page.evaluate(() => {
         const f = window.__settingsTest;
         f.desktop.notificationPermission = "authorized";
@@ -899,21 +1246,23 @@ export default async function settingsRegressions(
       });
       await page.waitForFunction(() =>
         window.__settingsTest.commands.some(
-          ({ command }) => command === "get_desktop_settings",
+          ({ command }) => command === "get_notification_permission",
         ),
       );
       await page
-        .getByText("Mitteilungen sind erlaubt.", { exact: false })
+        .getByText("Mitteilungen sind erlaubt. Fokus, Banner-Einstellungen", {
+          exact: false,
+        })
         .waitFor();
       if (
-        !(await page
-          .getByLabel("Bei der Anmeldung starten", { exact: true })
-          .isChecked())
+        await page
+          .getByLabel("Anruferdetails anzeigen", { exact: true })
+          .isChecked()
       )
         throw new Error("Authorization refresh overwrote the autostart draft");
       if (
         await page
-          .getByRole("button", { name: "Allgemein speichern", exact: true })
+          .getByRole("button", { name: "Mitteilungen speichern", exact: true })
           .isDisabled()
       )
         throw new Error(
@@ -934,28 +1283,30 @@ export default async function settingsRegressions(
     "notification-permission",
     async () => {
       await page
-        .getByRole("button", { name: "Allgemein", exact: true })
+        .getByRole("button", { name: "Mitteilungen", exact: true })
         .click();
       await page
-        .getByLabel("Bei der Anmeldung starten", { exact: true })
-        .check();
+        .getByLabel("Anruferdetails anzeigen", { exact: true })
+        .uncheck();
       await page
         .getByRole("button", { name: "Mitteilungen erlauben", exact: true })
         .click();
       await page
-        .getByText("Mitteilungen sind erlaubt.", { exact: false })
+        .getByText("Mitteilungen sind erlaubt. Fokus, Banner-Einstellungen", {
+          exact: false,
+        })
         .waitFor();
       if (
-        !(await page
-          .getByLabel("Bei der Anmeldung starten", { exact: true })
-          .isChecked())
+        await page
+          .getByLabel("Anruferdetails anzeigen", { exact: true })
+          .isChecked()
       )
         throw Error(
           "Permission result overwrote unsaved login-start preference",
         );
       if (
         await page
-          .getByRole("button", { name: "Allgemein speichern", exact: true })
+          .getByRole("button", { name: "Mitteilungen speichern", exact: true })
           .isDisabled()
       )
         throw Error("Permission result discarded dirty preference baseline");
@@ -975,6 +1326,301 @@ export default async function settingsRegressions(
         throw Error(
           "Permission was requested without an explicit single action",
         );
+    },
+  );
+  await check(
+    "OS rights remain readable despite account preference failure",
+    "desktop-failure",
+    async () => {
+      await page
+        .getByRole("button", { name: "Mitteilungen", exact: true })
+        .click();
+      await page.getByText("Nicht verfügbar", { exact: true }).waitFor();
+      if (
+        !(await page
+          .getByRole("button", { name: "Freigabe erneut prüfen", exact: true })
+          .isEnabled())
+      )
+        throw Error("Independent OS check blocked by storage");
+      if (
+        !(await page
+          .getByLabel("Eingehende Anrufe anzeigen", { exact: true })
+          .isDisabled())
+      )
+        throw Error("Failed preferences became editable defaults");
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            (c) => c.command === "request_notification_permission",
+          ),
+        )
+      )
+        throw Error("Read-only permission query prompted");
+    },
+  );
+  await check(
+    "failed OS query stays unknown and retryable",
+    "permission-failure",
+    async () => {
+      await page
+        .getByRole("button", { name: "Mitteilungen", exact: true })
+        .click();
+      await page.getByText("Prüfung fehlgeschlagen", { exact: true }).waitFor();
+      if (await page.getByText("Im System blockiert", { exact: true }).count())
+        throw Error("Failure invented denial");
+      if (
+        !(await page
+          .getByRole("button", { name: "Freigabe erneut prüfen", exact: true })
+          .isEnabled())
+      )
+        throw Error("Retry unavailable");
+    },
+  );
+  await check(
+    "explicit test notification works with app switch off and preserves call state",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.desktop.notificationPermission = "authorized";
+      });
+      await page
+        .getByRole("button", { name: "Mitteilungen", exact: true })
+        .click();
+      await page.getByText("Erlaubt", { exact: true }).waitFor();
+      if (
+        await page
+          .getByLabel("Eingehende Anrufe anzeigen", { exact: true })
+          .isChecked()
+      )
+        throw Error("App switch unexpectedly enabled");
+      await page
+        .getByRole("button", { name: "Testmitteilung senden", exact: true })
+        .click();
+      await page
+        .getByText("Testmitteilung angefordert. Fokus und Systemregeln", {
+          exact: false,
+        })
+        .waitFor();
+      const state = await page.evaluate(() => ({
+        call: window.__settingsTest.snapshot.call,
+        commands: window.__settingsTest.commands.map((c) => c.command),
+      }));
+      if (
+        state.call !== "idle" ||
+        state.commands.filter((c) => c === "test_notification").length !== 1 ||
+        state.commands.includes("request_notification_permission")
+      )
+        throw Error("Test notice changed call or authorization");
+    },
+  );
+  await check(
+    "field search focuses without discarding edits in the same section",
+    "",
+    async () => {
+      await page.getByLabel("Name", { exact: true }).fill("Mein Entwurf");
+      await page
+        .getByLabel("Konten und Bereiche suchen", { exact: true })
+        .fill("SIP-Konto");
+      await page
+        .getByRole("button", {
+          name: "SIP-Konto bearbeiten SIP-Konten",
+          exact: true,
+        })
+        .click();
+      if (
+        (await page.getByLabel("Name", { exact: true }).inputValue()) !==
+        "Mein Entwurf"
+      )
+        throw Error("Search reset same-section draft");
+      if (
+        !(await page
+          .getByLabel("Name", { exact: true })
+          .evaluate((e) => e === document.activeElement))
+      )
+        throw Error("Search failed to focus field");
+      await page
+        .getByRole("button", { name: "Datenschutz", exact: true })
+        .click();
+      await page
+        .getByRole("group", { name: "Ungespeicherte Änderungen" })
+        .waitFor();
+    },
+  );
+  await check(
+    "account disable preserves selection and exposes native state",
+    "",
+    async () => {
+      await page
+        .getByRole("button", { name: "Deaktivieren · Büro", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Aktivieren · Büro", exact: true })
+        .waitFor();
+      if (
+        (await page.evaluate(
+          () => window.__settingsTest.snapshot.selectedAccountId,
+        )) !== 1
+      )
+        throw Error("Disable switched caller identity");
+      await page
+        .getByRole("button", { name: "Aktivieren · Büro", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Deaktivieren · Büro", exact: true })
+        .waitFor();
+    },
+  );
+  await check(
+    "history retention requires confirmation and settings preserve draft",
+    "",
+    async () => {
+      await page
+        .getByRole("button", { name: "Kontakte & Verlauf", exact: true })
+        .click();
+      await page
+        .getByLabel("Aufbewahrung", { exact: true })
+        .selectOption({ label: "30 Tage" });
+      await page
+        .getByRole("button", {
+          name: "Anzeige & Verlauf speichern",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("alert").waitFor();
+      await page
+        .getByLabel("Löschung älterer Einträge bestätigen", { exact: true })
+        .check();
+      await page
+        .getByRole("button", {
+          name: "Anzeige & Verlauf speichern",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByText("Einstellungen gespeichert.", { exact: true })
+        .waitFor();
+      if (
+        (await page.evaluate(
+          () => window.__settingsTest.preferences.history.retentionDays,
+        )) !== 30
+      )
+        throw Error("Retention not saved");
+      await page
+        .getByRole("button", { name: "Verlauf löschen …", exact: true })
+        .click();
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            (c) => c.command === "clear_history",
+          ),
+        )
+      )
+        throw Error("History deleted before confirmation");
+      await page
+        .getByRole("button", { name: "Abbrechen", exact: true })
+        .click();
+    },
+  );
+  await check(
+    "late microphone permission cannot start capture after navigation",
+    "",
+    async () => {
+      await page.getByRole("button", { name: "Ton", exact: true }).click();
+      await page.evaluate(() => {
+        window.__settingsTest.holdMicrophonePermission = true;
+      });
+      await page
+        .getByRole("button", { name: "Mikrofon testen", exact: true })
+        .click();
+      await page.waitForFunction(
+        () =>
+          typeof window.__settingsTest.resolveMicrophonePermission ===
+          "function",
+      );
+      await page.getByRole("button", { name: "Über Ruf", exact: true }).click();
+      await page.evaluate(() =>
+        window.__settingsTest.resolveMicrophonePermission(),
+      );
+      await page.waitForTimeout(150);
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            (c) => c.command === "start_audio_test",
+          ),
+        )
+      )
+        throw Error("Late permission started microphone after leaving audio");
+    },
+  );
+  await check(
+    "speaker test uses draft call output and owned test stops on navigation",
+    "",
+    async () => {
+      await page.getByRole("button", { name: "Ton", exact: true }).click();
+      await page
+        .getByLabel("Lautsprecher", { exact: true })
+        .selectOption("draft-output");
+      await page
+        .getByRole("button", { name: "Lautsprecher testen", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Audiotest stoppen", exact: true })
+        .waitFor();
+      await page.getByRole("button", { name: "Über Ruf", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Änderungen verwerfen", exact: true })
+        .click();
+      await page.waitForFunction(() =>
+        window.__settingsTest.commands.some(
+          (c) => c.command === "stop_audio_test" && c.args.id === "owned-test",
+        ),
+      );
+      const test = await page.evaluate(() =>
+        window.__settingsTest.commands.find(
+          (c) => c.command === "start_audio_test",
+        ),
+      );
+      if (test.args.kind !== "speaker" || test.args.device !== "draft-output")
+        throw Error("Speaker test used wrong output");
+    },
+  );
+  await check(
+    "failed preference load can recover without reopening",
+    "preferences-failure",
+    async () => {
+      await page
+        .getByRole("button", { name: "Mitteilungen", exact: true })
+        .click();
+      if (
+        !(await page
+          .getByLabel("Anruferdetails anzeigen", { exact: true })
+          .isDisabled())
+      )
+        throw Error("Unknown preferences became editable");
+      await page.evaluate(() => {
+        window.__settingsTest.failPreferences = false;
+      });
+      await page
+        .getByRole("button", {
+          name: "Einstellungen erneut laden",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByLabel("Anruferdetails anzeigen", { exact: true })
+        .waitFor({ state: "visible" });
+      await page.waitForFunction(
+        () =>
+          !document.getElementById("notification-caller").disabled &&
+          !document.getElementById("notification-caller").closest("fieldset")
+            .disabled,
+      );
+      if (
+        !(await page
+          .getByLabel("Anruferdetails anzeigen", { exact: true })
+          .isChecked())
+      )
+        throw Error("Recovery lost saved preference");
     },
   );
   await check("window close protects an account draft", "", async () => {
@@ -1072,12 +1718,14 @@ export default async function settingsRegressions(
     },
   );
   await check("failed desktop save preserves draft for retry", "", async () => {
-    await page.getByRole("button", { name: "Allgemein", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Mitteilungen", exact: true })
+      .click();
     await page
       .getByLabel("Eingehende Anrufe anzeigen", { exact: true })
       .check();
     await page
-      .getByRole("button", { name: "Allgemein speichern", exact: true })
+      .getByRole("button", { name: "Mitteilungen speichern", exact: true })
       .click();
     await page.getByRole("alert").waitFor();
     if (
@@ -1090,14 +1738,14 @@ export default async function settingsRegressions(
       window.__settingsTest.failDesktopSave = false;
     });
     await page
-      .getByRole("button", { name: "Allgemein speichern", exact: true })
+      .getByRole("button", { name: "Mitteilungen speichern", exact: true })
       .click();
     await page
-      .getByText("Allgemeine Einstellungen gespeichert.", { exact: true })
+      .getByText("Einstellungen gespeichert.", { exact: true })
       .waitFor();
     if (
       !(await page
-        .getByRole("button", { name: "Allgemein speichern", exact: true })
+        .getByRole("button", { name: "Mitteilungen speichern", exact: true })
         .isDisabled())
     )
       throw Error("Successful save remained dirty");

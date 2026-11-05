@@ -7,6 +7,7 @@ mod contacts;
 mod desktop;
 mod history;
 mod phone;
+mod preferences;
 mod shell;
 mod shell_policy;
 mod store;
@@ -17,12 +18,12 @@ use tauri::Manager;
 /// # Panics
 /// Panics if the operating system cannot initialize the Tauri runtime.
 pub fn run() {
-    let autostart = tauri_plugin_autostart::Builder::new().args(["--background"]);
+    let autostart = tauri_plugin_autostart::Builder::new().args(["--autostart"]);
     #[cfg(target_os = "macos")]
     let autostart = autostart.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if !shell_policy::start_hidden(&args) {
+            if !desktop::start_hidden(app, &args) {
                 let _ = shell::show_phone(app);
             }
         }))
@@ -36,6 +37,14 @@ pub fn run() {
             contacts::setup(app.handle());
             history::setup(app.handle());
             shell::setup(app)?;
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if desktop::refresh_configured_login_entry(&handle).is_err() {
+                    eprintln!(
+                        "Existing login entry could not be refreshed; check desktop settings"
+                    );
+                }
+            });
             Ok(())
         })
         .on_window_event(shell::window_event)
@@ -43,6 +52,19 @@ pub fn run() {
             about::open_about_link,
             about::get_software_bill,
             commands::get_app_info,
+            preferences::get_preferences,
+            preferences::save_preferences,
+            commands::get_diagnostics,
+            commands::copy_diagnostics,
+            commands::set_account_enabled,
+            commands::get_notification_permission,
+            commands::open_notification_settings,
+            commands::test_notification,
+            commands::get_microphone_permission,
+            commands::request_microphone_permission,
+            commands::open_microphone_settings,
+            commands::start_audio_test,
+            commands::stop_audio_test,
             contacts::get_contacts,
             contacts::refresh_contacts,
             contacts::copy_phone_number,

@@ -1,7 +1,7 @@
 //! Versioned, password-free metadata and OS credential storage. No webview access.
-use phone_core::{AccountConfig, AudioMode, ErrorCode, PhoneError, SoundSettings};
+use phone_core::{AccountConfig, AppPreferences, AudioMode, ErrorCode, PhoneError, SoundSettings};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{fs, io::Write, path::PathBuf};
 use tauri::Manager;
 
 /// Use this bundle's own application-data directory without importing old SIP data.
@@ -12,10 +12,16 @@ pub(crate) fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, PhoneErr
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SavedAccount {
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
     pub key: String,
     pub name: String,
     pub registrar: String,
     pub username: String,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +37,8 @@ pub(crate) struct SavedSettings {
     pub sound: SoundSettings,
     #[serde(default)]
     pub desktop: DesktopPreferences,
+    #[serde(default)]
+    pub preferences: AppPreferences,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,13 +58,14 @@ impl Default for DesktopPreferences {
 impl Default for SavedSettings {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             accounts: Vec::new(),
             selected_key: None,
             audio_mode: AudioMode::System,
             pending_deletions: Vec::new(),
             sound: SoundSettings::default(),
             desktop: DesktopPreferences::default(),
+            preferences: AppPreferences::default(),
         }
     }
 }
@@ -77,10 +86,15 @@ impl AccountStore {
             }
             Err(_) => return Err(storage_error()),
         };
-        let settings: SavedSettings =
+        let mut settings: SavedSettings =
             serde_json::from_slice(&bytes).map_err(|_| storage_error())?;
         settings.sound.validate().map_err(|_| storage_error())?;
-        if settings.version != 1 || settings.accounts.len() > 8 {
+        settings
+            .preferences
+            .history
+            .validate()
+            .map_err(|_| storage_error())?;
+        if !matches!(settings.version, 1 | 2) || settings.accounts.len() > 8 {
             return Err(storage_error());
         }
         if settings
@@ -120,17 +134,77 @@ impl AccountStore {
                 return Err(storage_error());
             }
         }
+        settings.version = 2;
         Ok(settings)
     }
     pub fn write(&self, settings: &SavedSettings) -> Result<(), PhoneError> {
+        settings.preferences.history.validate()?;
         let parent = self.path.parent().ok_or_else(storage_error)?;
         fs::create_dir_all(parent).map_err(|_| storage_error())?;
-        let bytes = serde_json::to_vec_pretty(settings).map_err(|_| storage_error())?;
+        // Preserve the exact original v1 bytes and fsync them before replacing metadata.
+        match fs::read(&self.path) {
+            Ok(original) => {
+                let value: serde_json::Value =
+                    serde_json::from_slice(&original).map_err(|_| storage_error())?;
+                if value["version"] == 1 {
+                    let backup = self.path.with_extension("v1.backup.json");
+                    match fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&backup)
+                    {
+                        Ok(mut file) => {
+                            if file
+                                .write_all(&original)
+                                .and_then(|()| file.sync_all())
+                                .is_err()
+                            {
+                                let _ = fs::remove_file(&backup);
+                                return Err(storage_error());
+                            }
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                            if fs::read(&backup).map_err(|_| storage_error())? != original {
+                                return Err(storage_error());
+                            }
+                            fs::File::open(&backup)
+                                .and_then(|file| file.sync_all())
+                                .map_err(|_| storage_error())?;
+                        }
+                        Err(_) => return Err(storage_error()),
+                    }
+                    sync_directory(parent)?;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(storage_error()),
+        }
+        let mut next = settings.clone();
+        next.version = 2;
+        let bytes = serde_json::to_vec_pretty(&next).map_err(|_| storage_error())?;
         let temporary = self.path.with_extension("json.tmp");
-        fs::write(&temporary, bytes).map_err(|_| storage_error())?;
-        // Same-directory replacement is atomic on macOS and Windows.
-        fs::rename(&temporary, &self.path).map_err(|_| storage_error())
+        let mut file = fs::File::create(&temporary).map_err(|_| storage_error())?;
+        file.write_all(&bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| storage_error())?;
+        drop(file);
+        // Same-directory replacement keeps an interrupted write from truncating metadata.
+        fs::rename(&temporary, &self.path).map_err(|_| storage_error())?;
+        // Replacement is already committed: a directory fsync failure must not cause a
+        // caller to treat the old in-memory metadata as the current durable version.
+        let _ = sync_directory(parent);
+        Ok(())
     }
+}
+
+fn sync_directory(path: &std::path::Path) -> Result<(), PhoneError> {
+    #[cfg(unix)]
+    fs::File::open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|_| storage_error())?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 /// Internal credential boundary; system calls may display OS authorization UI.
@@ -286,6 +360,92 @@ pub(crate) fn storage_error() -> PhoneError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn legacy_sound_json_restores_classic_at_full_volume() {
+        let legacy = r#"{"inputDevice":"mic","outputDevice":"speaker","ringDevice":"ring","ringtoneEnabled":false}"#;
+        let sound: SoundSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(sound.ringtone, phone_core::Ringtone::Classic);
+        assert_eq!(sound.ringtone_volume, 100);
+        assert!(!sound.ringtone_enabled);
+        assert_eq!(sound.input_device, "mic");
+        assert_eq!(sound.output_device, "speaker");
+        assert_eq!(sound.ring_device, "ring");
+    }
+
+    #[test]
+    fn v1_migration_preserves_keys_selection_and_durable_original_backup() {
+        let directory = std::env::temp_dir().join(format!("ruf-migration-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let store = AccountStore {
+            path: directory.join("accounts.json"),
+        };
+        let original = br#"{"version":1,"accounts":[{"key":"abcd-1234","name":"Work","registrar":"pbx.test","username":"100"}],"selectedKey":"abcd-1234","audioMode":"system","pendingDeletions":["abcd-5678"]}"#;
+        fs::write(&store.path, original).unwrap();
+        let mut loaded = store.load().unwrap();
+        assert_eq!(loaded.version, 2);
+        assert!(loaded.accounts[0].enabled);
+        assert_eq!(loaded.selected_key.as_deref(), Some("abcd-1234"));
+        assert_eq!(loaded.pending_deletions, ["abcd-5678"]);
+        loaded.preferences.start_hidden = false;
+        store.write(&loaded).unwrap();
+        let backup = directory.join("accounts.v1.backup.json");
+        assert_eq!(fs::read(&backup).unwrap(), original);
+        loaded.preferences.contacts.favorites_first = false;
+        store.write(&loaded).unwrap();
+        assert_eq!(fs::read(&backup).unwrap(), original);
+        assert!(store.load().unwrap() == loaded);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_migration_backup_preserves_v1_and_retries_without_key_rotation() {
+        let directory =
+            std::env::temp_dir().join(format!("ruf-migration-failure-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let store = AccountStore {
+            path: directory.join("accounts.json"),
+        };
+        let original = br#"{"version":1,"accounts":[],"selectedKey":null,"audioMode":"system"}"#;
+        fs::write(&store.path, original).unwrap();
+        let loaded = store.load().unwrap();
+        let backup = directory.join("accounts.v1.backup.json");
+        fs::write(&backup, b"earlier-backup-must-not-be-overwritten").unwrap();
+        assert_eq!(
+            store.write(&loaded).unwrap_err().code,
+            ErrorCode::StorageFailure
+        );
+        assert_eq!(fs::read(&store.path).unwrap(), original);
+        assert_eq!(
+            fs::read(&backup).unwrap(),
+            b"earlier-backup-must-not-be-overwritten"
+        );
+        fs::remove_file(&backup).unwrap();
+        store.write(&loaded).unwrap();
+        assert_eq!(fs::read(&backup).unwrap(), original);
+        assert_eq!(store.load().unwrap().version, 2);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn invalid_persisted_retention_and_unknown_version_remain_untouched() {
+        let directory =
+            std::env::temp_dir().join(format!("ruf-invalid-preferences-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let store = AccountStore {
+            path: directory.join("accounts.json"),
+        };
+        for (version, days) in [(2, 31), (3, 30)] {
+            let mut value = serde_json::to_value(SavedSettings::default()).unwrap();
+            value["version"] = version.into();
+            value["preferences"]["history"]["retentionDays"] = days.into();
+            let bytes = serde_json::to_vec(&value).unwrap();
+            fs::write(&store.path, &bytes).unwrap();
+            assert_eq!(store.load().err().unwrap().code, ErrorCode::StorageFailure);
+            assert_eq!(fs::read(&store.path).unwrap(), bytes);
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     fn credential_errors_do_not_implicate_metadata_or_expose_native_payloads() {
@@ -369,6 +529,7 @@ mod tests {
         };
         let mut settings = SavedSettings::default();
         settings.accounts.push(SavedAccount {
+            enabled: true,
             key: "abcd-1234".into(),
             name: "Büro".into(),
             registrar: "pbx.test".into(),
@@ -399,6 +560,7 @@ mod tests {
         };
         let valid = SavedSettings {
             accounts: vec![SavedAccount {
+                enabled: true,
                 key: "abcd-1234".into(),
                 name: "Synthetic account".into(),
                 registrar: "pbx.test".into(),

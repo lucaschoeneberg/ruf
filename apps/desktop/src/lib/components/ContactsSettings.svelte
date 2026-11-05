@@ -8,6 +8,7 @@
     openContactsSettings,
   } from "../contacts-api";
 
+  let { embedded = false }: { embedded?: boolean } = $props();
   let permission = $state<ContactsPermission | null>(null);
   let working = $state(false);
   let error = $state<string | null>(null);
@@ -71,13 +72,16 @@
   });
 </script>
 
-<div class="settings-title">
-  <div>
-    <h1>Kontakte</h1>
-    <p>Dein macOS-Adressbuch zum Suchen und Anrufen.</p>
+{#if !embedded}<div class="settings-title">
+    <div>
+      <h1>Kontakte</h1>
+      <p>Dein macOS-Adressbuch zum Suchen und Anrufen.</p>
+    </div>
   </div>
-</div>
-<h2 class="settings-group">Zugriff & Datenschutz</h2>
+{/if}
+<h2 class="settings-group" id="contacts-permission" tabindex="-1">
+  Kontakte · Zugriff & Datenschutz
+</h2>
 <div class="setting-row">
   <div class="setting-description">
     <h3>macOS-Kontakte</h3>

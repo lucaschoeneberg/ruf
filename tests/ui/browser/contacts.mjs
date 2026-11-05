@@ -8,9 +8,16 @@ export default async function contactsPermissions(page, baseUrl) {
     const listeners = new Map();
     let next = 0;
     window.__contactPermissionTest = {
+      preferences: {
+        startHidden: true,
+        showCallerInNotifications: true,
+        contacts: { favoritesFirst: true, showOrganization: true },
+        history: { recordingEnabled: true, retentionDays: null },
+      },
       permission: "notDetermined",
       decision: "denied",
       failRequest: false,
+      failPreferences: false,
       failCopy: false,
       failOpen: false,
       holdFavorite: false,
@@ -145,6 +152,13 @@ export default async function contactsPermissions(page, baseUrl) {
             notificationsGranted: null,
             notificationPermission: "unsupported",
           };
+        if (command === "get_preferences") {
+          if (f.failPreferences)
+            throw new Error("Synthetic preferences read failure");
+          return structuredClone(f.preferences);
+        }
+        if (command === "get_notification_permission") return "unsupported";
+        if (command === "get_microphone_permission") return "unsupported";
         if (command === "get_contacts_permission") return f.permission;
         if (command === "request_contacts_permission") {
           if (f.failRequest)
@@ -215,9 +229,9 @@ export default async function contactsPermissions(page, baseUrl) {
     if (!condition) throw new Error(message);
   };
   await page.setViewportSize({ width: 900, height: 660 });
-  await page.goto(baseUrl + "/?window=settings&section=contacts");
+  await page.goto(baseUrl + "/?window=settings&section=privacy");
   await page
-    .getByRole("heading", { name: "Kontakte", exact: true })
+    .getByRole("heading", { name: "Datenschutz", exact: true })
     .waitFor({ timeout: 5000 });
   await page
     .getByRole("button", { name: "Zugriff anfordern", exact: true })
@@ -353,6 +367,72 @@ export default async function contactsPermissions(page, baseUrl) {
   await page.waitForFunction(() =>
     document.querySelector(".availability")?.textContent.includes("Angemeldet"),
   );
+  await page.evaluate(() => {
+    const f = window.__contactPermissionTest;
+    f.contacts[3].favorite = true;
+    f.emit();
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".contact-entry")
+        ?.getAttribute("data-contact-id") === "synthetic-unsupported",
+  );
+  await page.evaluate(() => {
+    const f = window.__contactPermissionTest;
+    f.preferences.contacts = { favoritesFirst: false, showOrganization: false };
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".contact-entry")
+        ?.getAttribute("data-contact-id") === "synthetic-multi",
+  );
+  ensure(
+    !(await page.locator(".contact-summary").allTextContents()).some(
+      (text) => text.includes("Beispiel GmbH") || text.includes("Testbüro"),
+    ),
+    "Company-hidden preference removes company labels",
+  );
+  await page.getByRole("searchbox").fill("Testbüro");
+  await page.getByText("Zoë Weiß", { exact: true }).waitFor();
+  await page.getByRole("searchbox").fill("");
+  await page.evaluate(() => {
+    const f = window.__contactPermissionTest;
+    f.contacts[3].favorite = false;
+    f.preferences.contacts = { favoritesFirst: true, showOrganization: true };
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page.waitForFunction(() =>
+    document
+      .querySelector(".contact-summary")
+      ?.textContent.includes("Beispiel GmbH"),
+  );
+  await page.evaluate(() => {
+    window.__contactPermissionTest.failPreferences = true;
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page
+    .getByText(
+      "Die Kontaktanzeige konnte nicht geladen werden. Die zuletzt bekannte Ansicht bleibt erhalten.",
+      { exact: true },
+    )
+    .waitFor();
+  ensure(
+    (await page.locator(".contact-entry").count()) === 4,
+    "Metadata failure must not hide independently authorized contacts",
+  );
+  await page.evaluate(() => {
+    window.__contactPermissionTest.failPreferences = false;
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page
+    .getByText(
+      "Die Kontaktanzeige konnte nicht geladen werden. Die zuletzt bekannte Ansicht bleibt erhalten.",
+      { exact: true },
+    )
+    .waitFor({ state: "hidden" });
   await page.setViewportSize({ width: 340, height: 500 });
   await page.screenshot({ path: "output/playwright/contacts-list-340.png" });
   await page.setViewportSize({ width: 320, height: 440 });

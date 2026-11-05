@@ -7,6 +7,11 @@ import type {
   AudioDevices,
   DesktopSettings,
   AboutLink,
+  NotificationPermission,
+  MicrophonePermission,
+  AudioTestKind,
+  AppPreferences,
+  DiagnosticsReport,
 } from "./generated/AppInfo";
 
 async function desktopInvoke<T>(
@@ -41,7 +46,14 @@ export const reconnectAccount = (id: number) =>
 export const selectAccount = (id: number) =>
   desktopInvoke<EngineSnapshot>("select_account", { id });
 export type SettingsSection =
-  "accounts" | "audio" | "general" | "contacts" | "about";
+  | "accounts"
+  | "audio"
+  | "general"
+  | "contacts"
+  | "about"
+  | "notifications"
+  | "privacy"
+  | "diagnostics";
 export const openSettings = (section?: SettingsSection) =>
   desktopInvoke<void>("open_settings", section ? { section } : undefined);
 export const getDesktopSettings = () =>
@@ -134,3 +146,35 @@ export function errorMessage(error: unknown): string {
 
 /** Exact CycloneDX JSON embedded by the selected desktop build. */
 export const getSoftwareBill = () => desktopInvoke<string>("get_software_bill");
+
+/** Read OS authorization independently of accounts, saved metadata and SIP state. */
+export const getNotificationPermission = () =>
+  desktopInvoke<NotificationPermission>("get_notification_permission");
+export const openNotificationSettings = () =>
+  desktopInvoke<void>("open_notification_settings");
+export const testNotification = () => desktopInvoke<void>("test_notification");
+export const getMicrophonePermission = () =>
+  desktopInvoke<MicrophonePermission>("get_microphone_permission");
+export const requestMicrophonePermission = () =>
+  desktopInvoke<MicrophonePermission>("request_microphone_permission");
+export const openMicrophoneSettings = () =>
+  desktopInvoke<void>("open_microphone_settings");
+export const startAudioTest = (kind: AudioTestKind, device: string) =>
+  desktopInvoke<string>("start_audio_test", { kind, device });
+export const stopAudioTest = (id: string) =>
+  desktopInvoke<void>("stop_audio_test", { id });
+export const getPreferences = () =>
+  desktopInvoke<AppPreferences>("get_preferences");
+export const savePreferences = (
+  preferences: AppPreferences,
+  confirmHistoryDeletion = false,
+) =>
+  desktopInvoke<AppPreferences>("save_preferences", {
+    preferences,
+    confirmHistoryDeletion,
+  });
+export const getDiagnostics = () =>
+  desktopInvoke<DiagnosticsReport>("get_diagnostics");
+export const copyDiagnostics = () => desktopInvoke<void>("copy_diagnostics");
+export const setAccountEnabled = (id: number, enabled: boolean) =>
+  desktopInvoke<EngineSnapshot>("set_account_enabled", { id, enabled });
