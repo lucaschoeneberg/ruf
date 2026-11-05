@@ -414,7 +414,7 @@ pub struct CallSnapshot {
     pub local_held: bool,
     /// Independent remote hold observation.
     pub remote_held: bool,
-    /// A local hold/resume transaction or compensating SIP recovery is pending.
+    /// Local hold/resume is queued for SDP, negotiating, or recovering.
     pub hold_pending: bool,
     /// Outgoing transfer lifecycle, independent of call establishment.
     pub transfer: TransferState,
@@ -428,10 +428,26 @@ pub struct CallSnapshot {
     pub last_error: Option<PhoneError>,
 }
 
+/// Most recent actual terminal call failure, retained independently of selected conversation.
+/// Memory-only; reset on allocation of any new call or engine recreation.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CallFailure {
+    /// Opaque token of the failed dialog, including after that dialog was removed.
+    pub call_id: String,
+    /// Account owning the failed dialog, independent of outgoing/foreground selection.
+    pub account_id: u32,
+    /// Actual safe terminal failure; no caller, credentials, headers or native handles.
+    pub error: PhoneError,
+}
+
 /// Password-free current state, suitable for repeated reads from the frontend.
 #[derive(Debug, Clone, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSnapshot {
+    /// Most recent owned terminal failure, or null; not a recovered control error.
+    /// Cleared when a new call is allocated (including consultation) or engine recreated.
+    pub last_call_failure: Option<CallFailure>,
     /// Live dialogs in allocation order (at most original plus one consultation).
     pub calls: Vec<CallSnapshot>,
     /// Process-monotonic read revision, including before native startup; ignore older deliveries.
@@ -599,6 +615,7 @@ impl EngineSnapshot {
                 "A call already occupies the call slot.",
             ));
         }
+        self.last_call_failure = None;
         self.call_account_id = self.selected_account_id;
         self.call = CallState::Calling;
         self.caller = None;

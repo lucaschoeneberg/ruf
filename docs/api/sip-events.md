@@ -5,7 +5,8 @@ Existing commands and `phone-state-changed` return the canonical Rust
 `reject({callId})` command is documented in the [IPC API](README.md).
 
 See [native call controls](call-controls.md) for independent local hold, mute,
-outgoing transfer and the two-dialog consultation snapshot.
+outgoing transfer, the two-dialog consultation snapshot and the owner-tagged
+`lastCallFailure` terminal error record.
 
 ## Required snapshot fields
 

@@ -20,6 +20,9 @@ const OP_COMPLETE_TRANSFER: i32 = 23;
 #[derive(Default)]
 pub(crate) struct EngineState {
     pub(crate) snapshot: EngineSnapshot,
+    pub(crate) engine_error: Option<PhoneError>,
+    #[cfg(feature = "native")]
+    pub(crate) terminal_call_errors: BTreeMap<u64, PhoneError>,
     pub(crate) call_generation: u64,
     pub(crate) call_journal: crate::call_journal::CallJournal,
     next_account_id: u32,
@@ -35,6 +38,16 @@ pub(crate) struct EngineState {
     pub(crate) local_endings: std::collections::BTreeSet<u64>,
     #[cfg(feature = "native")]
     pub(crate) call_destinations: BTreeMap<u64, String>,
+}
+
+impl EngineState {
+    pub(crate) fn snapshot_for_read(&self) -> EngineSnapshot {
+        let mut snapshot = self.snapshot.clone();
+        if snapshot.last_error.is_none() {
+            snapshot.last_error = self.engine_error.clone();
+        }
+        snapshot.with_read_revision()
+    }
 }
 
 /// One owned native engine, up to eight SIP accounts, one original call and one consultation.
@@ -78,7 +91,7 @@ impl Engine {
     pub fn snapshot(&self) -> Result<EngineSnapshot, PhoneError> {
         self.snapshot
             .lock()
-            .map(|s| s.snapshot.clone().with_read_revision())
+            .map(|s| s.snapshot_for_read())
             .map_err(|_| state_error())
     }
 

@@ -253,7 +253,7 @@ localHeld: boolean,
  */
 remoteHeld: boolean,
 /**
- * A local hold/resume transaction or compensating SIP recovery is pending.
+ * Local hold/resume is queued for SDP, negotiating, or recovering.
  */
 holdPending: boolean,
 /**
@@ -276,6 +276,20 @@ eventsDropped: number,
  * Safe dialog-specific failure; null when absent.
  */
 lastError: PhoneError | null, };
+
+export type CallFailure = {
+/**
+ * Opaque token of the failed dialog, including after that dialog was removed.
+ */
+callId: string,
+/**
+ * Account owning the failed dialog, independent of outgoing/foreground selection.
+ */
+accountId: number,
+/**
+ * Actual safe terminal failure; no caller, credentials, headers or native handles.
+ */
+error: PhoneError, };
 
 export type TransferState = "idle" | "pending" | "succeeded" | "failed";
 
@@ -366,6 +380,11 @@ lastError: PhoneError | null,
 removing: boolean, };
 
 export type EngineSnapshot = {
+/**
+ * Most recent owned terminal failure, or null; not a recovered control error.
+ * Cleared when a new call is allocated (including consultation) or engine recreated.
+ */
+lastCallFailure: CallFailure | null,
 /**
  * Live dialogs in allocation order (at most original plus one consultation).
  */

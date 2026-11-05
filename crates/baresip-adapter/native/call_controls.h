@@ -1,6 +1,7 @@
 /* Event-thread-only two-dialog controller. Included after engine/emit helpers. */
 static void control_result(struct call *call, int kind, int status, void *arg);
 enum { RECOVERY_NONE, RECOVERY_WAITING, RECOVERY_QUEUED, RECOVERY_RUNNING };
+enum { PENDING_HOLD_QUEUED = 3 };
 static void fail_recovery(struct engine *e, struct native_dialog *dialog, int status) {
     e->current = dialog;
     dialog->pending = dialog->recovery = 0;
@@ -18,10 +19,16 @@ static bool controls_busy(const struct engine *e) {
     return e->control_action || e->dialogs[0].pending || e->dialogs[1].pending ||
         e->dialogs[0].recovery || e->dialogs[1].recovery;
 }
-static int begin_hold(struct engine *e, struct native_dialog *dialog, bool held) {
+static void begin_hold(struct engine *e, struct native_dialog *dialog, bool held) {
     e->current = dialog;
-    if (call_is_onhold(dialog->call) == held && !dialog->recovery) { emit(e, EV_LOCAL_HOLD_DONE, held); return 0; }
-    if (!call_sdp_change_allowed(dialog->call)) return EBUSY;
+    if (call_is_onhold(dialog->call) == held && !dialog->recovery) { emit(e, EV_LOCAL_HOLD_DONE, held); return; }
+    if (!call_sdp_change_allowed(dialog->call)) {
+        dialog->hold_target = held;
+        dialog->pending = PENDING_HOLD_QUEUED;
+        dialog->deadline = tmr_jiffies() + 10000;
+        emit(e, EV_LOCAL_HOLD_PENDING, 0);
+        return;
+    }
     dialog->hold_target = held;
     dialog->pending = 1;
     dialog->deadline = tmr_jiffies() + 10000;
@@ -32,22 +39,27 @@ static int begin_hold(struct engine *e, struct native_dialog *dialog, bool held)
         call_refresh_hold(dialog->call) : call_hold(dialog->call, held);
     if (error) {
         call_cancel_control(dialog->call);
-        if (dialog->call) { dialog->pending = 0; emit(e, EV_CONTROL_FAILED, 0); }
+        if (dialog->call && dialog->pending && !dialog->recovery) {
+            dialog->pending = 0;
+            e->control_action = 0;
+            e->action_target = NULL;
+            emit(e, EV_CONTROL_FAILED, 0);
+        }
     }
-    return error;
 }
 static void dialog_closed(struct engine *e, int status) {
     struct native_dialog *closed = e->current;
     struct native_dialog *other = closed == &e->dialogs[0] ? &e->dialogs[1] : &e->dialogs[0];
     bool consultation = closed->consultation;
-    bool consultation_failed = consultation && !closed->answered && status >= 300 && status != 487;
+    bool consultation_failed = consultation && !closed->answered && !closed->local_ending &&
+        !e->stopping && (status == 0 || (status >= 300 && status != 487));
     memset(closed, 0, sizeof(*closed));
     e->control_action = 0;
     e->action_target = NULL;
     if (other->call) {
         other->consultation = false;
         select_dialog(e, other);
-        if (consultation && !other->pending) (void)begin_hold(e, other, other->return_held);
+        if (consultation && !other->pending && !e->stopping) begin_hold(e, other, other->return_held);
         if (consultation_failed) emit(e, EV_CONSULT_FAILED, status <= 699 ? status : 0);
     }
 }
@@ -98,6 +110,19 @@ static void control_tick(void *arg) {
     e->current = e->selected;
     for (size_t i = 0; i < 2; ++i) {
         struct native_dialog *dialog = &e->dialogs[i];
+        if (dialog->call && dialog->pending == PENDING_HOLD_QUEUED) {
+            if (tmr_jiffies() >= dialog->deadline) {
+                e->current = dialog;
+                dialog->pending = 0;
+                e->control_action = 0;
+                e->action_target = NULL;
+                emit(e, EV_CONTROL_FAILED, 0);
+            } else if (call_sdp_change_allowed(dialog->call)) {
+                dialog->pending = 0;
+                begin_hold(e, dialog, dialog->hold_target);
+            }
+            continue;
+        }
         if (dialog->call && dialog->pending && tmr_jiffies() >= dialog->deadline) {
             e->current = dialog;
             int pending = dialog->pending;
@@ -110,7 +135,7 @@ static void control_tick(void *arg) {
         if (dialog->call && dialog->recovery == RECOVERY_QUEUED) {
             if (tmr_jiffies() >= dialog->deadline) { fail_recovery(e, dialog, 0); }
             else if (call_sdp_change_allowed(dialog->call)) {
-                (void)begin_hold(e, dialog, call_is_onhold(dialog->call));
+                begin_hold(e, dialog, call_is_onhold(dialog->call));
             }
         }
     }
@@ -139,13 +164,13 @@ static void control_tick(void *arg) {
                     e->callback(&failed, e->callback_arg);
                     memset(next, 0, sizeof(*next));
                     e->current = original;
-                    (void)begin_hold(e, original, original->return_held);
+                    begin_hold(e, original, original->return_held);
                     emit(e, EV_CONSULT_FAILED, 0);
                 } else { select_dialog(e, next); }
             }
         } else if (action == OP_SWITCH && target && target->call) {
             select_dialog(e, target);
-            (void)begin_hold(e, target, false);
+            begin_hold(e, target, false);
         }
     }
     e->current = e->selected;
@@ -175,22 +200,22 @@ static void control_request(struct engine *e, struct request *r) {
         if (!strcmp(r->destination, "0") && other->call && !call_is_onhold(other->call)) {
             e->control_action = OP_SWITCH;
             e->action_target = dialog;
-            error = begin_hold(e, other, true);
-        } else { error = begin_hold(e, dialog, !strcmp(r->destination, "1")); }
+            begin_hold(e, other, true);
+        } else { begin_hold(e, dialog, !strcmp(r->destination, "1")); }
         break;
     case OP_CONSULT:
         if (other->call || strlen(r->destination) > 64) { error = EBUSY; break; }
         dialog->return_held = call_is_onhold(dialog->call);
         str_ncpy(e->consultation_destination, r->destination, sizeof(e->consultation_destination));
         e->control_action = OP_CONSULT;
-        error = begin_hold(e, dialog, true);
+        begin_hold(e, dialog, true);
         break;
     case OP_SWITCH:
         if (dialog == e->selected) break;
         if (!other->call) { error = EINVAL; break; }
         e->control_action = OP_SWITCH;
         e->action_target = dialog;
-        error = begin_hold(e, other, true);
+        begin_hold(e, other, true);
         break;
     case OP_CANCEL_CONSULT: {
         struct native_dialog *consultation = dialog->consultation ? dialog : other;

@@ -38,6 +38,23 @@ never replace its identity or event buffer. Each dialog keeps its own owning
 account and ordered event FIFO; the existing call journal observes both dialogs
 synchronously even when no frontend poll occurs.
 
+`EngineSnapshot.lastCallFailure` is a required nullable `CallFailure` output:
+`{ callId: string, accountId: number, error: PhoneError }`. All three fields are
+required. It retains the most recent actual terminal failure with its dialog and
+account owner after dialog removal, independently of foreground selection. No
+caller/contact data, credentials or native handles are included. It is memory-only,
+survives window reloads while the engine remains alive, and resets when a new
+incoming/outgoing/consultation call starts or the engine is recreated. Rejected
+busy offers do not reset it. Another actual terminal failure replaces it.
+
+Fatal audio failures, failed setup/native dial attempts, final SIP failures and
+explicit failed-recovery termination can populate this field. A refused/recovered
+control followed by normal remote termination or intentional hangup cannot
+manufacture a terminal failure. A background failure does not replace the surviving
+selected dialog's `lastError`. Engine-wide native errors without a live dialog
+owner remain separate from per-dialog errors and can be returned through the
+existing global `lastError` fallback.
+
 All `CallSnapshot` fields are required, including nullable fields:
 
 | Field           | Type                                     | Meaning                                                                               |
@@ -51,7 +68,7 @@ All `CallSnapshot` fields are required, including nullable fields:
 | `muted`         | boolean                                  | Confirmed suppression of outgoing audio.                                              |
 | `localHeld`     | boolean                                  | Confirmed accepted local hold; independent of remote hold.                            |
 | `remoteHeld`    | boolean                                  | Remote hold observation; both hold flags may be true.                                 |
-| `holdPending`   | boolean                                  | Local hold/resume is awaiting a SIP result.                                           |
+| `holdPending`   | boolean                                  | Hold/resume is queued for SDP, negotiating, or recovering.                            |
 | `transfer`      | `idle`, `pending`, `succeeded`, `failed` | Outgoing transfer lifecycle. Success requires final 2xx sipfrag NOTIFY.               |
 | `consultation`  | boolean                                  | This is the explicitly requested second dialog. Becomes false when the original ends. |
 | `events`        | `CallEvent[]`                            | Last 64 significant events, oldest first, independently sequenced per dialog.         |
@@ -65,7 +82,13 @@ Existing `transferFailed` also covers rejected unsolicited inbound transfer.
 
 ## Protocol outcomes and cleanup
 
-Hold/resume has a 10-second command deadline. The adapter confirms local hold
+If another native SDP exchange temporarily owns the dialog (for example an
+offerless remote re-INVITE awaiting ACK), hold/resume stays queued with
+`holdPending: true` for at most 10 seconds. A native tick retries it when SDP is
+available. Queued timeout reports a safe control error and cancels any dependent
+consultation/switch continuation; it never silently abandons automatic return.
+It leaves the confirmed hold state intact and allows a later explicit retry.
+Once sent, hold/resume has a separate 10-second command deadline. The adapter confirms local hold
 only after an accepted SIP answer. Refusal and glare (491) restore the previous
 local media state immediately. Every final 2xx is ACKed even if SDP is absent or
 invalid; malformed answers fail without wedging subsequent renegotiation.
@@ -102,7 +125,7 @@ native failures use `nativeFailure` with null `sipStatus`.
 A consultation cannot be dialed before original hold succeeds. An already-held
 original proceeds using that confirmed state. Failed setup or unsolicited remote
 consultation termination returns to the original's pre-consultation hold intent;
-explicit cancellation/return can intentionally resume it. Setup failure is also
+explicit cancellation/return can intentionally resume it. Setup failure, including native failure without any SIP status, is also
 reported as a safe operation error on the surviving original, preserving the SIP
 status (for example busy/486). Automatic return/resume does not erase that error;
 the next accepted explicit action or new call clears it. Explicit cancellation

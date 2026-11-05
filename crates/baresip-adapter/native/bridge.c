@@ -38,7 +38,7 @@ struct sip_event {
 typedef void (*event_callback)(const struct sip_event *event, void *arg);
 enum { EV_READY=1, EV_REGISTERING, EV_REGISTERED, EV_REG_FAILED,
        EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE, EV_REMOVED, EV_REMOVE_FAILED, EV_ACCOUNT_APPLIED, EV_ACCOUNT_REJECTED, EV_AUDIO_APPLIED, EV_AUDIO_FAILED, EV_RING_STARTED, EV_RING_STOPPED, EV_ANSWER_FAILED, EV_BUSY_INCOMING, EV_DIAL_STARTED, EV_DIAL_FAILED, EV_LOCAL_END, EV_INTERRUPTING,
-       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED, EV_TEST_STARTED, EV_TEST_LEVEL, EV_TEST_STOPPED, EV_TEST_FAILED, EV_SELECTED, EV_MUTED, EV_LOCAL_HOLD_PENDING, EV_LOCAL_HOLD_DONE, EV_CONTROL_FAILED, EV_TRANSFER_PENDING, EV_TRANSFER_RESULT, EV_CONTROL_REJECTED, EV_RECOVERY_FAILED, EV_RECOVERING, EV_CONSULT_FAILED };
+       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED, EV_TEST_STARTED, EV_TEST_LEVEL, EV_TEST_STOPPED, EV_TEST_FAILED, EV_SELECTED, EV_MUTED, EV_LOCAL_HOLD_PENDING, EV_LOCAL_HOLD_DONE, EV_CONTROL_FAILED, EV_TRANSFER_PENDING, EV_TRANSFER_RESULT, EV_CONTROL_REJECTED, EV_RECOVERY_FAILED, EV_RECOVERING, EV_CONSULT_FAILED, EV_CALL_ERROR };
 enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE, OP_REJECT, OP_TEST_MIC, OP_TEST_SPEAKER, OP_TEST_STOP, OP_DISABLE, OP_ENABLE, OP_MUTE, OP_HOLD, OP_TRANSFER, OP_CONSULT, OP_SWITCH, OP_CANCEL_CONSULT, OP_COMPLETE_TRANSFER };
 
 struct request {
@@ -56,7 +56,7 @@ struct sip_account {
 struct native_dialog {
     struct call *call;
     struct ua *ua;
-    bool answered, muted, consultation, hold_target, return_held;
+    bool answered, muted, consultation, hold_target, return_held, local_ending;
     uint32_t account_id;
     uint64_t generation, deadline;
     int pending, recovery;
@@ -66,6 +66,7 @@ struct engine {
     queue_lock lock;
     bool running;
     bool stop_requested;
+    bool stopping;
     struct tmr shutdown_timer;
     struct tmr network_timer;
     struct request *pending;
@@ -246,7 +247,11 @@ static void emit_account(struct engine *e, int kind, int code, uint32_t account_
     const struct sip_event event = { kind, code, account_id, e->current->generation, NULL, NULL, NULL };
     e->callback(&event, e->callback_arg);
 }
-static void emit(struct engine *e, int kind, int code) { emit_account(e, kind, code, e->current->account_id); }
+static void emit(struct engine *e, int kind, int code) {
+    if (kind == EV_LOCAL_END) e->current->local_ending = true;
+    if (kind == EV_INTERRUPTING) e->stopping = true;
+    emit_account(e, kind, code, e->current->account_id);
+}
 static struct sip_account *find_account(struct engine *e, uint32_t id) {
     for (size_t i = 0; i < 8; ++i) if (e->accounts[i].id == id && id) return &e->accounts[i];
     return NULL;
@@ -596,7 +601,8 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
         break;
     case BEVENT_AUDIO_ERROR:
         if (e->diagnostics) fprintf(stderr, "sip.diag event=audio-error ms=%" PRIu64 " call=%" PRIu64 "\n", tmr_jiffies() - e->diagnostic_started, e->current->generation);
-        emit(e, EV_ERROR, EIO); break;
+        if (e->current->call == call) emit(e, EV_CALL_ERROR, EIO);
+        break;
     default: break;
     }
     e->current = e->selected;

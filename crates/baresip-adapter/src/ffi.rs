@@ -40,6 +40,7 @@ const EV_CONTROL_REJECTED: i32 = 46;
 const EV_RECOVERY_FAILED: i32 = 47;
 const EV_RECOVERING: i32 = 48;
 const EV_CONSULT_FAILED: i32 = 49;
+const EV_CALL_ERROR: i32 = 50;
 const CALL_EVENT_CAPACITY: usize = 64;
 
 /// Private ABI mirrored by bridge.c; every pointer is borrowed for the callback only.
@@ -167,6 +168,20 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 }
                 return;
             }
+            let owns_dialog = engine
+                .snapshot
+                .calls
+                .iter()
+                .any(|call| call.id == call_generation.to_string());
+            if kind == 10 && !owns_dialog {
+                let error = native_error(code);
+                engine.engine_error = Some(error.clone());
+                engine.snapshot.last_error = Some(error);
+                return;
+            }
+            if kind == EV_CALL_ERROR && !owns_dialog {
+                return;
+            }
             // Journal events run synchronously before any UI snapshot projection.
             match kind {
                 7 | 22 | 23 => {
@@ -187,6 +202,9 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     let name = (kind != 23)
                         .then(|| owned_caller_text(caller_name, 128))
                         .flatten();
+                    if kind == 23 {
+                        engine.snapshot.last_call_failure = None;
+                    }
                     if kind == 23
                         && let Some(number) = &number
                     {
@@ -216,8 +234,15 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 11 | 26 => engine.call_journal.interrupt(),
                 _ => {}
             }
-            if kind == 24 {
-                engine.call_destinations.remove(&call_generation);
+            if kind == 24
+                && engine.call_destinations.remove(&call_generation).is_some()
+                && code != 0
+            {
+                engine.snapshot.last_call_failure = Some(phone_core::CallFailure {
+                    call_id: call_generation.to_string(),
+                    account_id,
+                    error: native_error(code),
+                });
             }
             if kind == 25 {
                 engine.local_endings.insert(call_generation);
@@ -316,7 +341,7 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             if kind == 11 {
                 engine.stopped = true;
             }
-            let dialog_event = matches!(kind, 5..=9 | 21 | 24 | 27..=34);
+            let dialog_event = matches!(kind, 5..=10 | 21 | 24 | 27..=34 | EV_CALL_ERROR);
             let previous_selection = engine.snapshot.call_id.clone();
             if dialog_event {
                 engine.select_dialog(&call_generation.to_string());
@@ -328,6 +353,7 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     engine.select_dialog(&id);
                     return;
                 }
+                let mut terminal_failure = None;
                 if let Some(call) = engine.snapshot.calls.iter_mut().find(|call| call.id == id) {
                     match kind {
                         EV_MUTED => call.muted = code != 0,
@@ -382,6 +408,7 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                             error.message =
                                 "The SIP hold recovery failed; the uncertain call was ended."
                                     .into();
+                            terminal_failure = Some(error.clone());
                             call.last_error = Some(error);
                         }
                         EV_CONTROL_REJECTED => {
@@ -423,12 +450,17 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                         );
                     }
                 }
+                if let Some(error) = terminal_failure {
+                    engine.terminal_call_errors.insert(call_generation, error);
+                }
                 if engine.snapshot.call_id.as_deref() == Some(&id) {
                     engine.select_dialog(&id);
                 }
                 return;
             }
             if kind == 5 || kind == 7 {
+                engine.engine_error = None;
+                engine.snapshot.last_call_failure = None;
                 engine.remote_hold = false;
                 engine.local_ending = false;
                 engine.snapshot.call_events.clear();
@@ -445,6 +477,17 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             }
             let remote_hold = engine.remote_hold;
             let local_ending = engine.local_ending;
+            if kind == EV_CALL_ERROR {
+                engine
+                    .terminal_call_errors
+                    .insert(call_generation, native_error(code));
+            }
+            let mut terminal_error = if matches!(kind, 9 | 24 | EV_ANSWER_CLOSED) {
+                engine.terminal_call_errors.remove(&call_generation)
+            } else {
+                None
+            };
+            let closing_owner = engine.snapshot.call_account_id.unwrap_or(account_id);
             let state = &mut engine.snapshot;
             match kind {
                 2..=4 => {
@@ -515,37 +558,40 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     state.caller = None;
                     state.caller_contact = None;
                     state.call_connected_at_ms = None;
-                    if kind == EV_ANSWER_CLOSED && !local_ending {
-                        state.last_error.get_or_insert_with(|| {
-                            PhoneError::new(
-                                ErrorCode::NativeFailure,
-                                "The incoming call ended before establishment after its answer was sent.",
-                            )
-                        });
+                    let closing_error = if kind == EV_ANSWER_CLOSED && !local_ending {
+                        Some(PhoneError::new(
+                            ErrorCode::NativeFailure,
+                            "The incoming call ended before establishment after its answer was sent.",
+                        ))
                     } else if kind == 24 && code != 0 {
-                        state.last_error = Some(native_error(code));
+                        Some(native_error(code))
                     } else if !local_ending
                         && let Ok(status) = u16::try_from(code)
                         && let Some(error) = PhoneError::from_sip_status(status)
                     {
-                        state.last_error = Some(error);
+                        Some(error)
                     } else if !local_ending && code >= 700 {
-                        // baresip uses internal non-SIP sentinels for native/media failures.
-                        state.last_error = Some(native_error(code));
+                        Some(native_error(code))
                     } else if !local_ending
                         && code == 0
                         && outgoing_setup
-                        && state.last_error.is_none()
+                        && terminal_error.is_none()
                     {
-                        // Native decoder/transport failures may close setup without
-                        // a SIP status. Preserve that failure instead of silently idling.
-                        state.last_error = Some(PhoneError::new(
+                        Some(PhoneError::new(
                             ErrorCode::NativeFailure,
                             "The outgoing call ended before establishment without a final SIP response.",
-                        ));
+                        ))
+                    } else {
+                        None
+                    };
+                    if closing_error.is_some() {
+                        terminal_error = closing_error;
+                    }
+                    if let Some(error) = &terminal_error {
+                        state.last_error = Some(error.clone());
                     }
                 }
-                10 => state.last_error = Some(native_error(code)),
+                10 | EV_CALL_ERROR => state.last_error = Some(native_error(code)),
                 21 => {
                     if state.call == CallState::Answering {
                         state.call = CallState::Incoming;
@@ -656,6 +702,13 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     }
                 }
                 _ => {}
+            }
+            if let Some(error) = terminal_error {
+                engine.snapshot.last_call_failure = Some(phone_core::CallFailure {
+                    call_id: call_generation.to_string(),
+                    account_id: closing_owner,
+                    error,
+                });
             }
             if dialog_event {
                 engine.finish_dialog_event(call_generation, previous_selection, kind);
@@ -1052,6 +1105,17 @@ mod observation_tests {
             }
         }
         fn event(&mut self, kind: i32, code: i32, token: u64, name: &str, number: &str) {
+            self.event_for_account(42, kind, code, token, name, number);
+        }
+        fn event_for_account(
+            &mut self,
+            account_id: u32,
+            kind: i32,
+            code: i32,
+            token: u64,
+            name: &str,
+            number: &str,
+        ) {
             let mut caller_name = [0u8; 129];
             let mut caller_number = [0u8; 81];
             caller_name[..name.len()].copy_from_slice(name.as_bytes());
@@ -1059,7 +1123,7 @@ mod observation_tests {
             let event = NativeEvent {
                 kind,
                 code,
-                account_id: 42,
+                account_id,
                 call_generation: token,
                 caller_name: caller_name.as_ptr().cast(),
                 caller_number: caller_number.as_ptr().cast(),
@@ -1363,6 +1427,129 @@ mod observation_tests {
     }
 
     #[test]
+    fn fatal_audio_error_survives_foreground_zero_status_close() {
+        let mut h = Harness::new();
+        h.event(7, 0, 10, "Original", "100");
+        h.event(8, 0, 10, "", "");
+        h.event(50, 5, 10, "", "");
+        {
+            let state = h.context.snapshot.lock().unwrap();
+            assert_eq!(
+                state.snapshot.calls[0].last_error.as_ref().unwrap().code,
+                ErrorCode::NativeFailure
+            );
+        }
+        h.event(9, 0, 10, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        assert_eq!(
+            state.snapshot.last_error.as_ref().unwrap().code,
+            ErrorCode::NativeFailure
+        );
+        let failure = state.snapshot.last_call_failure.as_ref().unwrap();
+        assert_eq!(failure.call_id, "10");
+        assert_eq!(failure.account_id, 42);
+        assert_eq!(failure.error.code, ErrorCode::NativeFailure);
+    }
+
+    #[test]
+    fn audio_error_is_owned_by_background_dialog_without_selected_contamination() {
+        let mut h = Harness::new();
+        h.event(7, 0, 10, "Original", "100");
+        h.event(8, 0, 10, "", "");
+        h.event_for_account(84, 23, 0, 20, "", "200");
+        h.event_for_account(84, 5, 0, 20, "", "");
+        h.event_for_account(84, 8, 0, 20, "", "");
+        h.event(10, 11, 10, "", "");
+        {
+            let state = h.context.snapshot.lock().unwrap();
+            assert!(state.snapshot.last_error.is_none());
+            assert!(state.snapshot.calls[0].last_error.is_some());
+            assert!(state.snapshot.last_call_failure.is_none());
+        }
+        h.event(50, 5, 10, "", "");
+        {
+            let state = h.context.snapshot.lock().unwrap();
+            assert_eq!(state.snapshot.call_id.as_deref(), Some("20"));
+            assert!(state.snapshot.last_error.is_none());
+            assert!(state.snapshot.calls[1].last_error.is_none());
+            assert_eq!(
+                state.snapshot.calls[0].last_error.as_ref().unwrap().code,
+                ErrorCode::NativeFailure
+            );
+        }
+        h.event(9, 0, 10, "", "");
+        {
+            let state = h.context.snapshot.lock().unwrap();
+            assert_eq!(state.snapshot.call_id.as_deref(), Some("20"));
+            assert_eq!(state.snapshot.call_account_id, Some(84));
+            assert!(state.snapshot.calls[0].last_error.is_none());
+            assert!(state.snapshot.last_error.is_none());
+            let failure = state.snapshot.last_call_failure.as_ref().unwrap();
+            assert_eq!(failure.call_id, "10");
+            assert_eq!(failure.account_id, 42);
+            assert_eq!(failure.error.code, ErrorCode::NativeFailure);
+        }
+        h.event_for_account(84, 9, 200, 20, "", "");
+        assert_eq!(
+            h.context
+                .snapshot
+                .lock()
+                .unwrap()
+                .snapshot
+                .last_call_failure
+                .as_ref()
+                .unwrap()
+                .call_id,
+            "10"
+        );
+        h.event(7, 0, 30, "Next", "300");
+        assert!(
+            h.context
+                .snapshot
+                .lock()
+                .unwrap()
+                .snapshot
+                .last_call_failure
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn recovered_control_error_is_not_a_terminal_call_failure() {
+        let mut h = Harness::new();
+        h.event(7, 0, 10, "Original", "100");
+        h.event(8, 0, 10, "", "");
+        h.event(EV_CONTROL_FAILED, 488, 10, "", "");
+        h.event(25, 0, 10, "", "");
+        h.event(9, 0, 10, "", "");
+        assert!(
+            h.context
+                .snapshot
+                .lock()
+                .unwrap()
+                .snapshot
+                .last_call_failure
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn engine_wide_error_is_preserved_without_attaching_it_to_a_dialog() {
+        let mut h = Harness::new();
+        h.event(7, 0, 10, "Original", "100");
+        h.event(8, 0, 10, "", "");
+        h.event(10, 5, 999, "", "");
+        h.event(EV_HOLD, 0, 10, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        assert_eq!(
+            state.snapshot_for_read().last_error.as_ref().unwrap().code,
+            ErrorCode::NativeFailure
+        );
+        assert!(state.snapshot.calls[0].last_error.is_none());
+        assert!(state.snapshot.last_call_failure.is_none());
+    }
+
+    #[test]
     fn consultation_background_events_and_end_intent_keep_dialog_ownership() {
         let mut h = Harness::new();
         h.event(7, 0, 10, "Original", "100");
@@ -1459,6 +1646,11 @@ mod observation_tests {
         assert_eq!(state.snapshot.call, CallState::Incoming);
         assert_eq!(state.call_generation, 10);
         assert!(state.snapshot.last_error.is_none());
+        let failure = state.snapshot.last_call_failure.as_ref().unwrap();
+        assert_eq!(failure.call_id, "11");
+        assert_eq!(failure.account_id, 42);
+        assert_eq!(failure.error.code, ErrorCode::NativeFailure);
+        assert_eq!(failure.error.sip_status, None);
         let events = h.events.lock().unwrap();
         assert!(
             matches!(&events[1].kind, ObservedCallKind::Started { direction: CallDirection::Outgoing, number: Some(number), .. } if number == "4321")

@@ -1315,6 +1315,9 @@ fn controls_cancel_consultation_while_ringing_resumes_original() {
         lab.engine.hangup_call(&consultation).unwrap_err().code,
         ErrorCode::InvalidState
     );
+    let returned = lab.engine.snapshot().unwrap();
+    assert!(returned.last_error.is_none());
+    assert!(returned.last_call_failure.is_none());
     lab.engine.hangup_call(&original).unwrap();
     lab.settle();
 }
@@ -1481,4 +1484,143 @@ fn controls_refused_compensation_ends_uncertain_dialog_with_sip_error() {
     assert_eq!(error.code, ErrorCode::SipNotAcceptable);
     assert_eq!(error.sip_status, Some(488));
     assert!(error.message.contains("uncertain call was ended"));
+}
+
+#[test]
+fn consultation_native_setup_failure_is_retained_on_original_without_sip_status() {
+    let _guard = crate::NATIVE_TEST_LOCK.lock().unwrap();
+    let mut lab = Lab::new("consultation-native-failure");
+    lab.incoming();
+    let original = lab.engine.snapshot().unwrap().call_id.unwrap();
+    lab.engine.start_consultation(&original, "123").unwrap();
+    let hold = lab.receive("original hold", |p| p.starts_with("INVITE "));
+    lab.reply(&hold, "200 OK", "", &sdp(30, "recvonly"));
+    let invite = lab.receive("consultation INVITE", |p| {
+        p.starts_with("INVITE ") && header(p, "Call-ID:") != header(&hold, "Call-ID:")
+    });
+    let child = lab.engine.snapshot().unwrap().call_id.unwrap();
+    lab.reply(&invite, "183 Session Progress", "", "v=invalid\r\n");
+    lab.settle();
+    let state = lab.wait(|s| {
+        s.calls.len() == 1
+            && s.call_id.as_deref() == Some(original.as_str())
+            && !s.calls[0].hold_pending
+            && !s.calls[0].local_held
+    });
+    let error = state
+        .last_error
+        .as_ref()
+        .expect("native child failure must survive return/resume");
+    assert_eq!(error.code, ErrorCode::NativeFailure);
+    assert_eq!(error.sip_status, None);
+    let terminal = state.last_call_failure.as_ref().unwrap();
+    assert_eq!(terminal.call_id, child);
+    assert_eq!(terminal.account_id, state.calls[0].account_id);
+    assert_eq!(terminal.error.code, ErrorCode::NativeFailure);
+    assert_eq!(terminal.error.sip_status, None);
+    lab.engine.hangup_call(&original).unwrap();
+    lab.settle();
+}
+
+#[test]
+fn consultation_return_and_switch_queue_resume_until_offerless_ack() {
+    let _guard = crate::NATIVE_TEST_LOCK.lock().unwrap();
+    for switching in [false, true] {
+        let mut lab = Lab::new("offerless-return");
+        let original_dialog = lab.incoming();
+        let original = lab.engine.snapshot().unwrap().call_id.unwrap();
+        lab.engine.start_consultation(&original, "123").unwrap();
+        let hold = lab.receive("original hold", |p| p.starts_with("INVITE "));
+        lab.reply(&hold, "200 OK", "", &sdp(30, "recvonly"));
+        let invite = lab.receive("consultation INVITE", |p| {
+            p.starts_with("INVITE ") && header(p, "Call-ID:") != header(&hold, "Call-ID:")
+        });
+        lab.reply(&invite, "200 OK", "", &sdp(1, "sendrecv"));
+        let child = lab
+            .wait(|s| s.calls.len() == 2 && s.call == CallState::Active)
+            .call_id
+            .unwrap();
+        lab.request(&original_dialog, "INVITE", 2, "", "");
+        let offer = lab.response(200, "2 INVITE");
+        if switching {
+            lab.engine.switch_call(&original).unwrap();
+            let child_hold = lab.receive("consultation hold before switch", |p| {
+                p.starts_with("INVITE ") && header(p, "Call-ID:") == header(&invite, "Call-ID:")
+            });
+            lab.reply(&child_hold, "200 OK", "", &sdp(2, "recvonly"));
+        } else {
+            lab.engine.cancel_consultation(&child).unwrap();
+        }
+        lab.wait(|s| s.call_id.as_deref() == Some(original.as_str()) && s.calls[0].hold_pending);
+        assert!(lab.engine.snapshot().unwrap().calls[0].local_held);
+        lab.request(
+            &offer,
+            "ACK",
+            2,
+            "Content-Type: application/sdp\r\n",
+            &sdp(40, "recvonly"),
+        );
+        let resume = lab.receive("deferred original resume", |p| {
+            p.starts_with("INVITE ") && header(p, "Call-ID:") == header(&hold, "Call-ID:")
+        });
+        assert!(resume.contains("a=sendrecv"));
+        lab.reply(&resume, "200 OK", "", &sdp(41, "sendrecv"));
+        lab.wait(|s| !s.calls[0].hold_pending && !s.calls[0].local_held);
+        if switching {
+            lab.engine.cancel_consultation(&child).unwrap();
+        }
+        lab.settle();
+        lab.engine.hangup_call(&original).unwrap();
+        lab.settle();
+    }
+}
+
+#[test]
+fn consultation_queued_resume_has_bounded_failure_and_allows_later_retry() {
+    let _guard = crate::NATIVE_TEST_LOCK.lock().unwrap();
+    let mut lab = Lab::new("offerless-return-deadline");
+    let original_dialog = lab.incoming();
+    let original = lab.engine.snapshot().unwrap().call_id.unwrap();
+    lab.engine.start_consultation(&original, "123").unwrap();
+    let hold = lab.receive("original hold", |p| p.starts_with("INVITE "));
+    lab.reply(&hold, "200 OK", "", &sdp(30, "recvonly"));
+    let invite = lab.receive("consultation INVITE", |p| {
+        p.starts_with("INVITE ") && header(p, "Call-ID:") != header(&hold, "Call-ID:")
+    });
+    lab.reply(&invite, "200 OK", "", &sdp(1, "sendrecv"));
+    let child = lab
+        .wait(|s| s.calls.len() == 2 && s.call == CallState::Active)
+        .call_id
+        .unwrap();
+    lab.request(&original_dialog, "INVITE", 2, "", "");
+    let offer = lab.response(200, "2 INVITE");
+    lab.engine.cancel_consultation(&child).unwrap();
+    lab.wait(|s| s.calls.len() == 1 && s.calls[0].hold_pending);
+    let until = Instant::now() + Duration::from_secs(11);
+    while Instant::now() < until {
+        let _ = Lab::read(&lab.peer);
+    }
+    let state = lab.engine.snapshot().unwrap();
+    assert!(state.calls[0].local_held);
+    assert!(!state.calls[0].hold_pending);
+    assert_eq!(
+        state.last_error.as_ref().unwrap().code,
+        ErrorCode::NativeFailure
+    );
+    assert!(state.last_call_failure.is_none());
+    lab.request(
+        &offer,
+        "ACK",
+        2,
+        "Content-Type: application/sdp\r\n",
+        &sdp(40, "recvonly"),
+    );
+    lab.engine.set_call_held(&original, false).unwrap();
+    let resume = lab.receive("explicit resume after remote ACK", |p| {
+        p.starts_with("INVITE ") && header(p, "Call-ID:") == header(&hold, "Call-ID:")
+    });
+    lab.reply(&resume, "200 OK", "", &sdp(41, "sendrecv"));
+    lab.wait(|s| !s.calls[0].hold_pending && !s.calls[0].local_held);
+    lab.engine.hangup_call(&original).unwrap();
+    lab.settle();
 }

@@ -7,9 +7,9 @@ use phone_core::{
 
 use phone_core::{
     AboutLink, AccountConfig, AccountSnapshot, AppInfo, AudioDevice, AudioDevices, AudioMode,
-    CallEvent, CallEventKind, CallSnapshot, CallState, CallerIdentity, DesktopSettings,
-    EngineSnapshot, ErrorCode, NotificationPermission, PhoneError, RegistrationState,
-    SoundSettings, TelephonyStatus, TransferState,
+    CallEvent, CallEventKind, CallFailure, CallSnapshot, CallState, CallerIdentity,
+    DesktopSettings, EngineSnapshot, ErrorCode, NotificationPermission, PhoneError,
+    RegistrationState, SoundSettings, TelephonyStatus, TransferState,
 };
 use phone_core::{
     CallDirection, CallOutcome, ContactReference, HistoryEntry, HistoryFilter, HistoryPage,
@@ -45,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RegistrationState::decl(&config),
         CallState::decl(&config),
         CallSnapshot::decl(&config),
+        CallFailure::decl(&config),
         TransferState::decl(&config),
         CallEventKind::decl(&config),
         CallEvent::decl(&config),
