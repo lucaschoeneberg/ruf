@@ -36,11 +36,11 @@
 
 **Interfaces:** Produce portable per-dialog snapshots and Engine methods `set_call_muted(call_id, muted)`, `set_call_held(call_id, held)`, `transfer_call(call_id, destination)`, `start_consultation(call_id, destination)`, `switch_call(call_id)`, `cancel_consultation(call_id)`, `complete_transfer(call_id)` returning Result<(), PhoneError>. Keep current-call EngineSnapshot projection usable. Exact added DTO fields must be documented and generated before reporting.
 
-- [ ] Write failing focused tests for local/remote hold separation, stale control rejection, two-dialog lifecycle, hold failure rollback, consultation cancellation and transfer final success/failure handling.
-- [ ] Run focused tests and capture expected RED output.
-- [ ] Implement commands using audio_mute, call_hold, call_transfer and call_replace_transfer on the native event thread. Track native generations per call, confirmed/pending state and bounded deadlines; keep inbound REFER rejected. Handle both call endings and retain ordered lifecycle observations.
-- [ ] Run portable/native adapter tests, generate TypeScript contracts, document API semantics and capture GREEN evidence.
-- [ ] Commit this independently testable deliverable and write task report.
+- [x] Write failing focused tests for local/remote hold separation, stale control rejection, two-dialog lifecycle, hold failure rollback, consultation cancellation and transfer final success/failure handling.
+- [x] Run focused tests and capture expected RED output.
+- [x] Implement commands using audio_mute, call_hold, call_transfer and call_replace_transfer on the native event thread. Track native generations per call, confirmed/pending state and bounded deadlines; keep inbound REFER rejected. Handle both call endings and retain ordered lifecycle observations.
+- [x] Run portable/native adapter tests, generate TypeScript contracts, document API semantics and capture GREEN evidence.
+- [x] Commit this independently testable deliverable and write task report.
 
 ### Task 2: Verified TLS/SRTP accounts and persistence
 
