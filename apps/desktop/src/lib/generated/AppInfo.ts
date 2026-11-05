@@ -203,7 +203,7 @@ export type AccountConfig = {
  */
 registrar: string,
 /**
- * SIP and authentication username.
+ * SIP address username; also the default digest username.
  */
 username: string,
 /**
@@ -390,7 +390,7 @@ name: string,
  */
 registrar: string,
 /**
- * SIP authentication username, without the password.
+ * SIP address username; auth_username may override digest authentication.
  */
 username: string,
 /**
