@@ -4,9 +4,19 @@
 #ifndef SRTP_SOURCE
 #error SRTP_SOURCE must name the pinned module source
 #endif
+#define stream_set_secure test_stream_set_secure
 #include SRTP_SOURCE
 
+static bool observed_secure;
+void test_stream_set_secure(struct stream *stream, bool secure) { (void)stream; observed_secure=secure; }
+static void secure_event(enum menc_event event, const char *text, struct stream *stream, void *arg) { (void)text; (void)stream; if (event==MENC_EVENT_SECURE) { ++*(int *)arg; observed_secure=true; } }
+static void assert_closed(struct menc_st *state, struct mbuf *packet) {
+    assert(!re_atomic_rlx(&state->use_srtp));assert(!observed_secure);assert(!state->srtp_tx && !state->srtp_rx);
+    uint8_t rtp[12]={128,0,0,1,0,0,0,1,0,0,0,1};int error=0;
+    for (size_t i=0;i<2;i++) { rtp[1]=i ? 200 : 0;mbuf_reset(packet);assert(!mbuf_write_mem(packet,rtp,sizeof(rtp)));packet->pos=0;assert(send_handler(&error,NULL,packet,state));assert(recv_handler(NULL,packet,state)); }
+}
 int main(void) {
+    int secure_events=0;
     struct sa local; struct sdp_session *sdp=NULL; struct sdp_media *media=NULL;
     struct menc_sess *session=NULL; struct menc_media *opaque=NULL;
     assert(!libre_init()); assert(!sa_set_str(&local,"127.0.0.1",0));
@@ -14,7 +24,7 @@ int main(void) {
     assert(!sdp_media_add(&media,sdp,"audio",9000,"RTP/SAVP"));
     assert(!sdp_format_add(NULL,media,false,"0","PCMU",8000,1,NULL,NULL,NULL,false,NULL));
     struct mbuf *local_offer=NULL; assert(!sdp_encode(&local_offer,sdp,true));mem_deref(local_offer);
-    assert(!session_alloc(&session,sdp,true,NULL,NULL,NULL));
+    assert(!session_alloc(&session,sdp,true,secure_event,NULL,&secure_events));
     assert(!media_alloc(&opaque,session,NULL,NULL,NULL,NULL,NULL,media,NULL));
     struct menc_st *state=(struct menc_st *)opaque;
     struct mbuf *packet=mbuf_alloc(64); assert(packet);
@@ -51,10 +61,19 @@ int main(void) {
     assert(!sdp_decode(sdp,offer,false));assert(!media_alloc(&opaque,session,NULL,NULL,NULL,NULL,NULL,media,NULL));
     mbuf_reset(packet);assert(!mbuf_write_mem(packet,rtp,sizeof(rtp)));packet->pos=0;
     error=0;assert(!send_handler(&error,NULL,packet,state));assert(!error);assert(mbuf_get_left(packet)==28); /* TX changed suites too */
-    mbuf_reset(offer);assert(!mbuf_write_str(offer,missing));
-    assert(!mbuf_write_str(offer,"a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:AAAA\r\n"));offer->pos=0;
+    int prior_events=secure_events;
+    const char *unsupported="v=0\r\no=peer 1 2 IN IP4 127.0.0.1\r\ns=test\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio 9002 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n";
+    mbuf_reset(offer);assert(!mbuf_write_str(offer,unsupported));assert(!mbuf_printf(offer,"a=crypto:1 AEAD_AES_128_GCM inline:%s\r\n",encoded));offer->pos=0;
     assert(!sdp_decode(sdp,offer,false));assert(media_alloc(&opaque,session,NULL,NULL,NULL,NULL,NULL,media,NULL));
-    assert(!re_atomic_rlx(&state->use_srtp));assert(send_handler(&error,NULL,packet,state));
+    assert_closed(state,packet);assert(secure_events==prior_events);
+    mbuf_reset(offer);assert(!mbuf_write_str(offer,missing));assert(!mbuf_printf(offer,"a=crypto:1 AEAD_AES_128_GCM inline:%s\r\n",encoded));offer->pos=0;
+    assert(!sdp_decode(sdp,offer,false));assert(!media_alloc(&opaque,session,NULL,NULL,NULL,NULL,NULL,media,NULL));
+    prior_events=secure_events;
+    mbuf_reset(offer);assert(!mbuf_write_str(offer,missing));
+    assert(!mbuf_write_str(offer,"a=crypto:1 AEAD_AES_128_GCM inline:AAAA\r\n"));offer->pos=0;
+    assert(!sdp_decode(sdp,offer,false));assert(media_alloc(&opaque,session,NULL,NULL,NULL,NULL,NULL,media,NULL));
+    assert_closed(state,packet);assert(secure_events==prior_events);
+    assert(media_txrekey(opaque));assert_closed(state,packet);assert(secure_events==prior_events);
     mem_deref(offer);
     mem_deref(packet); mem_deref(opaque); mem_deref(session); mem_deref(sdp);
     libre_close(); puts("mandatory SRTP pre-key RTP/RTCP and invalid key: PASS"); return 0;

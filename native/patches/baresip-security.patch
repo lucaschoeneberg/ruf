@@ -15,7 +15,7 @@ index 2237daf..d40b359 100644
 +/** Numeric originating call failure; zero when no native failure. */
 +int call_native_error(const struct call *call);
 diff --git a/modules/srtp/srtp.c b/modules/srtp/srtp.c
-index ffd1ea1..4e17f66 100644
+index ffd1ea1..8013a47 100644
 --- a/modules/srtp/srtp.c
 +++ b/modules/srtp/srtp.c
 @@ -41,6 +41,7 @@ struct menc_st {
@@ -26,7 +26,16 @@ index ffd1ea1..4e17f66 100644
  	RE_ATOMIC bool use_srtp;
  	RE_ATOMIC bool got_sdp;
  	char *crypto_suite;
-@@ -199,8 +200,8 @@ static bool send_handler(int *err, struct sa *dst, struct mbuf *mb, void *arg)
+@@ -185,8 +186,6 @@ static int start_srtp(struct menc_st *st, const char *suite_name)
+ 	}
+ 	mtx_unlock(st->mtx_rx);
+ 
+-	/* use SRTP for this stream/session */
+-	re_atomic_rlx_set(&st->use_srtp, true);
+ 
+ 	return 0;
+ }
+@@ -199,8 +198,8 @@ static bool send_handler(int *err, struct sa *dst, struct mbuf *mb, void *arg)
  	int lerr = 0;
  	(void)dst;
  
@@ -37,7 +46,7 @@ index ffd1ea1..4e17f66 100644
  
  	lerr = mtx_trylock(st->mtx_tx) != thrd_success;
  	if (lerr)
-@@ -245,8 +246,8 @@ static bool recv_handler(struct sa *src, struct mbuf *mb, void *arg)
+@@ -245,8 +244,8 @@ static bool recv_handler(struct sa *src, struct mbuf *mb, void *arg)
  	if (!re_atomic_rlx(&st->got_sdp))
  		return true;  /* drop the packet */
  
@@ -48,7 +57,15 @@ index ffd1ea1..4e17f66 100644
  
  	err = mtx_trylock(st->mtx_rx) != thrd_success;
  	if (err)
-@@ -324,7 +325,7 @@ static int start_crypto(struct menc_st *st, const struct pl *key_info)
+@@ -302,7 +301,6 @@ static int sdp_enc(struct menc_st *st, struct sdp_media *m,
+ static int start_crypto(struct menc_st *st, const struct pl *key_info)
+ {
+ 	size_t olen = 0, len = 0;
+-	char buf[64] = "";
+ 	uint8_t *new_key = NULL;
+ 	int err = 0;
+ 
+@@ -324,7 +322,7 @@ static int start_crypto(struct menc_st *st, const struct pl *key_info)
  		warning("srtp: %s: %s: srtp keylen is %u (should be %zu)\n",
  			stream_name(st->strm), st->crypto_suite, olen, len);
  		mem_deref(new_key);
@@ -57,7 +74,29 @@ index ffd1ea1..4e17f66 100644
  	}
  
  	if (olen > sizeof(st->key_rx)) {
-@@ -380,6 +381,7 @@ static bool sdp_attr_handler(const char *name, const char *value, void *arg)
+@@ -352,6 +350,13 @@ static int start_crypto(struct menc_st *st, const struct pl *key_info)
+ 	if (err)
+ 		return err;
+ 
++	return 0;
++}
++
++static void activate_crypto(struct menc_st *st)
++{
++	char buf[64] = "";
++	re_atomic_rlx_set(&st->use_srtp, true);
+ 	info("srtp: %s: SRTP is Enabled (cryptosuite=%s)\n",
+ 	     sdp_media_name(st->sdpm), st->crypto_suite);
+ 
+@@ -367,7 +372,6 @@ static int start_crypto(struct menc_st *st, const struct pl *key_info)
+ 				" event arguments\n");
+ 	}
+ 
+-	return 0;
+ }
+ 
+ 
+@@ -380,6 +384,7 @@ static bool sdp_attr_handler(const char *name, const char *value, void *arg)
  	if (sdes_decode_crypto(&c, value))
  		return false;
  
@@ -65,7 +104,7 @@ index ffd1ea1..4e17f66 100644
  	if (0 != pl_strcmp(&c.key_method, "inline"))
  		return false;
  
-@@ -388,6 +390,8 @@ static bool sdp_attr_handler(const char *name, const char *value, void *arg)
+@@ -388,6 +393,8 @@ static bool sdp_attr_handler(const char *name, const char *value, void *arg)
  
  	/* receiving crypto-suite changed -> reset srtp_rx */
  	if (st->srtp_rx && pl_strcmp(&c.suite, st->crypto_suite)) {
@@ -74,24 +113,54 @@ index ffd1ea1..4e17f66 100644
  		info ("srtp (%s-rx): cipher suite changed from %s to %r\n",
  			stream_name(st->strm), st->crypto_suite, &c.suite);
  		mtx_lock(st->mtx_rx);
-@@ -416,6 +420,7 @@ static int media_txrekey(struct menc_media *m)
+@@ -401,12 +408,25 @@ static bool sdp_attr_handler(const char *name, const char *value, void *arg)
+ 	if (start_crypto(st, &c.key_info))
+ 		return false;
+ 
+-	sdp_enc(st, st->sdpm, c.tag, st->crypto_suite);
+-
++	if (sdp_enc(st, st->sdpm, c.tag, st->crypto_suite)) return false;
++	activate_crypto(st);
+ 	return true;
+ }
+ 
+ 
++static void fail_closed(struct menc_st *st)
++{
++    if (!st || !st->mandatory) return;
++    re_atomic_rlx_set(&st->use_srtp, false);
++    stream_set_secure((struct stream *)st->strm, false);
++    mtx_lock(st->mtx_tx);
++    st->srtp_tx = mem_deref(st->srtp_tx);
++    mtx_unlock(st->mtx_tx);
++    mtx_lock(st->mtx_rx);
++    st->srtp_rx = mem_deref(st->srtp_rx);
++    mtx_unlock(st->mtx_rx);
++}
++
+ static int media_txrekey(struct menc_media *m)
+ {
+ 	const char *rattr = NULL;
+@@ -416,6 +436,8 @@ static int media_txrekey(struct menc_media *m)
  	if (!st)
  		return EINVAL;
  
 +	if (st->mandatory) { re_atomic_rlx_set(&st->use_srtp, false); stream_set_secure((struct stream *)st->strm, false); }
++    if (st->mandatory && !sdp_media_remote_proto_supported(st->sdpm)) { fail_closed(st); return SIP_SECURITY_MEDIA; }
  	mtx_lock(st->mtx_tx);
  	st->srtp_tx = mem_deref(st->srtp_tx);
  	mtx_unlock(st->mtx_tx);
-@@ -432,7 +437,7 @@ static int media_txrekey(struct menc_media *m)
+@@ -432,6 +454,9 @@ static int media_txrekey(struct menc_media *m)
  		}
  	}
  
--	return err;
-+	return st->mandatory && !rattr && sdp_media_rport(st->sdpm) ? SIP_SECURITY_MEDIA : err;
++    if (st->mandatory && !rattr && (sdp_media_rport(st->sdpm) || sdp_media_rattr(st->sdpm,"crypto"))) {
++        fail_closed(st); return SIP_SECURITY_MEDIA;
++    }
+ 	return err;
  }
  
- 
-@@ -495,6 +500,7 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
+@@ -495,6 +520,7 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
  			return err;
  
  		st->sess = sess;
@@ -99,7 +168,7 @@ index ffd1ea1..4e17f66 100644
  		st->sdpm = mem_ref(sdpm);
  		st->strm = strm;
  
-@@ -531,7 +537,11 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
+@@ -531,11 +557,18 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
  		rand_bytes(st->key_tx, sizeof(st->key_tx));
  	}
  
@@ -112,27 +181,34 @@ index ffd1ea1..4e17f66 100644
  
  	if (sdp_media_rport(sdpm))
  		re_atomic_rlx_set(&st->got_sdp, true);
-@@ -546,12 +556,18 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
- 		}
- 	}
  
 +    if (st->mandatory && !sdp_media_remote_proto_supported(sdpm)) {
 +        err = SIP_SECURITY_MEDIA; goto out;
 +    }
-+    if (!rattr && st->mandatory && sdp_media_rport(sdpm)) {
+ 	if (sdp_media_rattr(st->sdpm, "crypto")) {
+ 
+ 		rattr = sdp_media_rattr_apply(st->sdpm, "crypto",
+@@ -546,12 +579,17 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
+ 		}
+ 	}
+ 
++    if (!rattr && st->mandatory && (sdp_media_rport(sdpm) || sdp_media_rattr(sdpm, "crypto"))) {
 +        err = SIP_SECURITY_MEDIA; goto out;
 +    }
  	if (!rattr)
  		err = sdp_enc(st, sdpm, 1, st->crypto_suite);
  
   out:
- 	if (err)
+-	if (err)
 -		mem_deref(st);
-+		{ if (!*stp) mem_deref(st); }
++	if (err) {
++        fail_closed(st);
++        if (!*stp) mem_deref(st);
++    }
  	else
  		*stp = (struct menc_media *)st;
  
-@@ -570,6 +586,7 @@ static struct menc menc_srtp_opt = {
+@@ -570,6 +608,7 @@ static struct menc menc_srtp_opt = {
  static struct menc menc_srtp_mand = {
  	.id        = "srtp-mand",
  	.sdp_proto = "RTP/SAVP",
@@ -140,7 +216,7 @@ index ffd1ea1..4e17f66 100644
  	.sessh     = session_alloc,
  	.mediah    = media_alloc,
  	.txrekeyh  = media_txrekey
-@@ -578,6 +595,7 @@ static struct menc menc_srtp_mand = {
+@@ -578,6 +617,7 @@ static struct menc menc_srtp_mand = {
  static struct menc menc_srtp_mandf = {
  	.id        = "srtp-mandf",
  	.sdp_proto = "RTP/SAVPF",
