@@ -215,11 +215,83 @@ export type RegistrationState = "unconfigured" | "registering" | "registered" | 
 
 export type CallState = "idle" | "calling" | "ringing" | "earlyMedia" | "incoming" | "answering" | "active" | "held";
 
+export type CallSnapshot = {
+/**
+ * Guard token required by every call-control API.
+ */
+id: string,
+/**
+ * Owning account, independent of selected outgoing account.
+ */
+accountId: number,
+/**
+ * Establishment state; Held is remote hold only for compatibility.
+ */
+state: CallState,
+/**
+ * Validated requested outgoing number/extension; null for incoming calls.
+ */
+destination: string | null,
+/**
+ * Display-only incoming caller; null for outgoing calls.
+ */
+caller: CallerIdentity | null,
+/**
+ * Initial native connection timestamp, or null before establishment.
+ */
+connectedAtMs: number | null,
+/**
+ * Confirmed suppression of outgoing audio only.
+ */
+muted: boolean,
+/**
+ * Confirmed local hold after an accepted re-INVITE.
+ */
+localHeld: boolean,
+/**
+ * Independent remote hold observation.
+ */
+remoteHeld: boolean,
+/**
+ * A local hold/resume transaction or compensating SIP recovery is pending.
+ */
+holdPending: boolean,
+/**
+ * Outgoing transfer lifecycle, independent of call establishment.
+ */
+transfer: TransferState,
+/**
+ * True for the second, explicitly requested consultation dialog.
+ */
+consultation: boolean,
+/**
+ * Last 64 significant native events for this dialog, oldest first.
+ */
+events: Array<CallEvent>,
+/**
+ * Saturating count of evicted events.
+ */
+eventsDropped: number,
+/**
+ * Safe dialog-specific failure; null when absent.
+ */
+lastError: PhoneError | null, };
+
+export type TransferState = "idle" | "pending" | "succeeded" | "failed";
+
 export type CallEventKind = { "kind": "progress" } | { "kind": "held" } | { "kind": "resumed" } | { "kind": "dtmfStart",
 /**
  * One ASCII character from 0–9, *, # or A–D.
  */
-digit: string, } | { "kind": "dtmfEnd" } | { "kind": "transferFailed" } | { "kind": "redirected",
+digit: string, } | { "kind": "dtmfEnd" } | { "kind": "transferFailed" } | { "kind": "muteChanged",
+/**
+ * Confirmed outgoing mute.
+ */
+muted: boolean, } | { "kind": "localHoldChanged",
+/**
+ * Confirmed local hold, independent of remote hold.
+ */
+held: boolean, } | { "kind": "controlFailed" } | { "kind": "transferStarted" } | { "kind": "transferSucceeded" } | { "kind": "redirected",
 /**
  * Actual 300–399 SIP response code. No remote URI is exposed.
  */
@@ -295,6 +367,10 @@ removing: boolean, };
 
 export type EngineSnapshot = {
 /**
+ * Live dialogs in allocation order (at most original plus one consultation).
+ */
+calls: Array<CallSnapshot>,
+/**
  * Process-monotonic read revision, including before native startup; ignore older deliveries.
  * Zero denotes default or unobserved state.
  */
@@ -304,7 +380,7 @@ revision: number,
  */
 registration: RegistrationState,
 /**
- * Occupancy of the only call slot.
+ * Establishment state of the selected live dialog (compatibility projection).
  */
 call: CallState,
 /**

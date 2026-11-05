@@ -42,6 +42,7 @@ fn build_telephony() {
         .join("../../native/install")
         .join(&target);
     println!("cargo:rerun-if-changed=native/bridge.c");
+    println!("cargo:rerun-if-changed=native/call_controls.h");
     println!("cargo:rerun-if-changed=native/audio_devices.c");
     println!("cargo:rerun-if-changed=native/audio_diagnostics.c");
     println!("cargo:rerun-if-changed=native/audio_diagnostics.h");
@@ -81,6 +82,20 @@ fn build_telephony() {
         Some(include_str!("../../native/patches/re-sip-nat.patch")),
         "Native SIP NAT patch changed; run bun run native:build"
     );
+    for (name, file) in [
+        ("reCallControls", "re-call-controls.patch"),
+        ("baresipCallControls", "baresip-call-controls.patch"),
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../native/patches")
+            .join(file);
+        println!("cargo:rerun-if-changed={}", path.display());
+        assert_eq!(
+            manifest["patches"][name].as_str(),
+            Some(fs::read_to_string(path).expect("control patch").as_str()),
+            "Native control hooks changed; rebuild SDK"
+        );
+    }
     if target.contains("apple") {
         assert!(
             manifest["modules"]

@@ -1,0 +1,144 @@
+--- a/include/baresip.h
++++ b/include/baresip.h
+@@ -236,6 +236,10 @@
+ void call_hangupf(struct call *call, uint16_t scode, const char *reason,
+ 		  const char *fmt, ...);
+ int  call_modify(struct call *call);
++typedef void (call_control_h)(struct call *call, int kind, int status, void *arg);
++void call_set_control_handler(struct call *call, call_control_h *handler, void *arg);
++void call_cancel_control(struct call *call);
++int call_refresh_hold(struct call *call);
+ int  call_hold(struct call *call, bool hold);
+ void call_set_audio_ldir(struct call *call, enum sdp_dir dir);
+ void call_set_video_ldir(struct call *call, enum sdp_dir dir);
+--- a/src/call.c
++++ b/src/call.c
+@@ -24,6 +24,10 @@
+ 
+ /** SIP Call Control object */
+ struct call {
++	call_control_h *controlh;
++	void *control_arg;
++	bool control_hold_pending, control_hold_previous, control_hold_expired;
++	bool control_transfer;
+ 	MAGIC_DECL                /**< Magic number for debugging           */
+ 	struct le le;             /**< Linked list element                  */
+ 	const struct config *cfg; /**< Global configuration                 */
+@@ -1461,6 +1465,61 @@
+  *
+  * @return 0 if success, otherwise errorcode
+  */
++static void control_hold_restore(struct call *call)
++{
++	call->on_hold = call->control_hold_previous;
++	for (struct le *le = call->streaml.head; le; le = le->next)
++		stream_hold(le->data, call->on_hold);
++}
++
++static void control_hold_result(int err, uint16_t status, void *arg)
++{
++	struct call *call = arg;
++	if (!call->control_hold_pending) return;
++	bool expired = call->control_hold_expired;
++	call->control_hold_pending = false;
++	call->control_hold_expired = false;
++	sipsess_set_modify_result_handler(call->sess, NULL);
++	if (expired || err || status < 200 || status >= 300)
++		control_hold_restore(call);
++	if (call->controlh)
++		call->controlh(call, expired && !err && status >= 200 && status < 300 ? 4 : 1,
++		 err ? 0 : status, call->control_arg);
++}
++
++void call_set_control_handler(struct call *call, call_control_h *handler, void *arg)
++{
++	if (!call) return;
++	call->controlh = handler;
++	call->control_arg = arg;
++}
++
++void call_cancel_control(struct call *call)
++{
++	if (!call) return;
++	call->control_transfer = false;
++	call->sub = mem_deref(call->sub);
++	if (call->control_hold_pending) {
++		control_hold_restore(call);
++		if (sipsess_cancel_modify(call->sess)) {
++			call->control_hold_expired = true;
++			if (call->controlh) call->controlh(call, 4, 0, call->control_arg);
++		}
++		else control_hold_result(ETIMEDOUT, 0, call);
++	}
++}
++
++/* Re-offer the latest local direction, including an unchanged rollback target. */
++int call_refresh_hold(struct call *call)
++{
++	if (!call || !call->sess || !call->controlh) return EINVAL;
++	call->control_hold_previous = call->on_hold;
++	call->control_hold_pending = true;
++	call->control_hold_expired = false;
++	sipsess_set_modify_result_handler(call->sess, control_hold_result);
++	return call_modify(call);
++}
++
+ int call_hold(struct call *call, bool hold)
+ {
+ 	struct le *le;
+@@ -1473,6 +1532,12 @@
+ 
+ 	info("call: %s %s\n", hold ? "hold" : "resume", call->peer_uri);
+ 
++	if (call->controlh) {
++		call->control_hold_previous = call->on_hold;
++		call->control_hold_pending = true;
++		call->control_hold_expired = false;
++		sipsess_set_modify_result_handler(call->sess, control_hold_result);
++	}
+ 	call->on_hold = hold;
+ 
+ 	FOREACH_STREAM
+@@ -2971,6 +3036,14 @@
+ 	(void)sip_reply(sip, msg, 200, "OK");
+ 
+ 	sc = pl_u32(&scode);
++	if (call->controlh) {
++		if (!call->control_transfer) return;
++		if (sc >= 200) {
++			call->control_transfer = false;
++			call->controlh(call, sc < 300 ? 2 : 3, sc, call->control_arg);
++		}
++		return;
++	}
+ 
+ 	if (sc >= 300) {
+ 		info("call: transfer failed: %u %r\n", sc, &reason);
+@@ -2993,6 +3066,11 @@
+ 
+ 	call->sub = mem_deref(call->sub);
+ 
++	if (call->controlh && call->control_transfer && (err || (msg && msg->scode >= 300))) {
++		call->control_transfer = false;
++		call->controlh(call, 3, msg ? msg->scode : 0, call->control_arg);
++	}
++	if (call->controlh) return;
+ 	if (err) {
+ 		info("call: subscription closed: %m\n", err);
+ 	}
+@@ -3056,6 +3134,7 @@
+ 	info("transferring call to %s\n", nuri);
+ 
+ 	call->sub = mem_deref(call->sub);
++	call->control_transfer = true;
+ 	err = sipevent_drefer(&call->sub, uag_sipevent_sock(),
+ 			      sipsess_dialog(call->sess), ua_cuser(call->ua),
+ 			      auth_handler, call->acc, true,
+@@ -3092,6 +3171,7 @@
+ 
+ 	call->sub = mem_deref(call->sub);
+ 
++	call->control_transfer = true;
+ 	err = sipevent_drefer(&call->sub, uag_sipevent_sock(),
+ 		sipsess_dialog(call->sess), ua_cuser(call->ua),
+ 		auth_handler, call->acc, true,

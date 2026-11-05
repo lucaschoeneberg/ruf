@@ -29,6 +29,17 @@ const EV_DTMF_END: i32 = 31;
 const EV_TRANSFER_FAILED: i32 = 32;
 const EV_REDIRECT: i32 = 33;
 const EV_ANSWER_CLOSED: i32 = 34;
+const EV_SELECTED: i32 = 39;
+const EV_MUTED: i32 = 40;
+const EV_LOCAL_HOLD_PENDING: i32 = 41;
+const EV_LOCAL_HOLD_DONE: i32 = 42;
+const EV_CONTROL_FAILED: i32 = 43;
+const EV_TRANSFER_PENDING: i32 = 44;
+const EV_TRANSFER_RESULT: i32 = 45;
+const EV_CONTROL_REJECTED: i32 = 46;
+const EV_RECOVERY_FAILED: i32 = 47;
+const EV_RECOVERING: i32 = 48;
+const EV_CONSULT_FAILED: i32 = 49;
 const CALL_EVENT_CAPACITY: usize = 64;
 
 /// Private ABI mirrored by bridge.c; every pointer is borrowed for the callback only.
@@ -176,6 +187,13 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     let name = (kind != 23)
                         .then(|| owned_caller_text(caller_name, 128))
                         .flatten();
+                    if kind == 23
+                        && let Some(number) = &number
+                    {
+                        engine
+                            .call_destinations
+                            .insert(call_generation, number.clone());
+                    }
                     engine.call_journal.start(
                         call_generation,
                         account,
@@ -198,6 +216,21 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 11 | 26 => engine.call_journal.interrupt(),
                 _ => {}
             }
+            if kind == 24 {
+                engine.call_destinations.remove(&call_generation);
+            }
+            if kind == 25 {
+                engine.local_endings.insert(call_generation);
+            }
+            if kind == 26 {
+                let generations: Vec<u64> = engine
+                    .snapshot
+                    .calls
+                    .iter()
+                    .filter_map(|call| call.id.parse().ok())
+                    .collect();
+                engine.local_endings.extend(generations);
+            }
             if kind == 26 || (kind == 25 && engine.call_generation == call_generation) {
                 engine.local_ending = true;
             }
@@ -207,6 +240,11 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             if (matches!(kind, 6 | 8 | 9 | 21 | EV_ANSWER_CLOSED)
                 || (EV_PROGRESS..=EV_REDIRECT).contains(&kind))
                 && engine.call_generation != call_generation
+                && !engine
+                    .snapshot
+                    .calls
+                    .iter()
+                    .any(|call| call.id == call_generation.to_string())
             {
                 return;
             }
@@ -221,7 +259,14 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             if kind == 23 {
                 return;
             }
-            if kind == 24 && engine.call_generation != call_generation {
+            if kind == 24
+                && engine.call_generation != call_generation
+                && !engine
+                    .snapshot
+                    .calls
+                    .iter()
+                    .any(|call| call.id == call_generation.to_string())
+            {
                 return;
             }
             if kind == 17 || kind == 18 {
@@ -270,6 +315,118 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
             }
             if kind == 11 {
                 engine.stopped = true;
+            }
+            let dialog_event = matches!(kind, 5..=9 | 21 | 24 | 27..=34);
+            let previous_selection = engine.snapshot.call_id.clone();
+            if dialog_event {
+                engine.select_dialog(&call_generation.to_string());
+                engine.call_generation = call_generation;
+            }
+            if (EV_SELECTED..=EV_CONSULT_FAILED).contains(&kind) {
+                let id = call_generation.to_string();
+                if kind == EV_SELECTED {
+                    engine.select_dialog(&id);
+                    return;
+                }
+                if let Some(call) = engine.snapshot.calls.iter_mut().find(|call| call.id == id) {
+                    match kind {
+                        EV_MUTED => call.muted = code != 0,
+                        EV_LOCAL_HOLD_PENDING => call.hold_pending = true,
+                        EV_LOCAL_HOLD_DONE => {
+                            call.hold_pending = false;
+                            call.local_held = code != 0;
+                        }
+                        EV_CONTROL_FAILED => {
+                            call.hold_pending = false;
+                            call.last_error = Some(
+                                u16::try_from(code)
+                                    .ok()
+                                    .and_then(PhoneError::from_sip_status)
+                                    .unwrap_or_else(|| {
+                                        PhoneError::new(
+                                            ErrorCode::NativeFailure,
+                                            "Call control failed or timed out.",
+                                        )
+                                    }),
+                            );
+                        }
+                        EV_CONSULT_FAILED => {
+                            let mut error = u16::try_from(code)
+                                .ok()
+                                .and_then(PhoneError::from_sip_status)
+                                .unwrap_or_else(|| {
+                                    PhoneError::new(
+                                        ErrorCode::NativeFailure,
+                                        "The consultation could not be started.",
+                                    )
+                                });
+                            error.message = format!(
+                                "Consultation failed: {} The original call is retained.",
+                                error.message
+                            );
+                            call.last_error = Some(error);
+                        }
+                        EV_RECOVERING => {
+                            call.hold_pending = true;
+                            call.last_error = Some(PhoneError::new(
+                                ErrorCode::NativeFailure,
+                                "The hold request timed out; SIP session recovery was required.",
+                            ));
+                        }
+                        EV_RECOVERY_FAILED => {
+                            call.hold_pending = false;
+                            let mut error = u16::try_from(code)
+                                .ok()
+                                .and_then(PhoneError::from_sip_status)
+                                .unwrap_or_else(|| PhoneError::new(ErrorCode::NativeFailure, ""));
+                            error.message =
+                                "The SIP hold recovery failed; the uncertain call was ended."
+                                    .into();
+                            call.last_error = Some(error);
+                        }
+                        EV_CONTROL_REJECTED => {
+                            call.last_error = Some(PhoneError::new(
+                                ErrorCode::Busy,
+                                "A call control is still pending.",
+                            ))
+                        }
+                        EV_TRANSFER_PENDING => call.transfer = phone_core::TransferState::Pending,
+                        EV_TRANSFER_RESULT => {
+                            call.transfer = if (200..300).contains(&code) {
+                                phone_core::TransferState::Succeeded
+                            } else {
+                                phone_core::TransferState::Failed
+                            };
+                        }
+                        _ => {}
+                    }
+                    let event = match kind {
+                        EV_MUTED => Some(CallEventKind::MuteChanged { muted: code != 0 }),
+                        EV_LOCAL_HOLD_DONE => {
+                            Some(CallEventKind::LocalHoldChanged { held: code != 0 })
+                        }
+                        EV_CONTROL_FAILED | EV_RECOVERY_FAILED | EV_CONSULT_FAILED => {
+                            Some(CallEventKind::ControlFailed)
+                        }
+                        EV_TRANSFER_PENDING => Some(CallEventKind::TransferStarted),
+                        EV_TRANSFER_RESULT if (200..300).contains(&code) => {
+                            Some(CallEventKind::TransferSucceeded)
+                        }
+                        _ => None,
+                    };
+                    if let Some(event) = event {
+                        push_call_event(
+                            &mut call.events,
+                            &mut call.events_dropped,
+                            call.id.clone(),
+                            event,
+                        );
+                    }
+                }
+                if engine.snapshot.call_id.as_deref() == Some(&id) {
+                    engine.select_dialog(&id);
+                }
+                return;
             }
             if kind == 5 || kind == 7 {
                 engine.remote_hold = false;
@@ -500,6 +657,12 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 }
                 _ => {}
             }
+            if dialog_event {
+                engine.finish_dialog_event(call_generation, previous_selection, kind);
+            }
+            if kind == 11 {
+                engine.snapshot.calls.clear();
+            }
         }
     }));
 }
@@ -508,15 +671,28 @@ fn record_call_event(state: &mut EngineSnapshot, event: CallEventKind) {
     let Some(call_id) = state.call_id.clone() else {
         return;
     };
-    let sequence = state
-        .call_events
+    push_call_event(
+        &mut state.call_events,
+        &mut state.call_events_dropped,
+        call_id,
+        event,
+    );
+}
+
+fn push_call_event(
+    events: &mut Vec<CallEvent>,
+    dropped: &mut u32,
+    call_id: String,
+    event: CallEventKind,
+) {
+    let sequence = events
         .last()
         .map_or(1, |last| last.sequence.wrapping_add(1));
-    if state.call_events.len() == CALL_EVENT_CAPACITY {
-        state.call_events.remove(0);
-        state.call_events_dropped = state.call_events_dropped.saturating_add(1);
+    if events.len() == CALL_EVENT_CAPACITY {
+        events.remove(0);
+        *dropped = dropped.saturating_add(1);
     }
-    state.call_events.push(CallEvent {
+    events.push(CallEvent {
         sequence,
         call_id,
         event,
@@ -1184,6 +1360,69 @@ mod observation_tests {
                 _ => panic!("Missing effective account identity"),
             }
         }
+    }
+
+    #[test]
+    fn consultation_background_events_and_end_intent_keep_dialog_ownership() {
+        let mut h = Harness::new();
+        h.event(7, 0, 10, "Original", "100");
+        h.event(8, 0, 10, "", "");
+        h.event(23, 0, 20, "", "200");
+        h.event(5, 0, 20, "", "");
+        h.event(8, 0, 20, "", "");
+        h.event(EV_HOLD, 0, 10, "", "");
+        {
+            let state = h.context.snapshot.lock().unwrap();
+            assert_eq!(state.snapshot.call_id.as_deref(), Some("20"));
+            assert_eq!(state.snapshot.call, CallState::Active);
+            assert_eq!(state.snapshot.calls.len(), 2);
+            assert!(state.snapshot.calls[0].remote_held);
+            assert_eq!(
+                state.snapshot.calls[0]
+                    .caller
+                    .as_ref()
+                    .unwrap()
+                    .name
+                    .as_deref(),
+                Some("Original")
+            );
+            assert_eq!(state.snapshot.calls[0].account_id, 42);
+            assert_eq!(state.snapshot.calls[1].destination.as_deref(), Some("200"));
+            assert_eq!(state.snapshot.calls[0].events.len(), 1);
+            assert!(state.snapshot.calls[1].events.is_empty());
+        }
+        h.event(25, 0, 20, "", "");
+        h.event(EV_RESUME, 0, 10, "", "");
+        h.event(9, 0, 20, "", "");
+        {
+            let state = h.context.snapshot.lock().unwrap();
+            assert_eq!(state.snapshot.call_id.as_deref(), Some("10"));
+            assert_eq!(state.snapshot.calls.len(), 1);
+            assert_eq!(state.snapshot.call_events.len(), 2);
+            assert!(state.snapshot.last_error.is_none());
+        }
+        h.event(9, 0, 10, "", "");
+        let events = h.events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event.kind, ObservedCallKind::Started { .. }))
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(
+                    event.kind,
+                    ObservedCallKind::Finished {
+                        outcome: CallOutcome::Completed,
+                        ..
+                    }
+                ))
+                .count(),
+            2
+        );
     }
 
     #[test]

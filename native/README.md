@@ -5,10 +5,26 @@
 libraries and stages `native/install/<Rust target>/`. Re-running is supported.
 Sources, build trees, SDKs, recordings and diagnostic logs are ignored by Git.
 The SDK also applies the tracked baresip REFER-policy patch in an isolated source
-copy. Both local patch texts are recorded in sdk.json; older staged SDKs must be
-rebuilt before adapter checks. Unsupported REFER is rejected, including the
+copy. Local patch texts are recorded in sdk.json; older staged SDKs must be
+rebuilt before adapter checks. Unsolicited inbound REFER is rejected, including the
 out-of-dialog no-subscription form, and never silently accepted. See the
 [event/state contract](../docs/api/sip-events.md) for progress, hold, DTMF and errors.
+The call-control patches add a per-session modify-result hook and cancellation
+preserving the original transaction and its ACK responsibilities, plus native local-hold rollback
+and explicit final-transfer-result hooks. They suppress automatic glare retries
+for application-managed controls and retire REFER subscriptions on cancellation.
+Timed-out hold retains transaction ownership through a bounded recovery period;
+late acceptance is ACKed and followed by a compensating current-intent offer.
+Unconfirmed recovery ends the uncertain dialog with an explicit safe error.
+The libre patch also repairs cached ACK replay through an explicit opt-in
+completed-wire callback. Existing header callbacks keep their semantics; both
+request entry points share the same va-list builder. The completion callback
+runs synchronously on the SIP event thread after assembly, borrows the message
+only for that invocation, and the ACK cache takes an owned byte copy. No refcount
+sentinel or second SIP message builder is used.
+`build.rs` verifies both exact patch texts against the staged SDK manifest.
+The native SBOM hashes each library’s ordered patch texts and rejects stale
+manifests, so control hooks remain part of the exported build identity.
 Do not edit the fetched checkouts; update the pins deliberately instead.
 
 Supported build hosts: macOS arm64, Windows MSVC x64; Linux x64/arm64 is available

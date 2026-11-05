@@ -258,7 +258,7 @@ pub enum RegistrationState {
     Failed,
 }
 
-/// One-call state for the native milestone.
+/// Establishment state of a native dialog.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum CallState {
@@ -298,8 +298,24 @@ pub enum CallEventKind {
     },
     /// The current incoming DTMF signal ended.
     DtmfEnd,
-    /// A transfer failed or was refused under the unsupported-transfer policy.
+    /// A transfer failed or an unsolicited inbound transfer was refused.
     TransferFailed,
+    /// Outgoing audio mute changed after native application.
+    MuteChanged {
+        /// Confirmed outgoing mute.
+        muted: bool,
+    },
+    /// Local hold changed after an accepted re-INVITE.
+    LocalHoldChanged {
+        /// Confirmed local hold, independent of remote hold.
+        held: bool,
+    },
+    /// A local hold/resume operation failed or timed out and was rolled back.
+    ControlFailed,
+    /// Outgoing REFER is awaiting final NOTIFY.
+    TransferStarted,
+    /// A final 2xx NOTIFY confirmed the outgoing transfer.
+    TransferSucceeded,
     /// The peer returned a 3xx redirect; its target is not dialed automatically.
     Redirected {
         /// Actual 300–399 SIP response code. No remote URI is exposed.
@@ -360,17 +376,71 @@ pub struct CallerIdentity {
     pub number: Option<String>,
 }
 
+/// Native-confirmed outgoing transfer state; acceptance of REFER alone is pending.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum TransferState {
+    /// No transfer has been attempted.
+    #[default]
+    Idle,
+    /// Awaiting final NOTIFY, bounded to 15 seconds.
+    Pending,
+    /// Final NOTIFY contained a 2xx SIP fragment.
+    Succeeded,
+    /// Failed, refused or timed out; the original dialog is retained.
+    Failed,
+}
+
+/// One live native dialog. Tokens remain opaque and unique across engine recreation.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSnapshot {
+    /// Guard token required by every call-control API.
+    pub id: String,
+    /// Owning account, independent of selected outgoing account.
+    pub account_id: u32,
+    /// Establishment state; Held is remote hold only for compatibility.
+    pub state: CallState,
+    /// Validated requested outgoing number/extension; null for incoming calls.
+    pub destination: Option<String>,
+    /// Display-only incoming caller; null for outgoing calls.
+    pub caller: Option<CallerIdentity>,
+    /// Initial native connection timestamp, or null before establishment.
+    #[ts(type = "number | null")]
+    pub connected_at_ms: Option<u64>,
+    /// Confirmed suppression of outgoing audio only.
+    pub muted: bool,
+    /// Confirmed local hold after an accepted re-INVITE.
+    pub local_held: bool,
+    /// Independent remote hold observation.
+    pub remote_held: bool,
+    /// A local hold/resume transaction or compensating SIP recovery is pending.
+    pub hold_pending: bool,
+    /// Outgoing transfer lifecycle, independent of call establishment.
+    pub transfer: TransferState,
+    /// True for the second, explicitly requested consultation dialog.
+    pub consultation: bool,
+    /// Last 64 significant native events for this dialog, oldest first.
+    pub events: Vec<CallEvent>,
+    /// Saturating count of evicted events.
+    pub events_dropped: u32,
+    /// Safe dialog-specific failure; null when absent.
+    pub last_error: Option<PhoneError>,
+}
+
 /// Password-free current state, suitable for repeated reads from the frontend.
 #[derive(Debug, Clone, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSnapshot {
+    /// Live dialogs in allocation order (at most original plus one consultation).
+    pub calls: Vec<CallSnapshot>,
     /// Process-monotonic read revision, including before native startup; ignore older deliveries.
     /// Zero denotes default or unobserved state.
     #[ts(type = "number")]
     pub revision: u64,
     /// Registration of the selected outgoing account (compatibility projection).
     pub registration: RegistrationState,
-    /// Occupancy of the only call slot.
+    /// Establishment state of the selected live dialog (compatibility projection).
     pub call: CallState,
     /// Opaque current-call token for guarded actions; null before native allocation or while idle.
     pub call_id: Option<String>,

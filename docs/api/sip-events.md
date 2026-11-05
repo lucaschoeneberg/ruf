@@ -4,12 +4,15 @@ Existing commands and `phone-state-changed` return the canonical Rust
 `EngineSnapshot`; ts-rs generates the frontend types. The additive guarded
 `reject({callId})` command is documented in the [IPC API](README.md).
 
+See [native call controls](call-controls.md) for independent local hold, mute,
+outgoing transfer and the two-dialog consultation snapshot.
+
 ## Required snapshot fields
 
 | Field               | Type and meaning                                                                                                                                                                                                                                                                                     |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `revision`          | Number; process-monotonic snapshot-read revision, including reads before native startup and across engine recreation. Zero denotes default or unobserved state. Ignore deliveries older than the applied revision; equal revisions may be replayed. Not persisted or comparable across app restarts. |
-| `call`              | Existing states plus `earlyMedia` (provisional SDP, not established) and `held` (established, remotely held). Both occupy the single call slot. Resume returns to `active`.                                                                                                                          |
+| `call`              | Existing states plus `earlyMedia` (provisional SDP, not established) and `held` (established, remotely held). Both occupy a live dialog. Resume returns to `active`.                                                                                                                                 |
 | `callConnectedAtMs` | Number or null; native initial establishment time in Unix milliseconds. Null before establishment/while idle; unchanged through hold/resume or window restoration.                                                                                                                                   |
 | `callEvents`        | Last 64 significant `CallEvent` objects for the most recent call, oldest first. Preserved after close; reset on a new call. Memory-only, never logged or persisted.                                                                                                                                  |
 | `callEventsDropped` | Number of oldest events evicted from this call's buffer, saturating at u32::MAX. Allows consumers to detect retention gaps.                                                                                                                                                                          |

@@ -38,6 +38,14 @@ const referPatch = readFileSync(
   join(root, "native/patches/baresip-refer-policy.patch"),
   "utf8",
 );
+const reControlsPatch = readFileSync(
+  join(root, "native/patches/re-call-controls.patch"),
+  "utf8",
+);
+const baresipControlsPatch = readFileSync(
+  join(root, "native/patches/baresip-call-controls.patch"),
+  "utf8",
+);
 const stageFile = (source, destination) => {
   if (resolve(source) === resolve(destination)) return;
   rmSync(destination, { force: true });
@@ -84,6 +92,11 @@ run(
 );
 run("git", ["apply", join(root, "native/patches/re-sip-nat.patch")], patchedRe);
 
+run(
+  "git",
+  ["apply", join(root, "native/patches/re-call-controls.patch")],
+  patchedRe,
+);
 const patchedBaresip = join(build, "baresip-patched");
 rmSync(patchedBaresip, { recursive: true, force: true });
 cpSync(join(sources, "baresip"), patchedBaresip, {
@@ -94,6 +107,11 @@ run("git", ["init", "--quiet"], patchedBaresip);
 const referPatchPath = join(root, "native/patches/baresip-refer-policy.patch");
 run("git", ["apply", "--check", referPatchPath], patchedBaresip);
 run("git", ["apply", referPatchPath], patchedBaresip);
+run(
+  "git",
+  ["apply", join(root, "native/patches/baresip-call-controls.patch")],
+  patchedBaresip,
+);
 
 let openssl = process.env.OPENSSL_ROOT_DIR;
 if (!openssl && process.platform === "darwin")
@@ -256,7 +274,12 @@ writeFileSync(
     {
       target,
       sources: pins,
-      patches: { reSipNat: natPatch, baresipReferPolicy: referPatch },
+      patches: {
+        reSipNat: natPatch,
+        baresipReferPolicy: referPatch,
+        reCallControls: reControlsPatch,
+        baresipCallControls: baresipControlsPatch,
+      },
       modules,
       openssl: { prefix: openssl ?? "system", version: resolved.version },
       licenseInventoryComplete: false,

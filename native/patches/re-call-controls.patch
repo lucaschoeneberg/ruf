@@ -1,0 +1,278 @@
+--- a/include/re_sip.h
++++ b/include/re_sip.h
+@@ -272,6 +272,10 @@
+ typedef int(sip_send_h)(enum sip_transp tp, struct sa *src,
+ 			const struct sa *dst, struct mbuf *mb,
+ 			struct mbuf **contp, void *arg);
++/* Local SDK hook: event-thread-only, complete message borrowed synchronously.
++ * A cache must copy bytes; the transport may subsequently move buffer cursors. */
++typedef int(sip_send_complete_h)(enum sip_transp tp, const struct sa *dst,
++			       struct mbuf *message, void *arg);
+ typedef int(sip_conn_h)(struct sa *src, const struct sa *dst, struct mbuf *mb,
+ 			void *arg);
+ typedef void(sip_resp_h)(int err, const struct sip_msg *msg, void *arg);
+@@ -345,7 +349,14 @@
+ 		  const char *met, struct sip_dialog *dlg, uint32_t cseq,
+ 		  struct sip_auth *auth, sip_send_h *sendh, sip_resp_h *resph,
+ 		  void *arg, const char *fmt, ...);
++int sip_drequestf_complete(struct sip_request **reqp, struct sip *sip, bool stateful,
++		  const char *met, struct sip_dialog *dlg, uint32_t cseq,
++		  struct sip_auth *auth, sip_send_h *sendh,
++		  sip_send_complete_h *completeh, sip_resp_h *resph,
++		  void *arg, const char *fmt, ...);
+ void sip_request_cancel(struct sip_request *req);
++/* Event-thread cancellation retaining the INVITE transaction and its ACK duties. */
++void sip_request_cancel_wait(struct sip_request *req);
+ bool sip_request_loops(struct sip_loopstate *ls, uint16_t scode);
+ void sip_loopstate_reset(struct sip_loopstate *ls);
+ bool sip_request_provrecv(const struct sip_request *req);
+--- a/src/sip/request.c
++++ b/src/sip/request.c
+@@ -34,6 +34,7 @@
+ 	char *branch;
+ 	struct mbuf *mb;
+ 	sip_send_h *sendh;
++	sip_send_complete_h *completeh;
+ 	sip_resp_h *resph;
+ 	void *arg;
+ 	size_t sortkey;
+@@ -197,6 +198,8 @@
+ 		goto out;
+ 
+ 	mb->pos = 0;
++	if (req->completeh)
++		err = req->completeh(req->tp, dst, mb, req->arg);
+ 
+ out:
+ 	if (err)
+@@ -897,14 +900,13 @@
+  *
+  * @return 0 if success, otherwise errorcode
+  */
+-int sip_drequestf(struct sip_request **reqp, struct sip *sip, bool stateful,
++static int drequestv(struct sip_request **reqp, struct sip *sip, bool stateful,
+ 		  const char *met, struct sip_dialog *dlg, uint32_t cseq,
+ 		  struct sip_auth *auth, sip_send_h *sendh, sip_resp_h *resph,
+-		  void *arg, const char *fmt, ...)
++		  void *arg, sip_send_complete_h *completeh, const char *fmt, va_list ap)
+ {
+ 	struct sip_request *req;
+ 	struct mbuf *mb;
+-	va_list ap;
+ 	int err;
+ 
+ 	if (!sip || !met || !dlg || !fmt)
+@@ -927,9 +929,7 @@
+ 	if (err)
+ 		goto out;
+ 
+-	va_start(ap, fmt);
+ 	err = mbuf_vprintf(mb, fmt, ap);
+-	va_end(ap);
+ 
+ 	if (err)
+ 		goto out;
+@@ -943,6 +943,7 @@
+ 	if (err)
+ 		goto out;
+ 
++	req->completeh = completeh;
+ 	req->reqp = reqp;
+ 	req->srcport = sip_dialog_srcport(dlg);
+ 	err = sip_request_send(req, sip, sip_dialog_route(dlg));
+@@ -1056,3 +1057,39 @@
+ 	ls->last_scode = 0;
+ 	ls->failc = 0;
+ }
++
++/* Both entry points share the existing request builder. Only ACK caching opts in. */
++int sip_drequestf(struct sip_request **reqp, struct sip *sip, bool stateful,
++		  const char *met, struct sip_dialog *dlg, uint32_t cseq,
++		  struct sip_auth *auth, sip_send_h *sendh, sip_resp_h *resph,
++		  void *arg, const char *fmt, ...)
++{
++	va_list ap;
++	int err;
++	va_start(ap, fmt);
++	err = drequestv(reqp, sip, stateful, met, dlg, cseq, auth, sendh,
++		       resph, arg, NULL, fmt, ap);
++	va_end(ap);
++	return err;
++}
++int sip_drequestf_complete(struct sip_request **reqp, struct sip *sip, bool stateful,
++		  const char *met, struct sip_dialog *dlg, uint32_t cseq,
++		  struct sip_auth *auth, sip_send_h *sendh,
++		  sip_send_complete_h *completeh, sip_resp_h *resph,
++		  void *arg, const char *fmt, ...)
++{
++	va_list ap;
++	int err;
++	va_start(ap, fmt);
++	err = drequestv(reqp, sip, stateful, met, dlg, cseq, auth, sendh,
++		       resph, arg, completeh, fmt, ap);
++	va_end(ap);
++	return err;
++}
++void sip_request_cancel_wait(struct sip_request *req)
++{
++	if (!req || req->canceled) return;
++	req->canceled = true;
++	/* A later provisional response sends CANCEL through response_handler. */
++	if (req->provrecv) (void)sip_ctrans_cancel(req->ct);
++}
+--- a/src/sipsess/ack.c
++++ b/src/sipsess/ack.c
+@@ -50,16 +50,14 @@
+ }
+ 
+ 
+-static int send_handler(enum sip_transp tp, struct sa *src,
+-			const struct sa *dst, struct mbuf *mb,
+-			struct mbuf **contp, void *arg)
++static int send_complete_handler(enum sip_transp tp, const struct sa *dst,
++			         struct mbuf *mb, void *arg)
+ {
+ 	struct sipsess_ack *ack = arg;
+-	(void)src;
+-	(void)contp;
+ 
+ 	mem_deref(ack->mb);
+-	ack->mb = mem_ref(mb);
++	ack->mb = mbuf_dup(mb);
++	if (!ack->mb) return ENOMEM;
+ 	ack->dst = *dst;
+ 	ack->tp  = tp;
+ 
+@@ -97,8 +95,8 @@
+ 	ack->dlg  = mem_ref(dlg);
+ 	ack->cseq = cseq;
+ 
+-	err = sip_drequestf(&ack->req, sock->sip, false, "ACK", dlg, cseq,
+-			    auth, send_handler, resp_handler, ack,
++	err = sip_drequestf_complete(&ack->req, sock->sip, false, "ACK", dlg, cseq,
++			    auth, NULL, send_complete_handler, resp_handler, ack,
+ 			    "%s%s%s"
+ 			    "Content-Length: %zu\r\n"
+ 			    "\r\n"
+--- a/include/re_sipsess.h
++++ b/include/re_sipsess.h
+@@ -73,6 +73,9 @@
+ 		    struct mbuf *desc, const char *fmt, ...);
+ int  sipsess_reject(struct sipsess *sess, uint16_t scode, const char *reason,
+ 		    const char *fmt, ...);
++typedef void (sipsess_modify_result_h)(int err, uint16_t status, void *arg);
++void sipsess_set_modify_result_handler(struct sipsess *sess, sipsess_modify_result_h *handler);
++bool sipsess_cancel_modify(struct sipsess *sess);
+ int  sipsess_modify(struct sipsess *sess, struct mbuf *desc);
+ int  sipsess_info(struct sipsess *sess, const char *ctype, struct mbuf *body,
+ 		  sip_resp_h *resph, void *arg);
+--- a/src/sipsess/sipsess.h
++++ b/src/sipsess/sipsess.h
+@@ -6,6 +6,8 @@
+ 
+ 
+ struct sipsess {
++	sipsess_modify_result_h *modify_result;
++	bool modify_cancelled;
+ 	struct le he;
+ 	struct tmr tmr;
+ 	struct list replyl;
+--- a/src/sipsess/sess.c
++++ b/src/sipsess/sess.c
+@@ -66,6 +66,9 @@
+ 	bool wait = false;
+ 
+ 	sess->terminated = 1;
++	/* Call-owned hooks cannot survive arg's replacement with the session itself. */
++	sess->modify_result = NULL;
++	sess->modify_cancelled = false;
+ 	sess->desch   = NULL;
+ 	sess->offerh  = internal_offer_handler;
+ 	sess->answerh = internal_answer_handler;
+--- a/src/sipsess/modify.c
++++ b/src/sipsess/modify.c
+@@ -32,12 +32,19 @@
+ 	struct sipsess *sess = arg;
+ 	const struct sip_hdr *hdr;
+ 	struct mbuf *desc = NULL;
+-	bool sdp;
++	bool sdp = false;
+ 
+ 	if (!msg || err || sip_request_loops(&sess->ls, msg->scode))
+ 		goto out;
+ 
+-	sdp = mbuf_get_left(msg->mb) > 0;
++	/* Managed controls reject refusal/glare promptly; no hidden retry. */
++	if (sess->modify_result && msg->scode >= 300 &&
++	    (sess->modify_cancelled || (msg->scode != 401 && msg->scode != 407))) {
++		sess->neg_state = SDP_NEG_DONE;
++		goto out;
++	}
++
++	sdp = !sess->modify_cancelled && mbuf_get_left(msg->mb) > 0;
+ 
+ 	if (msg->scode < 200) {
+ 		return;
+@@ -56,8 +63,13 @@
+ 				err = sess->offerh(&desc, msg, sess->arg);
+ 			}
+ 
+-			if (err)
++			if (err) {
++				/* Every final 2xx needs ACK, even when its SDP is invalid. */
++				if (sess->modify_result)
++					(void)sipsess_ack(sess->sock, sess->dlg,
++					 msg->cseq.num, sess->auth, sess->ctype, NULL);
+ 				goto out;
++			}
+ 		}
+ 
+ 		err = sipsess_ack(sess->sock, sess->dlg, msg->cseq.num,
+@@ -114,6 +126,20 @@
+ 		}
+ 	}
+  out:
++	if (sess->modify_result) {
++		sipsess_modify_result_h *handler = sess->modify_result;
++		if (msg && msg->scode >= 200 && msg->scode < 300 &&
++		    !sdp && !sess->modify_cancelled)
++			err = EPROTO;
++		/* Finish old request bookkeeping before application recovery can run. */
++		sess->modify_result = NULL;
++		sess->modify_cancelled = false;
++		sess->modify_pending = false;
++		sess->neg_state = SDP_NEG_DONE;
++		sess->desc = mem_deref(sess->desc);
++		handler(err, msg ? msg->scode : 0, sess->arg);
++		return;
++	}
+ 	if (sess->terminated)
+ 		mem_deref(sess);
+ 	else if (err == ETIMEDOUT)
+@@ -205,3 +231,26 @@
+ 
+ 	return sipsess_reinvite(sess, true);
+ }
++
++/* Rollback is local until the original INVITE receives its final response.
++ * Preserve transaction ownership, ACK generation/cache and session teardown. */
++bool sipsess_cancel_modify(struct sipsess *sess)
++{
++	if (!sess) return false;
++	tmr_cancel(&sess->tmr);
++	sess->modify_pending = false;
++	if (sess->req) {
++		sess->modify_cancelled = true;
++		sip_request_cancel_wait(sess->req);
++		return true;
++	}
++	sess->modify_result = NULL;
++	sess->modify_cancelled = false;
++	sess->desc = mem_deref(sess->desc);
++	sess->neg_state = SDP_NEG_DONE;
++	return false;
++}
++void sipsess_set_modify_result_handler(struct sipsess *sess, sipsess_modify_result_h *handler)
++{
++	if (sess) sess->modify_result = handler;
++}

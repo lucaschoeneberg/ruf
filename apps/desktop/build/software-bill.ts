@@ -26,7 +26,12 @@ interface CargoMetadata {
 export interface NativeSdk {
   target: string;
   sources: Record<string, { version: string; commit: string }>;
-  patches: { reSipNat: string; baresipReferPolicy: string };
+  patches: {
+    reSipNat: string;
+    baresipReferPolicy: string;
+    reCallControls: string;
+    baresipCallControls: string;
+  };
   modules: string[];
   openssl: { version: string };
 }
@@ -177,6 +182,10 @@ export async function createSoftwareBill(
       baresipReferPolicy: await read(
         "native/patches/baresip-refer-policy.patch",
       ),
+      reCallControls: await read("native/patches/re-call-controls.patch"),
+      baresipCallControls: await read(
+        "native/patches/baresip-call-controls.patch",
+      ),
     };
     if (
       JSON.stringify(sdk.sources) !== JSON.stringify(pins) ||
@@ -244,8 +253,14 @@ export function addNative(
           name: "ruf:patch:sha256",
           value: sha256(
             name === "re"
-              ? sdk.patches.reSipNat
-              : sdk.patches.baresipReferPolicy,
+              ? JSON.stringify([
+                  sdk.patches.reSipNat,
+                  sdk.patches.reCallControls,
+                ])
+              : JSON.stringify([
+                  sdk.patches.baresipReferPolicy,
+                  sdk.patches.baresipCallControls,
+                ]),
           ),
         },
         ...(name === "baresip"

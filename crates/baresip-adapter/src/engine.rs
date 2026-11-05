@@ -8,6 +8,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+// Private bridge operations; values mirror native/bridge.c.
+const OP_MUTE: i32 = 17;
+const OP_HOLD: i32 = 18;
+const OP_TRANSFER: i32 = 19;
+const OP_CONSULT: i32 = 20;
+const OP_SWITCH: i32 = 21;
+const OP_CANCEL_CONSULT: i32 = 22;
+const OP_COMPLETE_TRANSFER: i32 = 23;
+
 #[derive(Default)]
 pub(crate) struct EngineState {
     pub(crate) snapshot: EngineSnapshot,
@@ -22,9 +31,13 @@ pub(crate) struct EngineState {
     pub(crate) remote_hold: bool,
     #[cfg(feature = "native")]
     pub(crate) local_ending: bool,
+    #[cfg(feature = "native")]
+    pub(crate) local_endings: std::collections::BTreeSet<u64>,
+    #[cfg(feature = "native")]
+    pub(crate) call_destinations: BTreeMap<u64, String>,
 }
 
-/// One owned native engine, up to eight simultaneous SIP accounts and one call slot.
+/// One owned native engine, up to eight SIP accounts, one original call and one consultation.
 pub struct Engine {
     snapshot: Arc<Mutex<EngineState>>,
     audio: AudioMode,
@@ -656,8 +669,25 @@ impl Engine {
             ));
         }
         state.snapshot.call = CallState::Answering;
+        let id = state.snapshot.call_id.clone();
+        if let Some(call) = state
+            .snapshot
+            .calls
+            .iter_mut()
+            .find(|call| Some(&call.id) == id.as_ref())
+        {
+            call.state = CallState::Answering;
+        }
         if let Err(error) = self.request(3, 0, None, None, state.call_generation) {
             state.snapshot.call = CallState::Incoming;
+            if let Some(call) = state
+                .snapshot
+                .calls
+                .iter_mut()
+                .find(|call| Some(&call.id) == id.as_ref())
+            {
+                call.state = CallState::Incoming;
+            }
             return Err(error);
         }
         Ok(())
@@ -690,12 +720,165 @@ impl Engine {
     }
 
     fn hangup_current(&self, call_id: Option<&str>) -> Result<(), PhoneError> {
-        let state = self.snapshot.lock().map_err(|_| state_error())?;
-        validate_call_token(&state.snapshot, call_id)?;
+        let mut state = self.snapshot.lock().map_err(|_| state_error())?;
+        let generation = if let Some(id) = call_id {
+            if !state.snapshot.calls.iter().any(|call| call.id == id)
+                && state.snapshot.call_id.as_deref() != Some(id)
+            {
+                return Err(PhoneError::new(
+                    ErrorCode::InvalidState,
+                    "The call changed before this action was submitted.",
+                ));
+            }
+            if state.snapshot.call_id.as_deref() == Some(id) {
+                state.call_generation
+            } else {
+                id.parse().map_err(|_| state_error())?
+            }
+        } else {
+            state.call_generation
+        };
         if state.snapshot.call == CallState::Idle {
             return Err(PhoneError::new(ErrorCode::InvalidState, "No call to end."));
         }
-        self.request(4, 0, None, None, state.call_generation)
+        self.request(4, 0, None, None, generation)?;
+        if let Some(call) = state
+            .snapshot
+            .calls
+            .iter_mut()
+            .find(|call| call.id == generation.to_string())
+        {
+            call.last_error = None;
+        }
+        if state.call_generation == generation {
+            state.snapshot.last_error = None;
+        }
+        Ok(())
+    }
+
+    /// Mute/unmute outgoing audio for a live established dialog; confirmation arrives natively.
+    pub fn set_call_muted(&mut self, call_id: &str, muted: bool) -> Result<(), PhoneError> {
+        self.call_control(call_id, OP_MUTE, Some(if muted { "1" } else { "0" }))
+    }
+    /// Request local hold/resume. Confirmation requires an accepted SIP answer.
+    pub fn set_call_held(&mut self, call_id: &str, held: bool) -> Result<(), PhoneError> {
+        self.call_control(call_id, OP_HOLD, Some(if held { "1" } else { "0" }))
+    }
+    /// Send blind REFER to a validated numeric destination and await final NOTIFY.
+    pub fn transfer_call(&mut self, call_id: &str, destination: &str) -> Result<(), PhoneError> {
+        self.validate_control_destination(destination)?;
+        self.call_control(call_id, OP_TRANSFER, Some(destination))
+    }
+    /// Hold the original before dialing one consultation on the same owning account.
+    pub fn start_consultation(
+        &mut self,
+        call_id: &str,
+        destination: &str,
+    ) -> Result<(), PhoneError> {
+        self.validate_control_destination(destination)?;
+        self.call_control(call_id, OP_CONSULT, Some(destination))
+    }
+    /// Select a live conversation after confirmed hold of the previously audible dialog.
+    pub fn switch_call(&mut self, call_id: &str) -> Result<(), PhoneError> {
+        self.call_control(call_id, OP_SWITCH, None)
+    }
+    /// End the consultation and resume the surviving original.
+    pub fn cancel_consultation(&mut self, call_id: &str) -> Result<(), PhoneError> {
+        self.call_control(call_id, OP_CANCEL_CONSULT, None)
+    }
+    /// Send REFER/Replaces using the original and established consultation dialogs.
+    pub fn complete_transfer(&mut self, call_id: &str) -> Result<(), PhoneError> {
+        self.call_control(call_id, OP_COMPLETE_TRANSFER, None)
+    }
+    fn validate_control_destination(&self, destination: &str) -> Result<(), PhoneError> {
+        let mut snapshot = EngineSnapshot {
+            registration: RegistrationState::Registered,
+            ..Default::default()
+        };
+        snapshot.reserve_dial(destination)
+    }
+    fn call_control(
+        &self,
+        call_id: &str,
+        operation: i32,
+        destination: Option<&str>,
+    ) -> Result<(), PhoneError> {
+        let mut state = self.snapshot.lock().map_err(|_| state_error())?;
+        let call = state
+            .snapshot
+            .calls
+            .iter()
+            .find(|call| call.id == call_id)
+            .ok_or_else(|| {
+                PhoneError::new(
+                    ErrorCode::InvalidState,
+                    "The call changed before this action was submitted.",
+                )
+            })?;
+        if operation != OP_MUTE
+            && state.snapshot.calls.iter().any(|call| {
+                call.hold_pending || call.transfer == phone_core::TransferState::Pending
+            })
+        {
+            return Err(PhoneError::new(
+                ErrorCode::Busy,
+                "A call control is still pending.",
+            ));
+        }
+        if !matches!(call.state, CallState::Active | CallState::Held)
+            && operation != OP_CANCEL_CONSULT
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidState,
+                "An established call is required.",
+            ));
+        }
+        if operation == OP_TRANSFER && state.snapshot.calls.len() != 1 {
+            return Err(PhoneError::new(
+                ErrorCode::Busy,
+                "Finish consultation before blind transfer.",
+            ));
+        }
+        if matches!(operation, OP_CANCEL_CONSULT | OP_COMPLETE_TRANSFER)
+            && (state.snapshot.calls.len() != 2 || !call.consultation)
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidState,
+                "The consultation changed before this action was submitted.",
+            ));
+        }
+        if operation == OP_COMPLETE_TRANSFER
+            && state
+                .snapshot
+                .calls
+                .iter()
+                .any(|call| !matches!(call.state, CallState::Active | CallState::Held))
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidState,
+                "Both dialogs must be established.",
+            ));
+        }
+        if operation == OP_CONSULT && state.snapshot.calls.len() != 1 {
+            return Err(PhoneError::new(
+                ErrorCode::Busy,
+                "Only one consultation is supported.",
+            ));
+        }
+        let generation = call.id.parse().map_err(|_| state_error())?;
+        self.request(operation, call.account_id, None, destination, generation)?;
+        if let Some(call) = state
+            .snapshot
+            .calls
+            .iter_mut()
+            .find(|call| call.id == call_id)
+        {
+            call.last_error = None;
+        }
+        if state.snapshot.call_id.as_deref() == Some(call_id) {
+            state.snapshot.last_error = None;
+        }
+        Ok(())
     }
 
     /// Stop the native event loop and join its thread before releasing resources.

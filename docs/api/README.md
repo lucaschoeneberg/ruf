@@ -18,6 +18,8 @@ Additional settings contracts: [notifications](notifications.md),
 [local preferences](preferences.md), [native audio diagnostics](audio-diagnostics.md)
 and [account activation](account-activation.md).
 
+Native Rust controls and per-dialog DTO additions: [call controls and consultation](call-controls.md).
+
 ## Windows and permissions
 
 `main` reads app/engine state, opens settings, selects the outgoing account and

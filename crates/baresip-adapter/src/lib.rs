@@ -4,6 +4,8 @@ use phone_core::TelephonyStatus;
 
 mod call_journal;
 pub use call_journal::CallObserver;
+#[cfg(feature = "native")]
+mod dialogs;
 mod engine;
 pub use engine::Engine;
 mod notifications;

@@ -93,7 +93,12 @@ test("native SDK identity and linkage validation also run without an installed S
     target: portable.target,
     sources: await Bun.file("native/sources.json").json(),
     openssl: { version: "3.5.9" },
-    patches: { reSipNat: "NAT fixture", baresipReferPolicy: "REFER fixture" },
+    patches: {
+      reSipNat: "NAT fixture",
+      baresipReferPolicy: "REFER fixture",
+      reCallControls: "re controls fixture",
+      baresipCallControls: "baresip controls fixture",
+    },
     modules: ["g711", "coreaudio"],
   };
   expect(() =>
@@ -102,7 +107,24 @@ test("native SDK identity and linkage validation also run without an installed S
   expect(() =>
     addNative(bill, context, { ...sdk, openssl: { version: "" } }),
   ).toThrow();
+  const changedControls = structuredClone(bill);
+  addNative(changedControls, context, {
+    ...sdk,
+    patches: {
+      ...sdk.patches,
+      baresipCallControls: "changed controls fixture",
+    },
+  });
   addNative(bill, context, sdk);
+  const patchHash = (source: typeof bill, name: string) =>
+    source.components
+      .find((item) => item.name === name)
+      ?.properties?.find((property) => property.name === "ruf:patch:sha256")
+      ?.value;
+  expect(patchHash(changedControls, "baresip")).not.toBe(
+    patchHash(bill, "baresip"),
+  );
+  expect(patchHash(changedControls, "re")).toBe(patchHash(bill, "re"));
   validateSoftwareBill(bill);
   expect(bill.components.find((item) => item.name === "openssl")?.version).toBe(
     "3.5.9",
