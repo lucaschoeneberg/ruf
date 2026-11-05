@@ -48,11 +48,11 @@
 
 **Interfaces:** Consume Task 1 per-dialog state. Produce defaulted typed account transport and media-security policy plus authentication-user/proxy options in AccountConfig, saved metadata and safe snapshots; expose observed per-dialog signaling/media security. Use SipTransport (udp/tcp/tls), MediaSecurityPolicy (disabled/required), AccountConfig.transport/mediaSecurity/authUsername/outboundProxy; nullable options default to null. CallSnapshot.security is CallSecurity { signalingTransport: SipTransport|null, tlsPeerVerified: boolean, media: unknown|unprotected|sdesSrtp }. Add CertificateRejected/TransportFailure/MediaSecurityRequired error classifications with native provenance. Maintain API source compatibility where practical; default legacy persisted accounts to UDP/no media encryption.
 
-- [ ] Write and run failing tests for defaults, validation, metadata roundtrip, reconnect retention, and native security observations/reset.
-- [ ] Enable and load srtp module in the native SDK; enforce SDK compatibility checks. Configure actual UDP/TCP/TLS per account/destination without accidental UDP override; wire separate auth username and proxy.
-- [ ] Implement certificate/hostname verification and portable packaged trust roots; honor platform trust policy including deliberately trusted private CAs. Do not expose per-account CA injection into the shared TLS context. Tests may inject generated CA trust through a private test-only Rust path. Require TLS for required SDES-SRTP, observe media events and fail closed when media policy is unmet.
-- [ ] Run account/core/native tests and SDK rebuild; document trust paths, fields, errors, migration and security limits; regenerate types.
-- [ ] Commit and write task report with RED/GREEN evidence.
+- [x] Write and run failing tests for defaults, validation, metadata roundtrip, reconnect retention, and native security observations/reset.
+- [x] Enable and load srtp module in the native SDK; enforce SDK compatibility checks. Configure actual UDP/TCP/TLS per account/destination without accidental UDP override; wire separate auth username and proxy.
+- [x] Implement certificate/hostname verification and portable packaged trust roots; honor platform trust policy including deliberately trusted private CAs. Do not expose per-account CA injection into the shared TLS context. Tests may inject generated CA trust through a private test-only Rust path. Require TLS for required SDES-SRTP, observe media events and fail closed when media policy is unmet.
+- [x] Run account/core/native tests and SDK rebuild; document trust paths, fields, errors, migration and security limits; regenerate types.
+- [x] Commit and write task report with RED/GREEN evidence.
 
 ### Task 3: Desktop commands and settings/call UI
 
