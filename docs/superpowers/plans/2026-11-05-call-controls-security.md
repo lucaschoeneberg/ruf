@@ -60,11 +60,11 @@
 
 **Interfaces:** Consume Task 1 Engine controls and Task 2 account/session DTOs. Produce guarded Tauri IPC for each control, Svelte call controls/consultation flow and editable account-security settings. Use generated Rust TypeScript types, existing error presentation and compact layout.
 
-- [ ] Write/run failing UI behavior tests for mute/hold/pending states, two-call switching/cancel/complete, settings validation/defaults and confirmed-security display.
-- [ ] Wire command handlers to existing blocking/session patterns, preserving permission and stale-call guards. Implement complete controls and consultation UI, including distinct per-dialog parties and transfer destination entry or selection from existing authorized contacts (reuse existing permissions; no automatic prompt). Keep account creation/edit/security under Settings and persist all fields through save/reconnect. Show confirmed native security, never a preference-derived lock, and clearly distinguish pending hold/recovery.
-- [ ] Update API docs and product/changelog descriptions accurately without claiming unobserved provider compatibility.
-- [ ] Run UI tests, browser flows, Svelte check/build and portable desktop Rust tests; capture GREEN evidence.
-- [ ] Commit and write task report.
+- [x] Write/run failing UI behavior tests for mute/hold/pending states, two-call switching/cancel/complete, settings validation/defaults and confirmed-security display.
+- [x] Wire command handlers to existing blocking/session patterns, preserving permission and stale-call guards. Implement complete controls and consultation UI, including distinct per-dialog parties and transfer destination entry or selection from existing authorized contacts (reuse existing permissions; no automatic prompt). Keep account creation/edit/security under Settings and persist all fields through save/reconnect. Show confirmed native security, never a preference-derived lock, and clearly distinguish pending hold/recovery.
+- [x] Update API docs and product/changelog descriptions accurately without claiming unobserved provider compatibility.
+- [x] Run UI tests, browser flows, Svelte check/build and portable desktop Rust tests; capture GREEN evidence.
+- [x] Commit and write task report.
 
 ### Task 4: Native SIP interoperability and full verification
 
