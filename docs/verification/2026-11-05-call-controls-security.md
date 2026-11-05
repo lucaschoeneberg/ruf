@@ -10,8 +10,8 @@ trust store, DNS, permissions or production credentials were changed.
 `bun run test:asterisk` retains the strict UDP Echo example and all six original
 interop regressions. Eight additional ignored tests exercise the public Engine
 API against real Asterisk dialogs. The same command explicitly compiles test
-binaries with `native-test-hooks` and separately runs the eight controlled TLS
-security tests; `--ignored` alone would omit those negatives. Native engines run
+binaries with `native-test-hooks` and separately runs eleven controlled TLS
+security/lifecycle tests; `--ignored` alone would omit those negatives. Native engines run
 serially under the existing global lease.
 
 The transfer original is an incoming call immediately after registration:
@@ -67,12 +67,12 @@ pass after the final SDK rebuild. Exact patch text is regenerated into sdk.json,
 verified by the adapter build, and participates in existing native SBOM hashes.
 No SIP behavior, public API or DTO changed for this warning fix.
 
-## Execution record
+## Earlier task-4 execution record (before final-review fixes)
 
-All checks below completed on source freeze `3a1b94fc62bd46ffc89ce73bff1b304fb98b383b`.
+The earlier checks in this section completed on source freeze `3a1b94fc62bd46ffc89ce73bff1b304fb98b383b`.
 The smoke run passed all 14 Asterisk cases in 64.36 s and all 8 controlled TLS cases
-in 2.19 s. Final results are a documentation-only follow-up; production code and
-fixture source hashes remain identical to that independently reviewed freeze.
+in 2.19 s. Those results preceded the final-review fixes recorded below. Their artifact hashes
+are historical evidence, not the final branch artifacts.
 Rust and desktop-wrapper commands used `PATH=/opt/homebrew/opt/rustup/bin:$PATH`
 to select the pinned toolchain. Generated contract stability was checked with
 `git diff --exit-code -- apps/desktop/src/lib/generated/AppInfo.ts`.
@@ -133,10 +133,10 @@ and `store::tests::system_keychain_roundtrip_and_delete` remain unexecuted becau
 they write to the actual OS credential store. The latter is also the portable
 workspace's one ignored test. No unexecuted test is counted as passing.
 
-## Production artifact binding
+## Earlier task-4 production artifact binding
 
-The app was built from the clean code-freeze commit above with **native only**.
-The final evidence commit changes this document, not the artifact's code revision.
+The earlier app was built from the task-4 code-freeze commit above with **native only**.
+Its documentation-only follow-up did not change that artifact's code revision.
 `cargo tree --locked -p sip-desktop --features native -e features` contains no
 `native-test-hooks`; `nm -g` on both the raw release executable and bundled app
 executable contains neither `sip_engine_set_test_ca` nor
@@ -164,6 +164,92 @@ fix-round freeze: 85 UI tests, 1,261 assertions, and all six browser flows passe
 Svelte/TypeScript check had 0 errors/warnings. Task 4 changes no UI, command, account
 DTO, persistence or desktop authority source. These are earlier observed results,
 not a claim of a newly repeated UI/browser execution in Task 4.
+
+## Final-review regression fixes
+
+The final-review fix source freeze is
+`8cbcef64d034ed88fa680543c1b5b5bf97caf83f` (base
+`8cfddc0e04cc872799ac711b9421e30d40a2ac0c`). This replaces the earlier production
+artifact binding above; subsequent verification-document changes do not change
+that source revision. Complete tracked source/test hashes, excluding this evidence
+document, were frozen before the final suites.
+
+Three new real TLS cases first failed on the reviewed SDK: a local hold answer
+without acceptable crypto, a remote established re-INVITE offer without crypto,
+and a remote offerless re-INVITE whose ACK answer lacks crypto. All left the
+original dialog active with unknown media. With the fix, only the failed dialog
+closes and its exact call/account retain `mediaSecurityRequired`. Packet logs bind
+the failed re-INVITE's ACK, or the remote offer's 488, to its exact SIP Call-ID and
+CSeq before that dialog's BYE. Termination runs after the callback finishes its
+transaction work. The remote-offer case also retains a secure, usable consultation
+while the original fails; every case preserves registration and establishes a new
+secure call afterward. The existing C SRTP tests still prove rejected contexts
+are cleared and mandatory RTP/RTCP gates stay closed.
+
+Two new normal-refusal tests first received **zero fresh PCM bytes** after SIP 488
+and 491 despite an established receive pipeline. Rollback now uses baresip's
+existing media update/start path. The controlled peer sends a known 500 Hz PCMU
+waveform paced against absolute 20 ms deadlines. The tests verify the newest full
+second of baseline and post-refusal PCM, without another hold/resume; both cases
+measured 8,000 samples, RMS 9,852 and 500.0 Hz in both phases. Mute remains enabled
+while incoming audio resumes. A third test makes the actual aufile player reopen
+fail by replacing its ignored recording path with a directory; it first failed
+with an active call and now requires owned terminal `nativeFailure`. Ordinary SIP
+refusal retains its classification, including Asterisk 1101's `sipNotAcceptable`.
+
+Focused verification passed: eleven controlled TLS cases, twenty native control
+cases, all four matching refused-hold/recovery cases, six C security units, the
+Linux verifier branch harness on macOS, native workspace clippy, and strict
+ACK/Contact C syntax checks with `-Werror`. No DTO, UI, desktop authorization,
+dependency, or separate audio pipeline was introduced. The earlier 85 UI tests and
+six browser flows remain explicitly reused evidence; final check/build results
+are recorded separately below.
+
+### Final frozen-source execution and artifact binding
+
+All following checks completed on the fix source freeze above, with the pinned
+Rustup PATH. Native engines ran serially. The two safe ignored desktop tests
+listed in the earlier record were **not repeated** because no desktop source
+changed; their earlier evidence is reused. The two actual OS credential-store
+writing tests remain unexecuted. No ignored test is counted as passed.
+
+| Check                                                                              | Observed final result                                                                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Native workspace tests with `sip-desktop/native,baresip-adapter/native-test-hooks` | 212 passed, 0 failed, 18 ignored; adapter 106/0/14 in 471.37 s; command 481.18 s                         |
+| `bun run test:asterisk`                                                            | Strict UDP Echo plus 14/14 Asterisk (64.08 s) and 11/11 controlled TLS (3.30 s); command 82.92 s         |
+| Portable `cargo test --locked --workspace`                                         | 118 passed, 0 failed, 1 OS-keychain test ignored                                                         |
+| Native and portable workspace clippy, all targets, `-D warnings`                   | Both passed                                                                                              |
+| `bun run format:check`, `check`, `build`, `check:versions`                         | Passed; Svelte 0 errors/0 warnings, production Web build, version 0.1.0 consistent                       |
+| `bun run types:generate` and generated-directory Git diff                          | Passed; generated contracts unchanged                                                                    |
+| SDK rebuild, six C security units, Linux verifier branch harness                   | Passed on macOS; no Linux runtime claim                                                                  |
+| Strict ACK/Contact C syntax with `-Werror`                                         | Passed                                                                                                   |
+| `bun run desktop:build --features native --bundles app`                            | Passed; native aarch64 Ruf.app 21.09 MiB, 16.55 s                                                        |
+| Production feature graph, both symbol tables, signature and source/SBOM bindings   | Passed; no native-test-hooks or CA/DNS setter exports; local codesign valid; all 391 frozen hashes match |
+
+Final actual media samples include UDP Echo 4.04 s / 440.1 Hz / RMS 5811;
+TLS+required-SRTP post-resume 32,672 samples / 440.0 Hz / RMS 5811;
+attended target→original 21,440 / 880.2 Hz / RMS 5106 and original→target
+20,160 / 436.5 Hz / RMS 5079; blind target→original 21,280 / 873.3 Hz / RMS 5087
+and original→target 20,000 / 436.4 Hz / RMS 5079. Muted transmission measured
+RMS 0.0 while incoming audio remained 879.9 Hz / RMS 5102. These use the fresh
+phase-specific recording rules above.
+
+The production build enables **native only**. Both raw and bundled executables
+were independently checked for absent test CA/DNS setter exports. All six exact
+staged SDK patch texts match tracked files; ordered libre/baresip patch digests
+match the exported SBOM, which includes SRTP. The raw executable and exported
+SBOM match the build manifest; the signed bundle has its own hash. Local
+`codesign --verify --deep --strict` passed; notarization was not performed.
+
+| Final artifact / binding                   | SHA-256                                                            |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| Exported native CycloneDX SBOM             | `e58981ed9725cd66939e70392c087b82e83775b2440aea115b1f351de1bc2b2a` |
+| Raw release executable                     | `3610f791e2c5cab2c86a0a03947e9c1472bb16ee22442be67f675f145de6352b` |
+| Bundled, locally signed executable         | `ba95518b6152ad14d00c9fa7c6e2ed958d99773f64a99f432348d2917865f52d` |
+| Ordered libre patch set                    | `bf786f607308b6dcd5cb17de659dc2cb94484878b03991f53f498337cd3c95b3` |
+| Ordered baresip patch set                  | `3ac048920a7a72c78e36033d0d3f1437d9a1633bc640e48e8ce5f939f544f3f6` |
+| Tracked/staged re-security.patch           | `5f5de10d7b2f20673af7b225e65e87a60be5e8ca88eaa3c230742479f60ee66c` |
+| Tracked/staged baresip-call-controls.patch | `9c11b90649b4aebbcad3ca3236d3572157d848516da8056e16f1c796965fad2d` |
 
 ## Limits
 
