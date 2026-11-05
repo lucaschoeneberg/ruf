@@ -82,3 +82,62 @@ four bindings so it does not conceal stale Contacts by forcibly replacing them.
 The native SDK's controlled-registrar test separately verifies old Contact
 removal and port-only rebinding. The smoke runner reloads PJSIP and the dialplan
 only in this isolated lab.
+
+## Call controls, real transfer bridges and encrypted media
+
+`bun run test:asterisk` also provisions a fresh one-day private CA and server
+certificate with `tests/native/tls_peer.py ... certificates` in ignored
+`native/build/asterisk-certs`, then recreates this isolated Compose service.
+The generated synthetic server key is readable by the container's dropped
+Asterisk UID through a read-only mount; it is never a production credential.
+The CA is injected only through the explicitly compiled `native-test-hooks`
+harness. No OS trust store, hosts file or production account is changed.
+Run `test:asterisk` to provision certificates before using `lab:up` with TLS.
+Recreation is required for TLS transports/certificates; reload alone is insufficient.
+
+Additional loopback publication: SIP/TLS TCP5071 (container5061). Account1100 uses
+TLS plus mandatory, nonoptimistic SDES-SRTP;1101 uses TLS with plaintext media
+only to test refusal. Both use the same documented synthetic lab password.
+These are test fixtures, not recommended production PBX templates. The encrypted
+positive requires actual returned440Hz PCM after hold/resume, with observed
+verified TLS and SDES-SRTP. Missing/invalid keys and plaintext answers use the
+controlled TLS fixture too. The plaintext-only Asterisk endpoint rejects the
+client's required-SRTP offer with actual SIP488 (`sipNotAcceptable`), distinct
+from the controlled missing-crypto `mediaSecurityRequired` failure.
+
+The original six native interop regressions and strict UDP Echo WAV validation
+remain. Eight additional ignored Asterisk tests cover:
+
+- Hold/resume with new returned440Hz audio after native confirmation. A fresh
+  post-resume byte checkpoint accounts for aufile reopening/truncating its WAV.
+- Outgoing mute/unmute measured on the PBX while incoming880Hz remains audible.
+- Blind and attended transfer, actual PJSIP/Local bridges, consultation switching,
+  final-NOTIFY success and remote440Hz/880Hz audio after Ruf closes both dialogs.
+- Ringing/established consultation cancellation, refused consultation/blind
+  transfer, incoming immediately after registration, stale tokens, remote ending
+  on either side and an original ending while consultation still rings.
+- Verified TLS+required SRTP returned audio and the plaintext-only negative.
+
+The transfer fixture originates `Local/650@lab/n` into651 (original440Hz source).
+650 calls Ruf/PJSIP1000;602 dials `Local/652@lab/n` (target880Hz source). The `/n`
+keeps real bridges and peer identities available for REFER/Replaces. Direct
+Echo or an unbridged Wait channel cannot establish attended-transfer evidence.
+After final `transferSucceeded`, tests start new directional MixMonitor files on
+those same surviving tone channels, verify their opposite Local legs share a
+bridge, require new cross-tone PCM and ensure no Ruf/PJSIP1000 dialog remains.
+The legacy terminal `callEvents` projection retains the last selected child's
+FIFO; attended transfer does not imply two independent final NOTIFY messages.
+
+CLI MixMonitor stop/start gives closed, valid WAV phases and avoids mistaking
+buffered live-file byte offsets for mute timing. The tests clean only their exact
+owned synthetic channels/files; dialplan absolute timeouts bound abandoned calls.
+WAVs copied to ignored `native/build/a<PID>-*.wav` remain available for inspection.
+Container `/tmp/ruf-lab-*` recording files from each owned test are removed.
+
+All native tests run serially under the process-global engine lock. The runner
+explicitly enables `native-test-hooks` for test binaries and then separately runs
+all eight controlled `security_tests` (which `--ignored` would omit). The public
+UDP example and final production desktop build use `native`, without test hooks.
+The full controlled SIP/NAT/blackout suite remains part of final native workspace
+verification. See [call-controls/security verification](../../../docs/verification/2026-11-05-call-controls-security.md)
+for observed results and platform/provider limits.

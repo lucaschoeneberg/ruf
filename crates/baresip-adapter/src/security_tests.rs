@@ -10,11 +10,11 @@ use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
-struct Peer {
+pub(super) struct Peer {
     process: Child,
     directory: PathBuf,
     port: u16,
-    dns: std::net::SocketAddr,
+    pub(super) dns: std::net::SocketAddr,
 }
 impl Peer {
     fn new(label: &str, mode: &str) -> Self {
@@ -23,6 +23,11 @@ impl Peer {
             .join("native/build/security-tests")
             .join(format!("{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
+        Self::from_directory(directory, mode)
+    }
+    // Existing runner-generated certificates must remain mounted and unchanged.
+    pub(super) fn from_directory(directory: PathBuf, mode: &str) -> Self {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../");
         let mut process = Command::new("python3")
             .arg(root.join("tests/native/tls_peer.py"))
             .arg(&directory)

@@ -6,11 +6,14 @@ services:
     command: ["-f", "-g", "-n", "-U", "asterisk"]
     ports:
       - "127.0.0.1:5070:5060/udp"
+      - "127.0.0.1:5071:5061/tcp"
       - "127.0.0.1:30000-30010:30000-30010/udp"
     volumes:
       - ./pjsip.conf:/etc/asterisk/pjsip.conf:ro
       - ./extensions.conf:/etc/asterisk/extensions.conf:ro
       - ./rtp.conf:/etc/asterisk/rtp.conf:ro
+      - ${SIP_LAB_CERTS:-../../../native/build/asterisk-certs}/server.pem:/etc/asterisk/test-certs/server.pem:ro
+      - ${SIP_LAB_CERTS:-../../../native/build/asterisk-certs}/server.key:/etc/asterisk/test-certs/server.key:ro
     healthcheck:
       test: ["CMD", "asterisk", "-rx", "core show uptime"]
       interval: 2s

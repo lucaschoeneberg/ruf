@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,13 +8,31 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 process.chdir(root);
 const compose = ["compose", "-f", "tests/interop/asterisk/compose.yml"];
 const run = (exe, args, options = {}) =>
-  execFileSync(exe, args, { stdio: "inherit", timeout: 180_000, ...options });
+  execFileSync(exe, args, { stdio: "inherit", timeout: 600_000, ...options });
 mkdirSync("native/build", { recursive: true });
+// Fresh exclusive synthetic roots; never modify platform trust or reuse expired keys.
+const certificates = join(root, "native/build/asterisk-certs");
+rmSync(certificates, { recursive: true, force: true });
+run("python3", ["tests/native/tls_peer.py", certificates, "certificates"]);
+// The isolated container drops to its asterisk UID; only synthetic material is readable.
+chmodSync(certificates, 0o755);
+for (const file of ["server.pem", "server.key"])
+  chmodSync(join(certificates, file), 0o644);
+process.env.SIP_LAB_CERTS = certificates;
+process.env.SIP_TEST_CERT_DIRECTORY = certificates;
 // A new file per process prevents a previous good recording from hiding a failure.
 const recording = join(root, "native/build", `echo-${process.pid}.wav`);
 rmSync(recording, { force: true });
-run("docker", [...compose, "up", "-d", "--wait", "--wait-timeout", "60"]);
-// Compose keeps an existing container; bind-mounted fixture changes need a reload.
+run("docker", [
+  ...compose,
+  "up",
+  "-d",
+  "--force-recreate",
+  "--wait",
+  "--wait-timeout",
+  "60",
+]);
+// Keep explicit reloads for the bind-mounted fixtures; TLS transports were recreated.
 run("docker", [
   ...compose,
   "exec",
@@ -33,6 +51,17 @@ run("docker", [
   "-rx",
   "pjsip reload",
 ]);
+const readiness = (command) =>
+  run(
+    "docker",
+    [...compose, "exec", "-T", "asterisk", "asterisk", "-rx", command],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+  );
+assert.match(
+  readiness("module show like res_srtp.so"),
+  /res_srtp\.so.*Running/,
+);
+assert.match(readiness("pjsip show transports"), /transport-tls\s+tls/);
 run(
   "cargo",
   [
@@ -106,11 +135,12 @@ run(
     "-p",
     "baresip-adapter",
     "--features",
-    "native",
+    "native-test-hooks",
     "--lib",
     "--",
     "--ignored",
     "--test-threads=1",
+    "--nocapture",
   ],
   {
     env: { ...process.env, SIP_TEST_PASSWORD: "sip-lab-only-not-a-secret" },
@@ -119,3 +149,17 @@ run(
 console.log(
   `Recording: ${recording}\nLab remains available; stop with bun run lab:down.`,
 );
+
+// --ignored excludes controlled TLS negatives: run all eight explicitly too.
+run("cargo", [
+  "test",
+  "--locked",
+  "-p",
+  "baresip-adapter",
+  "--features",
+  "native-test-hooks",
+  "--lib",
+  "security_tests::",
+  "--",
+  "--test-threads=1",
+]);

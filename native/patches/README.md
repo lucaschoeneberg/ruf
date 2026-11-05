@@ -168,3 +168,13 @@ secure-state reset and consistent TX/RX suite replacement/rekey. Stream update
 failures propagate to the session instead of leaving a gated but apparently usable
 call. See [security API](../../docs/api/account-security.md) for configured and
 observed state, limitations and focused test commands.
+
+## Private SIP header declaration
+
+`re-security.patch` forward-declares `struct udp_sock` in the private SIP
+interface. Its keepalive prototypes use that type even when a caller (ACK or
+Contact code) does not include the UDP API. The declaration avoids a prototype-
+local incomplete type without introducing an unrelated header dependency. Exact
+patch text remains the SDK compatibility guard and participates in the existing
+ordered patch hashes in the generated native SBOM. Rebuild via
+`bun run native:build` after any tracked patch change.

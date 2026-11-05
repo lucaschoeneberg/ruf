@@ -216,3 +216,6 @@ mod clipboard_tests {
 
 #[cfg(all(test, feature = "native-test-hooks"))]
 mod security_tests;
+
+#[cfg(all(test, feature = "native"))]
+mod asterisk_tests;
