@@ -67,6 +67,14 @@ A changed endpoint requires fresh identity validation. The TLS floor is sticky:
 Contact/Route transport parameters, DNS selection, retries, in-dialog plaintext
 requests/responses, ACK/CANCEL and transfer NOTIFY cannot downgrade it. Explicit
 insecure next-hop parameters fail before signaling payload is sent.
+Incoming messages must also match the dialog/transaction's actual verified peer
+hostname, before CSeq, SDP or termination processing. A fresh unverified TLS socket
+or another verified hostname cannot acquire authority using matching SIP IDs.
+An initially unverified inbound TLS dialog accepts messages only on its original
+live connection and never reports verified peer evidence.
+Its outgoing controls and their replies also remain bound to that original live
+channel and endpoint. Endpoint changes or loss of that channel fail closed;
+unverified channel continuity cannot establish trust for a new connection.
 
 Mandatory SRTP blocks outgoing and incoming RTP/RTCP before keys are ready,
 rejects absent/malformed/unsupported crypto and closes the gate during rekey or
@@ -92,10 +100,18 @@ A failed account does not alter another account's registration or call ownership
 The explicit `baresip-adapter/native-test-hooks` feature adds the Rust harness-only
 `Engine::start_with_test_ca` constructor. It loads exclusive generated test roots
 for an isolated engine, never changes OS stores and has no desktop IPC command.
+`start_with_test_ca_and_dns` additionally selects a nonzero loopback nameserver;
+`start_with_test_dns` changes only that endpoint and retains production OS trust.
+These constructors leave the production resolver algorithm unchanged. Invalid
+DNS endpoints return `invalidInput`; no production DNS or trust override is added.
 Production builds do not enable this feature. Test keys/build output remain ignored.
 Run `bun scripts/check-native-security.mjs` after the SDK build for packet gates,
 invalid keys/rekey, TLS dialog/CSeq and transaction checks, and
 `cargo test --locked -p baresip-adapter --features native-test-hooks security_tests`
 for real TLS/SIP fixtures. `--upstream-red` on the C harness verifies the pinned
-unpatched source fails the targeted policy checks. Native Windows runtime,
+unpatched source fails the five original policy checks; the additional authority
+predicate has a separate pre-fix real-wire regression. The Python fixture requires
+Python 3 and the OpenSSL CLI, generates one-day roots/keys under ignored
+`native/build`, and runs private loopback TLS/DNS endpoints without OS changes.
+Native Windows runtime,
 Linux distro trust and older macOS runtime require separate observed verification.

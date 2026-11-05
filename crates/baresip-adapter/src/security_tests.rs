@@ -14,6 +14,7 @@ struct Peer {
     process: Child,
     directory: PathBuf,
     port: u16,
+    dns: std::net::SocketAddr,
 }
 impl Peer {
     fn new(label: &str, mode: &str) -> Self {
@@ -33,17 +34,22 @@ impl Peer {
         BufReader::new(process.stdout.take().unwrap())
             .read_line(&mut port)
             .unwrap();
+        let mut ports = port.split_whitespace();
+        let port = ports.next().unwrap().parse().unwrap();
+        let dns_port: u16 = ports.next().unwrap().parse().unwrap();
         Self {
             process,
             directory,
-            port: port.trim().parse().unwrap(),
+            port,
+            dns: ([127, 0, 0, 1], dns_port).into(),
         }
     }
     fn engine(&self) -> Engine {
-        Engine::start_with_test_ca(
+        Engine::start_with_test_ca_and_dns(
             AudioMode::TestTone,
             Some(std::env::temp_dir().join(format!("ruf-sec-{}.wav", std::process::id()))),
             self.directory.join("ca.pem"),
+            self.dns,
         )
         .unwrap()
     }
@@ -134,6 +140,7 @@ fn trusted_tls_contact_ip_keeps_identity_and_other_hostname_cannot_borrow_connec
     });
     engine.hangup_call(&id).unwrap();
     wait(&engine, |s| s.call == CallState::Idle);
+    assert!(peer.packets().contains("DNS 1"));
     assert!(peer.packets().contains("ACK "));
     assert!(peer.packets().contains("BYE "));
     engine.shutdown().unwrap();
@@ -167,9 +174,10 @@ fn platform_default_does_not_trust_generated_private_root() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let peer = Peer::new("untrusted", "valid");
-    let mut engine = Engine::start(
+    let mut engine = Engine::start_with_test_dns(
         AudioMode::TestTone,
         Some(std::env::temp_dir().join(format!("ruf-sec-{}.wav", std::process::id()))),
+        peer.dns,
     )
     .unwrap();
     engine.configure_account(&peer.config("localhost")).unwrap();
@@ -178,6 +186,7 @@ fn platform_default_does_not_trust_generated_private_root() {
         state.accounts[0].last_error.as_ref().unwrap().code,
         ErrorCode::CertificateRejected
     );
+    assert!(peer.packets().contains("DNS 1"));
     assert!(!peer.packets().contains("REGISTER "));
     engine.shutdown().unwrap();
 }
@@ -193,6 +202,7 @@ fn tls_proxy_routes_and_separate_digest_username_authenticates() {
     config.outbound_proxy = Some(format!("localhost:{}", peer.port));
     engine.configure_account(&config).unwrap();
     wait(&engine, |s| s.registration == RegistrationState::Registered);
+    assert!(peer.packets().contains("DNS 1"));
     assert!(peer.packets().contains("AUTH digest-user"));
     engine.dial("600").unwrap();
     wait(&engine, |s| {
@@ -271,4 +281,49 @@ fn incoming_call_on_authenticated_outbound_tls_connection_retains_actual_peer_ev
     engine.hangup().unwrap();
     engine.shutdown().unwrap();
     assert!(!peer.packets().contains("PLAINTEXT"));
+}
+
+#[test]
+fn another_verified_tls_host_cannot_terminate_an_existing_dialog() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let peer = Peer::new("peer-authority", "peer-attack");
+    let mut engine = peer.engine();
+    let first = engine
+        .save_account(None, "A", &peer.config("localhost"))
+        .unwrap();
+    engine.wait_account_update(first).unwrap();
+    wait(&engine, |s| {
+        s.accounts[0].registration == RegistrationState::Registered
+    });
+    let mut second = peer.config("127.0.0.1");
+    second.username = "other-host".into();
+    let id = engine.save_account(None, "B", &second).unwrap();
+    engine.wait_account_update(id).unwrap();
+    wait(&engine, |s| {
+        s.accounts
+            .iter()
+            .all(|a| a.registration == RegistrationState::Registered)
+    });
+    engine.dial("600").unwrap();
+    let state = wait(&engine, |s| s.call == CallState::Active);
+    let token = state.call_id.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !peer.packets().contains("ATTACK_SENT") {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        engine.snapshot().unwrap().call,
+        CallState::Active,
+        "a verified wrong-host socket acquired dialog authority"
+    );
+    engine.set_call_held(&token, true).unwrap();
+    wait(&engine, |s| {
+        s.calls[0].local_held && !s.calls[0].hold_pending
+    });
+    engine.hangup_call(&token).unwrap();
+    engine.shutdown().unwrap();
 }

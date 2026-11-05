@@ -6,8 +6,11 @@ def run(*args):
 if not (root/'server.pem').exists():
     run('req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=Ruf Test Root','-addext','basicConstraints=critical,CA:TRUE','-keyout',str(root/'ca.key'),'-out',str(root/'ca.pem'))
     run('req','-newkey','rsa:2048','-nodes','-subj','/CN=localhost','-keyout',str(root/'server.key'),'-out',str(root/'server.csr'))
-    (root/'extensions').write_text('subjectAltName=DNS:localhost\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
+    (root/'extensions').write_text(('subjectAltName=DNS:localhost'+(',IP:127.0.0.1' if mode=='peer-attack' else '')+'\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n'))
     run('x509','-req','-in',str(root/'server.csr'),'-CA',str(root/'ca.pem'),'-CAkey',str(root/'ca.key'),'-CAcreateserial','-days','1','-extfile',str(root/'extensions'),'-out',str(root/'server.pem'))
+if mode=='certificates':sys.exit(0)
+channels={}
+active_invite=None
 context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(root/'server.pem',root/'server.key')
 listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen();port=listener.getsockname()[1]
 rtp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);rtp.bind(('127.0.0.1',0));rtpport=rtp.getsockname()[1]
@@ -19,6 +22,7 @@ def log(line):
 def header(message,name):
     return next(line.split(':',1)[1].strip() for line in message.split('\r\n') if line.lower().startswith(name.lower()+':'))
 def serve(raw):
+    global active_invite
     try:
         sock=raw if mode=='tcp' else context.wrap_socket(raw,server_side=True);log('CONNECTED' if mode=='tcp' else 'HANDSHAKE');pending=b''; incoming_sent=False
         while True:
@@ -42,6 +46,13 @@ def serve(raw):
                     target=header(message,'Contact').split('<')[1].split('>')[0]
                     ack=f'ACK {target} SIP/2.0\r\nVia: SIP/2.0/TLS 127.0.0.1:{port};branch=z9hG4bK-incoming-ack\r\nFrom: {header(message,"From")}\r\nTo: {header(message,"To")}\r\nCall-ID: {header(message,"Call-ID")}\r\nCSeq: 1 ACK\r\nContent-Length: 0\r\n\r\n'
                     sock.sendall(ack.encode());continue
+                if method=='REGISTER' and mode=='peer-attack':
+                    user=header(message,'From').split('sip:')[1].split('@')[0];channels[user]=sock
+                if method=='INVITE' and mode=='peer-attack':active_invite=message
+                if method=='ACK' and mode=='peer-attack' and active_invite and 'other-host' in channels:
+                    to=header(active_invite,'To')+';tag=tls-peer'
+                    attack=f'BYE sip:peer@localhost SIP/2.0\r\nVia: SIP/2.0/TLS 127.0.0.1:{port};branch=z9hG4bK-wrong-peer\r\nFrom: {to}\r\nTo: {header(active_invite,"From")}\r\nCall-ID: {header(active_invite,"Call-ID")}\r\nCSeq: 999 BYE\r\nContent-Length: 0\r\n\r\n'
+                    channels['other-host'].sendall(attack.encode());log('ATTACK_SENT');active_invite=None
                 if method=='ACK':continue
                 if method not in ('REGISTER','INVITE','BYE','INFO','REFER','OPTIONS'):continue
                 to=header(message,'To');to=to if ';tag=' in to else to+';tag=tls-peer'
@@ -68,6 +79,21 @@ def plaintext_receiver():
         packet,_=udp.recvfrom(65535)
         if packet:log('PLAINTEXT RECEIVED')
 threading.Thread(target=plaintext_receiver,daemon=True).start()
-print(port,flush=True)
+# A private DNS server changes endpoints, not the production resolver algorithm.
+dns=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);dns.bind(('127.0.0.1',0));dnsport=dns.getsockname()[1]
+def resolve():
+    while True:
+        packet,address=dns.recvfrom(4096)
+        if len(packet)<12:continue
+        end=12
+        while end<len(packet) and packet[end]:end+=1+packet[end]
+        end+=1
+        if end+4>len(packet):continue
+        kind=int.from_bytes(packet[end:end+2],'big');question=packet[12:end+4]
+        answer=b'\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x1e\x00\x04\x7f\x00\x00\x01' if kind==1 else b''
+        reply=packet[:2]+b'\x81\x80\x00\x01'+(b'\x00\x01' if answer else b'\x00\x00')+b'\x00\x00\x00\x00'+question+answer
+        dns.sendto(reply,address);log('DNS '+str(kind))
+threading.Thread(target=resolve,daemon=True).start()
+print(port,dnsport,flush=True)
 while True:
     raw,_=listener.accept();threading.Thread(target=serve,args=(raw,),daemon=True).start()

@@ -225,7 +225,7 @@ index ffd1ea1..8013a47 100644
  	.mediah    = media_alloc,
  	.txrekeyh  = media_txrekey
 diff --git a/src/call.c b/src/call.c
-index cad246b..1813c8f 100644
+index cad246b..4cc3731 100644
 --- a/src/call.c
 +++ b/src/call.c
 @@ -49,6 +49,8 @@ struct call {
@@ -303,16 +303,70 @@ index cad246b..1813c8f 100644
  
  	if (err) {
  		info("%s: session closed: %m\n", call->peer_uri, err);
-@@ -2468,6 +2485,8 @@ static struct call *call_find_replaces(const struct list *calls,
+@@ -2445,46 +2462,33 @@ static struct call *call_find_replaces(const struct list *calls,
+ 				       const struct pl *hdr)
+ {
+ 	struct le *le;
+-	struct sip_msg msg = { 0 };
++	struct pl callid = pl_null, local_tag = pl_null, remote_tag = pl_null;
+ 	struct call *ret = NULL;
  
- 	for (le = list_head(calls); le; le = le->next) {
- 		struct call *call = le->data;
-+		/* Trusted internal identity lookup, not an incoming network message. */
-+		msg.tp = call_transp(call);
+ 	if (!calls || !pl_isset(hdr))
+ 		return NULL;
  
- 		if (pl_isset(&msg.from.tag) && pl_isset(&msg.to.tag) &&
- 		    sip_dialog_cmp(sipsess_dialog(call->sess), &msg)) {
-@@ -2499,6 +2518,7 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
+-	msg.req = true;
+-	msg.callid.p = hdr->p;
+-	msg.callid.l = hdr->l;
++	callid.p = hdr->p;
++	callid.l = hdr->l;
+ 
+-	if (pl_strchr(&msg.callid, ';')) {
+-		msg.callid.l = (size_t)(pl_strchr(&msg.callid, ';')
+-				- msg.callid.p);
++	if (pl_strchr(&callid, ';')) {
++		callid.l = (size_t)(pl_strchr(&callid, ';')
++				- callid.p);
+ 	}
+ 
+-	if (!pl_isset(&msg.callid))
++	if (!pl_isset(&callid))
+ 		return NULL;
+ 
+-	(void)re_regex(hdr->p, hdr->l, ";to-tag=[^; ]+", &msg.to.tag);
+-	(void)re_regex(hdr->p, hdr->l, ";from-tag=[^; ]+", &msg.from.tag);
++	(void)re_regex(hdr->p, hdr->l, ";to-tag=[^; ]+", &local_tag);
++	(void)re_regex(hdr->p, hdr->l, ";from-tag=[^; ]+", &remote_tag);
+ 
+-	for (le = list_head(calls); le; le = le->next) {
+-		struct call *call = le->data;
+-
+-		if (pl_isset(&msg.from.tag) && pl_isset(&msg.to.tag) &&
+-		    sip_dialog_cmp(sipsess_dialog(call->sess), &msg)) {
+-			ret = call;
+-			break;
+-		}
+-		else if (pl_isset(&msg.to.tag) &&
+-			 sip_dialog_cmp_half(sipsess_dialog(call->sess),
+-					     &msg)) {
+-			ret = call;
+-			break;
+-		}
+-		else if (0 == pl_strcmp(&msg.callid, call->id)) {
+-			ret = call;
+-			break;
+-		}
+-	}
++    for (le = list_head(calls); le; le = le->next) {
++        struct call *call = le->data;
++        /* ID lookup is not network authorization; call_accept checks the real peer. */
++        if (sip_dialog_match_id(sipsess_dialog(call->sess), &callid, &local_tag, &remote_tag)) {
++            ret = call; break;
++        }
++    }
+ 
+ 	return ret;
+ }
+@@ -2499,6 +2503,7 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
  	if (!call || !msg)
  		return EINVAL;
  
@@ -320,7 +374,19 @@ index cad246b..1813c8f 100644
  	call->outgoing = false;
  	if (pl_isset(&msg->from.dname)) {
  		err = pl_strdup(&call->peer_name, &msg->from.dname);
-@@ -2654,6 +2674,7 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
+@@ -2575,6 +2580,11 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
+ 
+ 			return 0;
+ 		}
++        else if (!sip_dialog_peer_authorized(sipsess_dialog(rcall->sess), msg)) {
++            sip_treply(NULL, uag_sip(), msg, 403, "Forbidden");
++            call_event_handler(call, CALL_EVENT_CLOSED, "Replaces peer rejected");
++            return 0;
++        }
+ 		else {
+ 			call_stream_stop(rcall);
+ 			call_event_handler(rcall, CALL_EVENT_CLOSED,
+@@ -2654,6 +2664,7 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
  	bool media;
  
  	MAGIC_CHECK(call);
@@ -328,7 +394,7 @@ index cad246b..1813c8f 100644
  
  	info("call: SIP Progress: %u %r (%r/%r)\n",
  	     msg->scode, &msg->reason, &msg->ctyp.type, &msg->ctyp.subtype);
-@@ -3656,3 +3677,11 @@ bool call_sdp_change_allowed(const struct call *call)
+@@ -3656,3 +3667,11 @@ bool call_sdp_change_allowed(const struct call *call)
  		|| (sdp_state == SDP_NEG_NONE
  		|| sdp_state == SDP_NEG_REMOTE_OFFER);
  }

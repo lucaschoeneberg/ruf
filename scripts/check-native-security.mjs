@@ -34,7 +34,9 @@ for (const [test, macro, project, file] of [
   ["request", "REQUEST_SOURCE", "re", "src/sip/request.c"],
   ["ctrans", "CTRANS_SOURCE", "re", "src/sip/ctrans.c"],
   ["strans", "STRANS_SOURCE", "re", "src/sip/strans.c"],
+  ["peer", "PEER_SOURCE", "re", "src/sip/transp.c"],
 ]) {
+  if (upstream && test === "peer") continue; // authority API has a recorded pre-fix wire RED
   const source = join(
     upstream
       ? join(root, "native/build/sources", project)
@@ -46,6 +48,8 @@ for (const [test, macro, project, file] of [
   const args = [
     "-std=c11",
     "-DUSE_OPENSSL",
+    "-DUSE_TLS",
+    ...(upstream ? ["-DSECURITY_UPSTREAM_RED"] : []),
     `-D${macro}="${source}"`,
     `-I${join(sdk, "include")}`,
     `-I${join(sdk, "include/re")}`,

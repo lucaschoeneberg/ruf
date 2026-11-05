@@ -61,7 +61,7 @@ pub struct Engine {
 impl Engine {
     /// Start the native event loop; a test-tone player requires a WAV output path.
     pub fn start(audio: AudioMode, recording: Option<PathBuf>) -> Result<Self, PhoneError> {
-        Self::start_with_trust(audio, recording, None)
+        Self::start_with_trust(audio, recording, None, None)
     }
     /// Isolated native harness constructor using exclusive generated test trust.
     /// Available only with native-test-hooks; never changes platform stores.
@@ -71,12 +71,32 @@ impl Engine {
         recording: Option<PathBuf>,
         ca: PathBuf,
     ) -> Result<Self, PhoneError> {
-        Self::start_with_trust(audio, recording, Some(ca))
+        Self::start_with_trust(audio, recording, Some(ca), None)
+    }
+    /// Native loopback DNS fixture with exclusive generated test trust.
+    #[cfg(feature = "native-test-hooks")]
+    pub fn start_with_test_ca_and_dns(
+        audio: AudioMode,
+        recording: Option<PathBuf>,
+        ca: PathBuf,
+        dns: std::net::SocketAddr,
+    ) -> Result<Self, PhoneError> {
+        Self::start_with_trust(audio, recording, Some(ca), Some(dns))
+    }
+    /// Native DNS fixture while preserving the ordinary platform trust constructor policy.
+    #[cfg(feature = "native-test-hooks")]
+    pub fn start_with_test_dns(
+        audio: AudioMode,
+        recording: Option<PathBuf>,
+        dns: std::net::SocketAddr,
+    ) -> Result<Self, PhoneError> {
+        Self::start_with_trust(audio, recording, None, Some(dns))
     }
     fn start_with_trust(
         audio: AudioMode,
         recording: Option<PathBuf>,
         ca: Option<PathBuf>,
+        dns: Option<std::net::SocketAddr>,
     ) -> Result<Self, PhoneError> {
         #[cfg(feature = "native")]
         {
@@ -88,7 +108,7 @@ impl Engine {
                 ..Default::default()
             }));
             let native =
-                crate::ffi::NativeEngine::start(Arc::clone(&snapshot), audio, recording, ca)?;
+                crate::ffi::NativeEngine::start(Arc::clone(&snapshot), audio, recording, ca, dns)?;
             Ok(Self {
                 snapshot,
                 audio,
@@ -97,7 +117,7 @@ impl Engine {
         }
         #[cfg(not(feature = "native"))]
         {
-            let _ = (audio, recording, ca);
+            let _ = (audio, recording, ca, dns);
             Err(PhoneError::new(
                 ErrorCode::EngineUnavailable,
                 "Rebuild with the native feature and a matching native SDK.",

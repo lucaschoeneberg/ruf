@@ -69,6 +69,8 @@ unsafe extern "C" {
     ) -> *mut c_void;
     #[cfg(feature = "native-test-hooks")]
     fn sip_engine_set_test_ca(handle: *mut c_void, path: *const std::ffi::c_char) -> i32;
+    #[cfg(feature = "native-test-hooks")]
+    fn sip_engine_set_test_dns(handle: *mut c_void, ip: *const std::ffi::c_char, port: u16) -> i32;
     fn sip_engine_run(handle: *mut c_void) -> i32;
     fn sip_engine_reserve_call_generation(handle: *mut c_void) -> u64;
     fn sip_engine_request(
@@ -833,6 +835,7 @@ impl NativeEngine {
         audio: AudioMode,
         recording: Option<PathBuf>,
         test_ca: Option<PathBuf>,
+        test_dns: Option<std::net::SocketAddr>,
     ) -> Result<Self, PhoneError> {
         let recording = recording.as_deref().and_then(|p| p.to_str()).unwrap_or("");
         if matches!(audio, AudioMode::TestTone) && (recording.is_empty() || recording.len() > 127) {
@@ -855,6 +858,18 @@ impl NativeEngine {
                         )
                     })?;
                 cstring(path)
+            })
+            .transpose()?;
+        #[cfg(feature = "native-test-hooks")]
+        let test_dns = test_dns
+            .map(|dns| {
+                if !dns.ip().is_loopback() || dns.port() == 0 {
+                    return Err(PhoneError::new(
+                        ErrorCode::InvalidInput,
+                        "Test DNS must be a nonzero loopback endpoint.",
+                    ));
+                }
+                Ok((cstring(&dns.ip().to_string())?, dns.port()))
             })
             .transpose()?;
         if ENGINE_LEASE.swap(true, Ordering::AcqRel) {
@@ -893,8 +908,20 @@ impl NativeEngine {
                 return Err(native_error(code));
             }
         }
+        #[cfg(feature = "native-test-hooks")]
+        if let Some((ip, port)) = test_dns {
+            let code = unsafe { sip_engine_set_test_dns(raw, ip.as_ptr(), port) };
+            if code != 0 {
+                unsafe {
+                    sip_engine_destroy(raw);
+                    drop(Box::from_raw(context.as_ptr()));
+                }
+                ENGINE_LEASE.store(false, Ordering::Release);
+                return Err(native_error(code));
+            }
+        }
         #[cfg(not(feature = "native-test-hooks"))]
-        debug_assert!(test_ca.is_none());
+        debug_assert!(test_ca.is_none() && test_dns.is_none());
         let handle = Handle(pointer);
         let thread = match thread::Builder::new()
             .name("baresip-event-loop".into())

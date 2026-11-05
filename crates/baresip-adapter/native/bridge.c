@@ -79,7 +79,8 @@ struct engine {
     struct tmr control_timer;
     int control_action;
     char consultation_destination[65];
-    char test_ca[1024];
+    char test_ca[1024], test_dns_ip[64];
+    uint16_t test_dns_port;
     char recording[128];
     int audio_mode;
     bool ringtone_enabled;
@@ -906,7 +907,11 @@ int sip_engine_run(void *handle) {
     }
     if (!error) error = baresip_init(conf_config());
 #ifdef SIP_NATIVE_TEST_HOOKS
-    if (!error) dnsc_getaddrinfo(net_dnsc(baresip_network()), true);
+    if (!error && e->test_dns_port) {
+        struct sa server;
+        error = sa_set_str(&server,e->test_dns_ip,e->test_dns_port);
+        if (!error) error = dnsc_srv_set(net_dnsc(baresip_network()),&server,1);
+    }
 #endif
     /* Upstream auto-enumeration excludes IPv4 loopback. Local PBX calls still
        need a matching media address; add it through the existing network API. */
@@ -1013,6 +1018,13 @@ void sip_engine_destroy(void *handle) {
 }
 
 #ifdef SIP_NATIVE_TEST_HOOKS
+int sip_engine_set_test_dns(void *handle, const char *ip, uint16_t port) {
+    struct engine *e = handle;
+    struct sa server;
+    if (!e || !ip || !port || e->running || strlen(ip)>=sizeof(e->test_dns_ip)
+        || sa_set_str(&server,ip,port) || !sa_is_loopback(&server)) return EINVAL;
+    str_ncpy(e->test_dns_ip,ip,sizeof(e->test_dns_ip));e->test_dns_port=port;return 0;
+}
 int sip_engine_set_test_ca(void *handle, const char *path) {
     struct engine *e = handle;
     if (!e || !path || !path[0] || strlen(path) >= sizeof(e->test_ca) || e->running) return EINVAL;
