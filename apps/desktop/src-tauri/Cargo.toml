@@ -17,7 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build.workspace = true
-serde_json = "1"
+serde_json.workspace = true
 
 [dependencies]
 tauri = { workspace = true, features = ["tray-icon"] }
@@ -27,7 +27,7 @@ tauri-plugin-dialog = "2"
 phone-core.workspace = true
 baresip-adapter.workspace = true
 serde.workspace = true
-serde_json = "1"
+serde_json.workspace = true
 rusqlite.workspace = true
 getrandom = "0.4"
 

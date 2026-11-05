@@ -36,6 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let recording = std::path::absolute(recording)?;
     let account = AccountConfig {
+        transport: Default::default(),
+        media_security: Default::default(),
+        auth_username: None,
+        outbound_proxy: None,
         registrar: env::var("SIP_TEST_REGISTRAR").unwrap_or_else(|_| "127.0.0.1:5070".into()),
         username: env::var("SIP_TEST_USERNAME").unwrap_or_else(|_| "1000".into()),
         password: env::var("SIP_TEST_PASSWORD")

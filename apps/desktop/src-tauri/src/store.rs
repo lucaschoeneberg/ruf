@@ -18,6 +18,14 @@ pub(crate) struct SavedAccount {
     pub name: String,
     pub registrar: String,
     pub username: String,
+    #[serde(default)]
+    pub transport: phone_core::SipTransport,
+    #[serde(default)]
+    pub media_security: phone_core::MediaSecurityPolicy,
+    #[serde(default)]
+    pub auth_username: Option<String>,
+    #[serde(default)]
+    pub outbound_proxy: Option<String>,
 }
 
 fn enabled_by_default() -> bool {
@@ -113,6 +121,10 @@ impl AccountStore {
         }
         for (index, account) in settings.accounts.iter().enumerate() {
             AccountConfig {
+                transport: account.transport,
+                media_security: account.media_security,
+                auth_username: account.auth_username.clone(),
+                outbound_proxy: account.outbound_proxy.clone(),
                 registrar: account.registrar.clone(),
                 username: account.username.clone(),
                 password: "unavailable".into(),
@@ -529,6 +541,10 @@ mod tests {
         };
         let mut settings = SavedSettings::default();
         settings.accounts.push(SavedAccount {
+            transport: phone_core::SipTransport::Tls,
+            media_security: phone_core::MediaSecurityPolicy::Required,
+            auth_username: Some("digest".into()),
+            outbound_proxy: Some("proxy.test:5061".into()),
             enabled: true,
             key: "abcd-1234".into(),
             name: "Büro".into(),
@@ -541,6 +557,7 @@ mod tests {
         let bytes = fs::read_to_string(&store.path).unwrap();
         assert!(!bytes.contains("password"));
         assert_eq!(store.load().unwrap().accounts[0].name, "Privat");
+        assert_eq!(store.load().unwrap().accounts, settings.accounts);
         // Existing v1 metadata predates sound preferences and must keep loading.
         let mut legacy = serde_json::to_value(&settings).unwrap();
         legacy.as_object_mut().unwrap().remove("sound");
@@ -560,6 +577,10 @@ mod tests {
         };
         let valid = SavedSettings {
             accounts: vec![SavedAccount {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 enabled: true,
                 key: "abcd-1234".into(),
                 name: "Synthetic account".into(),

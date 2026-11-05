@@ -1,0 +1,326 @@
+diff --git a/include/baresip.h b/include/baresip.h
+index 2237daf..d40b359 100644
+--- a/include/baresip.h
++++ b/include/baresip.h
+@@ -1931,3 +1931,11 @@ int http_reply_json(struct http_conn *conn, const char *sessid,
+ 
+ 
+ #endif /* BARESIP_H__ */
++
++/** Last numeric native registration failure for this UA; zero if no local error. */
++int ua_registration_error(const struct ua *ua);
++/** Observed authentication of the actual most recent call signaling peer. */
++bool call_tls_peer_verified_for(const struct call *call, const char *expected_host);
++
++/** Numeric originating call failure; zero when no native failure. */
++int call_native_error(const struct call *call);
+diff --git a/modules/srtp/srtp.c b/modules/srtp/srtp.c
+index ffd1ea1..4e17f66 100644
+--- a/modules/srtp/srtp.c
++++ b/modules/srtp/srtp.c
+@@ -41,6 +41,7 @@ struct menc_st {
+ 	uint8_t key_rx[46];
+ 	struct srtp *srtp_tx, *srtp_rx;
+ 	mtx_t *mtx_tx, *mtx_rx;
++	bool mandatory;
+ 	RE_ATOMIC bool use_srtp;
+ 	RE_ATOMIC bool got_sdp;
+ 	char *crypto_suite;
+@@ -199,8 +200,8 @@ static bool send_handler(int *err, struct sa *dst, struct mbuf *mb, void *arg)
+ 	int lerr = 0;
+ 	(void)dst;
+ 
+-	if (!re_atomic_rlx(&st->use_srtp) || !is_rtp_or_rtcp(mb))
+-		return false;
++	if (!is_rtp_or_rtcp(mb)) return false;
++	if (!re_atomic_rlx(&st->use_srtp)) return st->mandatory;
+ 
+ 	lerr = mtx_trylock(st->mtx_tx) != thrd_success;
+ 	if (lerr)
+@@ -245,8 +246,8 @@ static bool recv_handler(struct sa *src, struct mbuf *mb, void *arg)
+ 	if (!re_atomic_rlx(&st->got_sdp))
+ 		return true;  /* drop the packet */
+ 
+-	if (!re_atomic_rlx(&st->use_srtp) || !is_rtp_or_rtcp(mb))
+-		return false;
++	if (!is_rtp_or_rtcp(mb)) return false;
++	if (!re_atomic_rlx(&st->use_srtp)) return st->mandatory;
+ 
+ 	err = mtx_trylock(st->mtx_rx) != thrd_success;
+ 	if (err)
+@@ -324,7 +325,7 @@ static int start_crypto(struct menc_st *st, const struct pl *key_info)
+ 		warning("srtp: %s: %s: srtp keylen is %u (should be %zu)\n",
+ 			stream_name(st->strm), st->crypto_suite, olen, len);
+ 		mem_deref(new_key);
+-		return err;
++		return EPROTO;
+ 	}
+ 
+ 	if (olen > sizeof(st->key_rx)) {
+@@ -380,6 +381,7 @@ static bool sdp_attr_handler(const char *name, const char *value, void *arg)
+ 	if (sdes_decode_crypto(&c, value))
+ 		return false;
+ 
++	if (!c.tag || c.lifetime.l || c.mki.l || c.sess_prms.l) return false;
+ 	if (0 != pl_strcmp(&c.key_method, "inline"))
+ 		return false;
+ 
+@@ -388,6 +390,8 @@ static bool sdp_attr_handler(const char *name, const char *value, void *arg)
+ 
+ 	/* receiving crypto-suite changed -> reset srtp_rx */
+ 	if (st->srtp_rx && pl_strcmp(&c.suite, st->crypto_suite)) {
++		rand_bytes(st->key_tx, sizeof(st->key_tx));
++		mtx_lock(st->mtx_tx); st->srtp_tx = mem_deref(st->srtp_tx); mtx_unlock(st->mtx_tx);
+ 		info ("srtp (%s-rx): cipher suite changed from %s to %r\n",
+ 			stream_name(st->strm), st->crypto_suite, &c.suite);
+ 		mtx_lock(st->mtx_rx);
+@@ -416,6 +420,7 @@ static int media_txrekey(struct menc_media *m)
+ 	if (!st)
+ 		return EINVAL;
+ 
++	if (st->mandatory) { re_atomic_rlx_set(&st->use_srtp, false); stream_set_secure((struct stream *)st->strm, false); }
+ 	mtx_lock(st->mtx_tx);
+ 	st->srtp_tx = mem_deref(st->srtp_tx);
+ 	mtx_unlock(st->mtx_tx);
+@@ -432,7 +437,7 @@ static int media_txrekey(struct menc_media *m)
+ 		}
+ 	}
+ 
+-	return err;
++	return st->mandatory && !rattr && sdp_media_rport(st->sdpm) ? SIP_SECURITY_MEDIA : err;
+ }
+ 
+ 
+@@ -495,6 +500,7 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
+ 			return err;
+ 
+ 		st->sess = sess;
++		st->mandatory = str_cmp(sdp_media_proto(sdpm), "RTP/AVP") != 0;
+ 		st->sdpm = mem_ref(sdpm);
+ 		st->strm = strm;
+ 
+@@ -531,7 +537,11 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
+ 		rand_bytes(st->key_tx, sizeof(st->key_tx));
+ 	}
+ 
+-	/* SDP handling */
++	/* SDP handling: no plaintext or stale secure state across renegotiation. */
++    if (st->mandatory) {
++        re_atomic_rlx_set(&st->use_srtp, false);
++        stream_set_secure((struct stream *)strm, false);
++    }
+ 
+ 	if (sdp_media_rport(sdpm))
+ 		re_atomic_rlx_set(&st->got_sdp, true);
+@@ -546,12 +556,18 @@ static int media_alloc(struct menc_media **stp, struct menc_sess *sess,
+ 		}
+ 	}
+ 
++    if (st->mandatory && !sdp_media_remote_proto_supported(sdpm)) {
++        err = SIP_SECURITY_MEDIA; goto out;
++    }
++    if (!rattr && st->mandatory && sdp_media_rport(sdpm)) {
++        err = SIP_SECURITY_MEDIA; goto out;
++    }
+ 	if (!rattr)
+ 		err = sdp_enc(st, sdpm, 1, st->crypto_suite);
+ 
+  out:
+ 	if (err)
+-		mem_deref(st);
++		{ if (!*stp) mem_deref(st); }
+ 	else
+ 		*stp = (struct menc_media *)st;
+ 
+@@ -570,6 +586,7 @@ static struct menc menc_srtp_opt = {
+ static struct menc menc_srtp_mand = {
+ 	.id        = "srtp-mand",
+ 	.sdp_proto = "RTP/SAVP",
++	.wait_secure = true,
+ 	.sessh     = session_alloc,
+ 	.mediah    = media_alloc,
+ 	.txrekeyh  = media_txrekey
+@@ -578,6 +595,7 @@ static struct menc menc_srtp_mand = {
+ static struct menc menc_srtp_mandf = {
+ 	.id        = "srtp-mandf",
+ 	.sdp_proto = "RTP/SAVPF",
++	.wait_secure = true,
+ 	.sessh     = session_alloc,
+ 	.mediah    = media_alloc,
+ 	.txrekeyh  = media_txrekey
+diff --git a/src/call.c b/src/call.c
+index cad246b..662c26c 100644
+--- a/src/call.c
++++ b/src/call.c
+@@ -49,6 +49,8 @@ struct call {
+ 	char *contact_uri;        /**< Peer Contact SIP Address             */
+ 	char *peer_uri;           /**< Peer SIP Address                     */
+ 	char *peer_name;          /**< Peer display name                    */
++	int native_error;
++	char *tls_verified_host;
+ 	struct sa msg_src;        /**< Peer message source address          */
+ 	char *diverter_uri;       /**< Diverter SIP Address                 */
+ 	char *id;                 /**< Cached session call-id               */
+@@ -268,7 +270,8 @@ static int call_apply_sdp(struct call *call)
+ 	FOREACH_STREAM {
+ 		struct stream *strm = le->data;
+ 
+-		stream_update(strm);
++		err = stream_update(strm);
++		if (err) return err;
+ 
+ 		if (stream_is_ready(strm)) {
+ 
+@@ -352,6 +355,7 @@ static void call_destructor(void *arg)
+ 	tmr_cancel(&call->tmr_answ);
+ 	tmr_cancel(&call->tmr_reinv);
+ 
++	mem_deref(call->tls_verified_host);
+ 	mem_deref(call->sess);
+ 	mem_deref(call->id);
+ 	mem_deref(call->local_uri);
+@@ -1978,6 +1982,14 @@ static bool detect_hold_resume(enum bevent_ev *ev, struct call *call,
+ }
+ 
+ 
++static void observe_tls(struct call *call, const struct sip_msg *msg)
++{
++    const char *host = sip_msg_tls_peer_verified_host(msg);
++    char *copy = NULL;
++    if (host) (void)str_dup(&copy, host);
++    mem_deref(call->tls_verified_host); call->tls_verified_host = copy;
++}
++
+ static int sipsess_offer_handler(struct mbuf **descp,
+ 				 const struct sip_msg *msg, void *arg)
+ {
+@@ -1987,6 +1999,7 @@ static int sipsess_offer_handler(struct mbuf **descp,
+ 	int err;
+ 
+ 	MAGIC_CHECK(call);
++	observe_tls(call, msg);
+ 
+ 	if (got_offer) {
+ 		enum bevent_ev hold_ev;
+@@ -2041,6 +2054,7 @@ static int sipsess_answer_handler(const struct sip_msg *msg, void *arg)
+ 	const enum sdp_dir old_rdir = sdp_media_rdir(m);
+ 
+ 	MAGIC_CHECK(call);
++	observe_tls(call, msg);
+ 
+ 	debug("call: got SDP answer (%zu bytes)\n", mbuf_get_left(msg->mb));
+ 
+@@ -2140,6 +2154,7 @@ static void sipsess_estab_handler(const struct sip_msg *msg, void *arg)
+ 	(void)msg;
+ 
+ 	MAGIC_CHECK(call);
++	observe_tls(call, msg);
+ 
+ 	if (call->state == CALL_STATE_ESTABLISHED)
+ 		return;
+@@ -2318,6 +2333,7 @@ static void sipsess_close_handler(int err, const struct sip_msg *msg,
+ 	const struct sip_hdr *reason_hdr = NULL;
+ 
+ 	MAGIC_CHECK(call);
++	call->native_error = err;
+ 
+ 	if (err) {
+ 		info("%s: session closed: %m\n", call->peer_uri, err);
+@@ -2468,6 +2484,8 @@ static struct call *call_find_replaces(const struct list *calls,
+ 
+ 	for (le = list_head(calls); le; le = le->next) {
+ 		struct call *call = le->data;
++		/* Trusted internal identity lookup, not an incoming network message. */
++		msg.tp = call_transp(call);
+ 
+ 		if (pl_isset(&msg.from.tag) && pl_isset(&msg.to.tag) &&
+ 		    sip_dialog_cmp(sipsess_dialog(call->sess), &msg)) {
+@@ -2499,6 +2517,7 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
+ 	if (!call || !msg)
+ 		return EINVAL;
+ 
++	observe_tls(call, msg);
+ 	call->outgoing = false;
+ 	if (pl_isset(&msg->from.dname)) {
+ 		err = pl_strdup(&call->peer_name, &msg->from.dname);
+@@ -2654,6 +2673,7 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
+ 	bool media;
+ 
+ 	MAGIC_CHECK(call);
++	observe_tls(call, msg);
+ 
+ 	info("call: SIP Progress: %u %r (%r/%r)\n",
+ 	     msg->scode, &msg->reason, &msg->ctyp.type, &msg->ctyp.subtype);
+@@ -3656,3 +3676,11 @@ bool call_sdp_change_allowed(const struct call *call)
+ 		|| (sdp_state == SDP_NEG_NONE
+ 		|| sdp_state == SDP_NEG_REMOTE_OFFER);
+ }
++
++bool call_tls_peer_verified_for(const struct call *call, const char *expected_host)
++{
++    return call && call->tls_verified_host && expected_host
++        && !str_casecmp(call->tls_verified_host, expected_host);
++}
++
++int call_native_error(const struct call *call) { return call ? call->native_error : 0; }
+diff --git a/src/core.h b/src/core.h
+index c22060e..ea47a34 100644
+--- a/src/core.h
++++ b/src/core.h
+@@ -524,3 +524,5 @@ int  rtprecv_start_rtcp(struct rtp_receiver *rx, const char *cname,
+ 			const struct sa *peer, bool pinhole);
+ bool rtprecv_running(const struct rtp_receiver *rx);
+ void rtprecv_set_srate(struct rtp_receiver *rx, uint32_t srate);
++
++int reg_native_error(const struct reg *reg);
+diff --git a/src/reg.c b/src/reg.c
+index 2ce1d71..715d24e 100644
+--- a/src/reg.c
++++ b/src/reg.c
+@@ -10,6 +10,7 @@
+ 
+ /** Register client */
+ struct reg {
++	int native_error;
+ 	struct le le;                /**< Linked list element                */
+ 	struct ua *ua;               /**< Pointer to parent UA object        */
+ 	struct sipreg *sipreg;       /**< SIP Register client                */
+@@ -118,11 +119,13 @@ static void register_handler(int err, const struct sip_msg *msg, void *arg)
+ 				account_aor(acc), prio, err);
+ 
+ 		reg->scode = 999;
++		reg->native_error = err;
+ 
+ 		bevent_ua_emit(evfail, reg->ua, "%m", err);
+ 		return;
+ 	}
+ 
++	reg->native_error = 0;
+ 	hdr = sip_msg_hdr(msg, SIP_HDR_SERVER);
+ 	if (hdr) {
+ 		reg->srv = mem_deref(reg->srv);
+@@ -431,3 +434,5 @@ const struct sa *reg_paddr(const struct reg *reg)
+ {
+ 	return reg ? &reg->paddr : NULL;
+ }
++
++int reg_native_error(const struct reg *reg) { return reg ? reg->native_error : 0; }
+diff --git a/src/ua.c b/src/ua.c
+index 4d8441c..9425a3d 100644
+--- a/src/ua.c
++++ b/src/ua.c
+@@ -2356,3 +2356,14 @@ bool ua_req_check_origin(const struct ua *ua, const struct sip_msg *msg)
+ 
+ 	return false;
+ }
++
++int ua_registration_error(const struct ua *ua)
++{
++    struct le *le;
++    if (!ua) return 0;
++    for (le = ua->regl.head; le; le = le->next) {
++        int err = reg_native_error(le->data);
++        if (err) return err;
++    }
++    return 0;
++}

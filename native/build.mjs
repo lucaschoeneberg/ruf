@@ -46,6 +46,14 @@ const baresipControlsPatch = readFileSync(
   join(root, "native/patches/baresip-call-controls.patch"),
   "utf8",
 );
+const reSecurityPatch = readFileSync(
+  join(root, "native/patches/re-security.patch"),
+  "utf8",
+);
+const baresipSecurityPatch = readFileSync(
+  join(root, "native/patches/baresip-security.patch"),
+  "utf8",
+);
 const stageFile = (source, destination) => {
   if (resolve(source) === resolve(destination)) return;
   rmSync(destination, { force: true });
@@ -97,6 +105,11 @@ run(
   ["apply", join(root, "native/patches/re-call-controls.patch")],
   patchedRe,
 );
+run(
+  "git",
+  ["apply", join(root, "native/patches/re-security.patch")],
+  patchedRe,
+);
 const patchedBaresip = join(build, "baresip-patched");
 rmSync(patchedBaresip, { recursive: true, force: true });
 cpSync(join(sources, "baresip"), patchedBaresip, {
@@ -113,6 +126,11 @@ run(
   patchedBaresip,
 );
 
+run(
+  "git",
+  ["apply", join(root, "native/patches/baresip-security.patch")],
+  patchedBaresip,
+);
 let openssl = process.env.OPENSSL_ROOT_DIR;
 if (!openssl && process.platform === "darwin")
   openssl = output("brew", ["--prefix", "openssl@3"]);
@@ -190,7 +208,7 @@ run(
   patchedRe,
 );
 
-const modules = ["g711", "auconv", "auresamp", "ausine", "aufile"];
+const modules = ["g711", "auconv", "auresamp", "ausine", "aufile", "srtp"];
 if (process.platform === "darwin") modules.push("coreaudio");
 if (windows) modules.push("wasapi");
 const bareBuild = join(build, "baresip-policy");
@@ -238,6 +256,12 @@ run("cmake", [
 const resolved = JSON.parse(
   readFileSync(join(probe, "openssl-Release.json"), "utf8"),
 );
+if (!resolved.include || !existsSync(join(resolved.include, "openssl/ssl.h")))
+  throw new Error("Matching OpenSSL headers missing");
+rmSync(join(prefix, "include/openssl"), { recursive: true, force: true });
+cpSync(join(resolved.include, "openssl"), join(prefix, "include/openssl"), {
+  recursive: true,
+});
 for (const name of ["ssl", "crypto"]) {
   const path = resolved[name];
   if (!path || (!path.endsWith(".a") && !path.endsWith(".lib")))
@@ -279,6 +303,8 @@ writeFileSync(
         baresipReferPolicy: referPatch,
         reCallControls: reControlsPatch,
         baresipCallControls: baresipControlsPatch,
+        reSecurity: reSecurityPatch,
+        baresipSecurity: baresipSecurityPatch,
       },
       modules,
       openssl: { prefix: openssl ?? "system", version: resolved.version },

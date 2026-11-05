@@ -139,3 +139,32 @@ incoming → answer → ACK → Active → remote BYE → Idle exchanges repeat,
 frontend tokens and duplicate answers are rejected, CANCEL releases the slot,
 and missing ACK exercises the real native timeout before another call succeeds.
 Run with `cargo test --locked -p baresip-adapter --features native`.
+
+## TLS and mandatory SDES-SRTP security patches
+
+`re-security.patch` is applied after the NAT/control patches; `baresip-security.patch`
+is applied after the REFER/control patches. The SDK manifest records every exact
+patch. Adapter build checks reject stale identities/modules/headers. The SBOM hashes
+the ordered cumulative patch texts separately for libre and baresip and retains the
+selected `srtp` module and existing OpenSSL/BSD license inventory; no new native
+cryptography library is added.
+
+libre adds documented native helpers for an outbound certificate verifier,
+strong verified-peer evidence, borrowed per-message verified hostname, and a sticky
+TLS dialog floor. Callbacks run synchronously on the SIP event thread, borrow
+OpenSSL/native objects only for their invocation, and return failure on missing
+identity/trust. Account and call error getters preserve numeric originating failures
+without parsing localized protocol strings. No native pointers enter Rust snapshots.
+The adapter's trust helper uses the existing platform libraries and OpenSSL.
+
+The TLS cache includes target identity. Dialog requests keep DNS/Request-URI separate
+from their authenticated same-endpoint TLS identity; the control patch's shared
+`drequestv` builder covers both request APIs. ACK replay/CANCEL retain that identity.
+Plaintext messages cannot match encrypted dialog/transaction/subscription state or
+advance CSeq. Explicit transport selection disables DNS protocol fallback.
+
+Mandatory SRTP has TX/RX RTP/RTCP packet gates, valid crypto/key-length requirements,
+secure-state reset and consistent TX/RX suite replacement/rekey. Stream update
+failures propagate to the session instead of leaving a gated but apparently usable
+call. See [security API](../../docs/api/account-security.md) for configured and
+observed state, limitations and focused test commands.

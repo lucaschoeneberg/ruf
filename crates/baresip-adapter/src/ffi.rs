@@ -41,6 +41,10 @@ const EV_RECOVERY_FAILED: i32 = 47;
 const EV_RECOVERING: i32 = 48;
 const EV_CONSULT_FAILED: i32 = 49;
 const EV_CALL_ERROR: i32 = 50;
+const EV_SECURITY: i32 = 51;
+const SECURITY_CERTIFICATE: i32 = 20001;
+const SECURITY_TRANSPORT: i32 = 20002;
+const SECURITY_MEDIA: i32 = 20003;
 const CALL_EVENT_CAPACITY: usize = 64;
 
 /// Private ABI mirrored by bridge.c; every pointer is borrowed for the callback only.
@@ -63,6 +67,8 @@ unsafe extern "C" {
         audio_mode: i32,
         recording: *const std::ffi::c_char,
     ) -> *mut c_void;
+    #[cfg(feature = "native-test-hooks")]
+    fn sip_engine_set_test_ca(handle: *mut c_void, path: *const std::ffi::c_char) -> i32;
     fn sip_engine_run(handle: *mut c_void) -> i32;
     fn sip_engine_reserve_call_generation(handle: *mut c_void) -> u64;
     fn sip_engine_request(
@@ -74,6 +80,10 @@ unsafe extern "C" {
         username: *const std::ffi::c_char,
         password: *const std::ffi::c_char,
         destination: *const std::ffi::c_char,
+        transport: i32,
+        media_security: i32,
+        auth_username: *const std::ffi::c_char,
+        outbound_proxy: *const std::ffi::c_char,
     ) -> i32;
     fn sip_audio_devices(
         callback: extern "C" fn(
@@ -165,6 +175,27 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     }
                     38 => engine.snapshot.audio_test_error = Some(native_error(code)),
                     _ => {}
+                }
+                return;
+            }
+            if kind == EV_SECURITY {
+                if let Some(call) = engine.snapshot.calls.iter_mut().find(|call| {
+                    call.id == call_generation.to_string() && call.account_id == account_id
+                }) {
+                    call.security = phone_core::CallSecurity {
+                        signaling_transport: match code & 3 {
+                            1 => Some(phone_core::SipTransport::Udp),
+                            2 => Some(phone_core::SipTransport::Tcp),
+                            3 => Some(phone_core::SipTransport::Tls),
+                            _ => None,
+                        },
+                        tls_peer_verified: code & 4 != 0,
+                        media: match (code >> 3) & 3 {
+                            1 => phone_core::MediaProtection::Unprotected,
+                            2 => phone_core::MediaProtection::SdesSrtp,
+                            _ => phone_core::MediaProtection::Unknown,
+                        },
+                    };
                 }
                 return;
             }
@@ -513,10 +544,14 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                             {
                                 return error;
                             }
-                            PhoneError::new(
-                                ErrorCode::NativeFailure,
-                                "Registration failed; verify the registrar and credentials.",
-                            )
+                            if (SECURITY_CERTIFICATE..=SECURITY_MEDIA).contains(&code) {
+                                native_error(code)
+                            } else {
+                                PhoneError::new(
+                                    ErrorCode::NativeFailure,
+                                    "Registration failed; verify the registrar and credentials.",
+                                )
+                            }
                         });
                     }
                     state.sync_selected_registration();
@@ -797,6 +832,7 @@ impl NativeEngine {
         snapshot: Arc<Mutex<EngineState>>,
         audio: AudioMode,
         recording: Option<PathBuf>,
+        test_ca: Option<PathBuf>,
     ) -> Result<Self, PhoneError> {
         let recording = recording.as_deref().and_then(|p| p.to_str()).unwrap_or("");
         if matches!(audio, AudioMode::TestTone) && (recording.is_empty() || recording.len() > 127) {
@@ -806,6 +842,21 @@ impl NativeEngine {
             ));
         }
         let recording = cstring(recording)?;
+        #[cfg(feature = "native-test-hooks")]
+        let test_ca = test_ca
+            .map(|path| {
+                let path = path
+                    .to_str()
+                    .filter(|path| !path.is_empty() && path.len() < 1024)
+                    .ok_or_else(|| {
+                        PhoneError::new(
+                            ErrorCode::InvalidInput,
+                            "Test trust path must fit 1023 UTF-8 bytes.",
+                        )
+                    })?;
+                cstring(path)
+            })
+            .transpose()?;
         if ENGINE_LEASE.swap(true, Ordering::AcqRel) {
             return Err(PhoneError::new(
                 ErrorCode::Busy,
@@ -830,6 +881,20 @@ impl NativeEngine {
             ENGINE_LEASE.store(false, Ordering::Release);
             return Err(native_error(-1));
         };
+        #[cfg(feature = "native-test-hooks")]
+        if let Some(path) = test_ca {
+            let code = unsafe { sip_engine_set_test_ca(raw, path.as_ptr()) };
+            if code != 0 {
+                unsafe {
+                    sip_engine_destroy(raw);
+                    drop(Box::from_raw(context.as_ptr()));
+                }
+                ENGINE_LEASE.store(false, Ordering::Release);
+                return Err(native_error(code));
+            }
+        }
+        #[cfg(not(feature = "native-test-hooks"))]
+        debug_assert!(test_ca.is_none());
         let handle = Handle(pointer);
         let thread = match thread::Builder::new()
             .name("baresip-event-loop".into())
@@ -878,6 +943,7 @@ impl NativeEngine {
             account.map_or("", |a| a.username.as_str()),
             account.map_or("", |a| a.password.as_str()),
             destination.unwrap_or(""),
+            account,
         )
     }
     pub(crate) fn sound_request(
@@ -902,6 +968,7 @@ impl NativeEngine {
                 },
                 settings.ringtone_volume
             ),
+            None,
         )
     }
     pub(crate) fn audio_test_request(
@@ -910,10 +977,10 @@ impl NativeEngine {
         id: u64,
         device: &str,
     ) -> Result<(), PhoneError> {
-        self.request_strings(operation, 0, id, device, "", "", "")
+        self.request_strings(operation, 0, id, device, "", "", "", None)
     }
     pub(crate) fn preview_request(&self, operation: i32, device: &str) -> Result<(), PhoneError> {
-        self.request_strings(operation, 0, 0, device, "", "", "")
+        self.request_strings(operation, 0, 0, device, "", "", "", None)
     }
     #[allow(clippy::too_many_arguments)]
     fn request_strings(
@@ -925,6 +992,7 @@ impl NativeEngine {
         username: &str,
         password: &str,
         destination: &str,
+        account: Option<&AccountConfig>,
     ) -> Result<(), PhoneError> {
         let handle = self
             .handle
@@ -933,6 +1001,24 @@ impl NativeEngine {
         let username = cstring(username)?;
         let password = cstring(password)?;
         let destination = cstring(destination)?;
+        let auth_username = cstring(
+            account
+                .and_then(|a| a.auth_username.as_deref())
+                .unwrap_or(""),
+        )?;
+        let outbound_proxy = cstring(
+            account
+                .and_then(|a| a.outbound_proxy.as_deref())
+                .unwrap_or(""),
+        )?;
+        let transport = account.map_or(0, |a| match a.transport {
+            phone_core::SipTransport::Udp => 0,
+            phone_core::SipTransport::Tcp => 1,
+            phone_core::SipTransport::Tls => 2,
+        });
+        let media = i32::from(
+            account.is_some_and(|a| a.media_security == phone_core::MediaSecurityPolicy::Required),
+        );
         let error = unsafe {
             sip_engine_request(
                 handle.0.as_ptr(),
@@ -943,6 +1029,10 @@ impl NativeEngine {
                 username.as_ptr(),
                 password.as_ptr(),
                 destination.as_ptr(),
+                transport,
+                media,
+                auth_username.as_ptr(),
+                outbound_proxy.as_ptr(),
             )
         };
         if error == 0 {
@@ -992,6 +1082,24 @@ fn cstring(input: &str) -> Result<CString, PhoneError> {
         .map_err(|_| PhoneError::new(ErrorCode::InvalidInput, "NUL bytes are not allowed."))
 }
 fn native_error(code: i32) -> PhoneError {
+    let security = match code {
+        SECURITY_CERTIFICATE => Some((
+            ErrorCode::CertificateRejected,
+            "The TLS certificate chain or server hostname was rejected.",
+        )),
+        SECURITY_TRANSPORT => Some((
+            ErrorCode::TransportFailure,
+            "The configured SIP transport failed; no plaintext fallback was attempted.",
+        )),
+        SECURITY_MEDIA => Some((
+            ErrorCode::MediaSecurityRequired,
+            "The peer did not negotiate valid mandatory SDES-SRTP; plaintext media was blocked.",
+        )),
+        _ => None,
+    };
+    if let Some((code, message)) = security {
+        return PhoneError::new(code, message);
+    }
     PhoneError::new(
         ErrorCode::NativeFailure,
         format!("Native operation failed (code {code})."),
@@ -1133,9 +1241,48 @@ mod observation_tests {
         }
     }
     #[test]
+    fn security_observations_are_owned_reset_and_failures_survive_close() {
+        let mut fixture = Harness::new();
+        fixture.event_for_account(1, 7, 0, 100, "", "100");
+        fixture.event_for_account(1, 51, 3 | 4 | (2 << 3), 100, "", "");
+        {
+            let state = fixture.context.snapshot.lock().unwrap();
+            let security = &state.snapshot.calls[0].security;
+            assert!(security.tls_peer_verified);
+            assert_eq!(security.media, phone_core::MediaProtection::SdesSrtp);
+        }
+        fixture.event_for_account(1, 51, 3, 999, "", "");
+        fixture.event_for_account(1, 50, 20003, 100, "", "");
+        fixture.event_for_account(1, 9, 0, 100, "", "");
+        {
+            let state = fixture.context.snapshot.lock().unwrap();
+            assert_eq!(
+                state
+                    .snapshot
+                    .last_call_failure
+                    .as_ref()
+                    .unwrap()
+                    .error
+                    .code,
+                ErrorCode::MediaSecurityRequired
+            );
+        }
+        fixture.event_for_account(1, 7, 0, 101, "", "101");
+        let state = fixture.context.snapshot.lock().unwrap();
+        assert_eq!(
+            state.snapshot.calls[0].security,
+            phone_core::CallSecurity::default()
+        );
+    }
+
+    #[test]
     fn activation_rejection_restores_prior_identity_and_confirmed_registration() {
         let mut h = Harness::new();
         let previous = phone_core::AccountSnapshot {
+            transport: Default::default(),
+            media_security: Default::default(),
+            auth_username: None,
+            outbound_proxy: None,
             id: 42,
             name: "Original".into(),
             registrar: "pbx.test".into(),
@@ -1152,6 +1299,10 @@ mod observation_tests {
             state.snapshot.selected_account_id = Some(42);
             state.pending_accounts.insert(42, Some(previous.clone()));
             state.snapshot.accounts.push(phone_core::AccountSnapshot {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 enabled: false,
                 enabled_changing: true,
                 registered_at_ms: None,
@@ -1387,6 +1538,10 @@ mod observation_tests {
         for kind in [7, 22] {
             let mut h = Harness::new();
             let original = phone_core::AccountSnapshot {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 id: 42,
                 name: "Original".into(),
                 registrar: "old.example.test".into(),
@@ -1402,6 +1557,10 @@ mod observation_tests {
                 let mut state = h.context.snapshot.lock().unwrap();
                 state.pending_accounts.insert(42, Some(original.clone()));
                 state.snapshot.accounts.push(phone_core::AccountSnapshot {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     name: "Replacement".into(),
                     registrar: "new.example.test".into(),
                     username: "new-user".into(),

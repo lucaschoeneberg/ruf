@@ -61,6 +61,23 @@ pub struct Engine {
 impl Engine {
     /// Start the native event loop; a test-tone player requires a WAV output path.
     pub fn start(audio: AudioMode, recording: Option<PathBuf>) -> Result<Self, PhoneError> {
+        Self::start_with_trust(audio, recording, None)
+    }
+    /// Isolated native harness constructor using exclusive generated test trust.
+    /// Available only with native-test-hooks; never changes platform stores.
+    #[cfg(feature = "native-test-hooks")]
+    pub fn start_with_test_ca(
+        audio: AudioMode,
+        recording: Option<PathBuf>,
+        ca: PathBuf,
+    ) -> Result<Self, PhoneError> {
+        Self::start_with_trust(audio, recording, Some(ca))
+    }
+    fn start_with_trust(
+        audio: AudioMode,
+        recording: Option<PathBuf>,
+        ca: Option<PathBuf>,
+    ) -> Result<Self, PhoneError> {
         #[cfg(feature = "native")]
         {
             let snapshot = Arc::new(Mutex::new(EngineState {
@@ -70,7 +87,8 @@ impl Engine {
                 },
                 ..Default::default()
             }));
-            let native = crate::ffi::NativeEngine::start(Arc::clone(&snapshot), audio, recording)?;
+            let native =
+                crate::ffi::NativeEngine::start(Arc::clone(&snapshot), audio, recording, ca)?;
             Ok(Self {
                 snapshot,
                 audio,
@@ -79,7 +97,7 @@ impl Engine {
         }
         #[cfg(not(feature = "native"))]
         {
-            let _ = (audio, recording);
+            let _ = (audio, recording, ca);
             Err(PhoneError::new(
                 ErrorCode::EngineUnavailable,
                 "Rebuild with the native feature and a matching native SDK.",
@@ -380,6 +398,10 @@ impl Engine {
         state.pending_accounts.insert(id, previous);
         state.account_results.remove(&id);
         let account = AccountSnapshot {
+            transport: config.transport,
+            media_security: config.media_security,
+            auth_username: config.auth_username.clone(),
+            outbound_proxy: config.outbound_proxy.clone(),
             id,
             name: name.into(),
             registrar: config.registrar.clone(),
@@ -571,6 +593,10 @@ impl Engine {
             .ok_or_else(state_error)?;
         let id = state.next_account_id;
         state.snapshot.accounts.push(AccountSnapshot {
+            transport: config.transport,
+            media_security: config.media_security,
+            auth_username: config.auth_username.clone(),
+            outbound_proxy: config.outbound_proxy.clone(),
             id,
             name: name.into(),
             registrar: config.registrar.clone(),
@@ -986,6 +1012,10 @@ mod interop_tests {
         })));
         engine
             .configure_account(&AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: "127.0.0.1:5070".into(),
                 username: "1001".into(),
                 password: std::env::var("SIP_TEST_PASSWORD").expect("synthetic lab password"),
@@ -1061,6 +1091,10 @@ mod interop_tests {
         )
         .unwrap();
         let account = AccountConfig {
+            transport: Default::default(),
+            media_security: Default::default(),
+            auth_username: None,
+            outbound_proxy: None,
             registrar: "127.0.0.1:5070".into(),
             username: "1003".into(),
             password: std::env::var("SIP_TEST_PASSWORD").expect("synthetic lab password"),
@@ -1116,6 +1150,10 @@ mod interop_tests {
         .unwrap();
         engine
             .configure_account(&AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: "127.0.0.1:5070".into(),
                 username: "1003".into(),
                 password: std::env::var("SIP_TEST_PASSWORD").expect("synthetic lab password"),
@@ -1167,6 +1205,10 @@ mod interop_tests {
         )
         .unwrap();
         let account = AccountConfig {
+            transport: Default::default(),
+            media_security: Default::default(),
+            auth_username: None,
+            outbound_proxy: None,
             registrar: "127.0.0.1:5070".into(),
             username: "1001".into(),
             password: std::env::var("SIP_TEST_PASSWORD").expect("synthetic lab password"),
@@ -1232,6 +1274,10 @@ mod interop_tests {
         .unwrap();
         for username in ["1001", "1002"] {
             let account = AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: "127.0.0.1:5070".into(),
                 username: username.into(),
                 password: std::env::var("SIP_TEST_PASSWORD").unwrap(),
@@ -1274,6 +1320,10 @@ mod interop_tests {
                 let before = engine.snapshot().unwrap().accounts[0].clone();
                 engine.snapshot.lock().unwrap().snapshot.call = CallState::Idle;
                 let replacement = AccountConfig {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     registrar: "127.0.0.1:5070".into(),
                     username: "9999".into(),
                     password: "not-used".into(),
@@ -1348,6 +1398,10 @@ mod interop_tests {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let account = AccountConfig {
+            transport: Default::default(),
+            media_security: Default::default(),
+            auth_username: None,
+            outbound_proxy: None,
             registrar: "127.0.0.1:5070".into(),
             username: "1000".into(),
             password: std::env::var("SIP_TEST_PASSWORD").expect("synthetic lab password"),

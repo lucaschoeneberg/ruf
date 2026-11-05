@@ -59,6 +59,10 @@
   let editedId = $state<number | null>(null);
   let name = $state("");
   let account = $state<AccountConfig>({
+    transport: "udp",
+    mediaSecurity: "disabled",
+    authUsername: null,
+    outboundProxy: null,
     registrar: "",
     username: "",
     password: "",
@@ -184,6 +188,10 @@
     editedId = saved?.id ?? null;
     name = saved?.name ?? "";
     account = {
+      transport: saved?.transport ?? "udp",
+      mediaSecurity: saved?.mediaSecurity ?? "disabled",
+      authUsername: saved?.authUsername ?? null,
+      outboundProxy: saved?.outboundProxy ?? null,
       registrar: saved?.registrar ?? "",
       username: saved?.username ?? "",
       password: "",

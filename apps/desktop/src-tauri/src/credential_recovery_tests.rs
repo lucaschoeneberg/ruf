@@ -73,6 +73,9 @@ impl Fixture {
         Self::with_enabled(label, permit, true)
     }
     fn with_enabled(label: &str, permit: bool, enabled: bool) -> Self {
+        Self::with_profile(label, permit, enabled, false)
+    }
+    fn with_profile(label: &str, permit: bool, enabled: bool, secure: bool) -> Self {
         let directory =
             std::env::temp_dir().join(format!("ruf-recovery-{label}-{}", std::process::id()));
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -80,6 +83,18 @@ impl Fixture {
         let key = "abcd-1234".to_owned();
         let saved = SavedSettings {
             accounts: vec![SavedAccount {
+                transport: if secure {
+                    phone_core::SipTransport::Tls
+                } else {
+                    phone_core::SipTransport::Udp
+                },
+                media_security: if secure {
+                    phone_core::MediaSecurityPolicy::Required
+                } else {
+                    phone_core::MediaSecurityPolicy::Disabled
+                },
+                auth_username: secure.then(|| "digest-user".into()),
+                outbound_proxy: secure.then(|| "proxy.test:5061".into()),
                 enabled,
                 key: key.clone(),
                 name: "Synthetic recovery".into(),
@@ -365,6 +380,10 @@ fn failed_removal_restores_the_outgoing_account_selection() {
         .state
         .with(|session| {
             let saved = SavedAccount {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 enabled: true,
                 key: "abcd-2222".into(),
                 name: "Other account".into(),
@@ -374,6 +393,10 @@ fn failed_removal_restores_the_outgoing_account_selection() {
             let id = session.engine()?.restore_unavailable_account(
                 &saved.name,
                 &AccountConfig {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     registrar: saved.registrar.clone(),
                     username: saved.username.clone(),
                     password: "unavailable".into(),
@@ -446,6 +469,10 @@ fn invalid_saved_password_does_not_discard_other_restored_accounts() {
             accounts: [("abcd-1111", "broken"), ("abcd-2222", "valid")]
                 .into_iter()
                 .map(|(key, username)| SavedAccount {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     enabled: true,
                     key: key.into(),
                     name: username.into(),
@@ -752,5 +779,47 @@ fn shutdown_during_enable_authorization_prevents_native_start_and_metadata_chang
             .with(|session| Ok(session.engine.is_none()))
             .unwrap()
     );
+    fixture.unchanged();
+}
+
+#[test]
+fn encrypted_profile_survives_startup_missing_credentials_reconnect_and_restart() {
+    let _guard = NATIVE_RECOVERY_TEST
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let fixture = Fixture::with_profile("security-profile", false, true, true);
+    let check = |snapshot: &EngineSnapshot| {
+        let account = &snapshot.accounts[0];
+        assert_eq!(account.transport, phone_core::SipTransport::Tls);
+        assert_eq!(
+            account.media_security,
+            phone_core::MediaSecurityPolicy::Required
+        );
+        assert_eq!(account.auth_username.as_deref(), Some("digest-user"));
+        assert_eq!(account.outbound_proxy.as_deref(), Some("proxy.test:5061"));
+    };
+    check(&fixture.state.with(|session| session.snapshot()).unwrap());
+    let reconnect = fixture.reconnect();
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    fixture.release.send(()).unwrap();
+    assert_eq!(
+        reconnect.join().unwrap().unwrap_err().code,
+        ErrorCode::CredentialAccessRequired
+    );
+    check(&fixture.state.with(|session| session.snapshot()).unwrap());
+    fixture.unchanged();
+    fixture.state.shutdown().unwrap();
+    let restored = PhoneState::default();
+    restored
+        .with(|session| {
+            session.credentials = fixture.credentials.clone();
+            session.load(fixture.directory.clone(), fixture.directory.clone())
+        })
+        .unwrap();
+    check(&restored.with(|session| session.snapshot()).unwrap());
+    restored.shutdown().unwrap();
     fixture.unchanged();
 }

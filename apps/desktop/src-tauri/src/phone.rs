@@ -137,6 +137,10 @@ impl PhoneSession {
             let mut keys = BTreeMap::new();
             for saved in &settings.accounts {
                 let mut config = AccountConfig {
+                    transport: saved.transport,
+                    media_security: saved.media_security,
+                    auth_username: saved.auth_username.clone(),
+                    outbound_proxy: saved.outbound_proxy.clone(),
                     registrar: saved.registrar.clone(),
                     username: saved.username.clone(),
                     password: "unavailable".into(),
@@ -340,17 +344,23 @@ impl PhoneSession {
         validation.validate()?;
         let name = name.trim().to_string();
         self.validate_save(id, &name, &account)?;
-        let key = format!(
-            "{:x}-{:x}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|_| store::storage_error())?
-                .as_nanos(),
-            std::process::id()
-        );
+        let key = if account.password.is_empty() {
+            old_key.clone().ok_or_else(store::storage_error)?
+        } else {
+            format!(
+                "{:x}-{:x}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| store::storage_error())?
+                    .as_nanos(),
+                std::process::id()
+            )
+        };
         // Keep crash cleanup durable before the out-of-lock credential write.
         let mut journal = self.settings.clone();
-        journal.pending_deletions.push(key.clone());
+        if old_key.as_ref() != Some(&key) {
+            journal.pending_deletions.push(key.clone());
+        }
         self.write(&journal)?;
         self.settings = journal;
         self.credential_save = Some(key.clone());
@@ -386,6 +396,10 @@ impl PhoneSession {
         }
         let mut next = self.settings.clone();
         let saved = SavedAccount {
+            transport: account.transport,
+            media_security: account.media_security,
+            auth_username: account.auth_username.clone(),
+            outbound_proxy: account.outbound_proxy.clone(),
             enabled: self
                 .settings
                 .accounts
@@ -407,7 +421,9 @@ impl PhoneSession {
             next.accounts.push(saved);
         }
         next.pending_deletions.retain(|pending| pending != key);
-        if let Some(old_key) = old_key {
+        if let Some(old_key) = old_key
+            && old_key != key
+        {
             next.pending_deletions.push(old_key.clone());
         }
         next.audio_mode = account.audio_mode;
@@ -613,6 +629,10 @@ impl PhoneSession {
                 .cloned()
                 .ok_or_else(store::storage_error)?;
             let mut config = AccountConfig {
+                transport: saved.transport,
+                media_security: saved.media_security,
+                auth_username: saved.auth_username.clone(),
+                outbound_proxy: saved.outbound_proxy.clone(),
                 registrar: saved.registrar,
                 username: saved.username,
                 password: "unavailable".into(),
@@ -705,7 +725,11 @@ impl PreparedSave {
             )?;
         }
         self.account.validate()?;
-        self.credentials.write(&self.key, &self.account.password)
+        if self.old_key.as_ref() == Some(&self.key) {
+            Ok(())
+        } else {
+            self.credentials.write(&self.key, &self.account.password)
+        }
     }
 }
 
@@ -779,6 +803,10 @@ impl PhoneState {
             session.load(directory, cache)?;
             let saved = session.activation_account(id)?;
             let config = AccountConfig {
+                transport: saved.transport,
+                media_security: saved.media_security,
+                auth_username: saved.auth_username.clone(),
+                outbound_proxy: saved.outbound_proxy.clone(),
                 registrar: saved.registrar.clone(),
                 username: saved.username.clone(),
                 password: "unavailable".into(),
@@ -840,6 +868,10 @@ impl PhoneState {
                 ));
             }
             let account = AccountConfig {
+                transport: saved.transport,
+                media_security: saved.media_security,
+                auth_username: saved.auth_username.clone(),
+                outbound_proxy: saved.outbound_proxy.clone(),
                 registrar: saved.registrar.clone(),
                 username: saved.username.clone(),
                 password: "unavailable".into(),
@@ -1033,6 +1065,10 @@ mod tests {
                 None,
                 username.into(),
                 AccountConfig {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     registrar: "127.0.0.1:5070".into(),
                     username: username.into(),
                     password: "sip-lab-only-not-a-secret".into(),
@@ -1041,8 +1077,7 @@ mod tests {
             )
             .unwrap();
         }
-        // Replacing a saved password keeps the same account identity and deletes
-        // the obsolete key only after durable commit and native acceptance.
+        // Metadata edits reusing a saved password preserve credential identity.
         let first = session.snapshot().unwrap().accounts[0].id;
         let old_key = session.keys[&first].clone();
         save(
@@ -1050,6 +1085,10 @@ mod tests {
             Some(first),
             "Renamed".into(),
             AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: "127.0.0.1:5070".into(),
                 username: "1001".into(),
                 password: "".into(),
@@ -1057,7 +1096,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(session.credentials.read(&old_key, false).is_err());
+        assert_eq!(session.keys[&first], old_key);
+        assert!(session.credentials.read(&old_key, false).is_ok());
         assert_eq!(session.snapshot().unwrap().accounts[0].name, "Renamed");
         let second = session.snapshot().unwrap().accounts[1].id;
         session.select(second).unwrap();
@@ -1127,6 +1167,47 @@ mod credential_tests {
     use super::*;
     use std::sync::mpsc;
     use std::time::Duration;
+
+    #[test]
+    fn security_metadata_edit_retains_credential_identity_without_write() {
+        let (entered, events) = mpsc::channel();
+        let (_release, released) = mpsc::channel();
+        let credentials = Arc::new(BlockedCredentials {
+            entered,
+            release: Mutex::new(released),
+            fail_write: true,
+            fail_delete: true,
+            values: Mutex::new(BTreeMap::from([(
+                "abcd-1111".into(),
+                "synthetic-retained".into(),
+            )])),
+        });
+        let mut prepared = PreparedSave {
+            id: Some(1),
+            name: "Encrypted".into(),
+            old_key: Some("abcd-1111".into()),
+            key: "abcd-1111".into(),
+            credentials,
+            account: AccountConfig {
+                registrar: "pbx.test:5061".into(),
+                username: "alice".into(),
+                password: String::new(),
+                audio_mode: AudioMode::System,
+                transport: phone_core::SipTransport::Tls,
+                media_security: phone_core::MediaSecurityPolicy::Required,
+                auth_username: Some("digest".into()),
+                outbound_proxy: Some("proxy.test:5061".into()),
+            },
+        };
+        prepared.persist_credentials().unwrap();
+        assert_eq!(prepared.account.password, "synthetic-retained");
+        assert_eq!(prepared.key, "abcd-1111");
+        assert_eq!(prepared.account.transport, phone_core::SipTransport::Tls);
+        assert!(
+            events.try_recv().is_err(),
+            "retained credential must not be rewritten"
+        );
+    }
 
     struct BlockedCredentials {
         entered: mpsc::Sender<()>,
@@ -1213,6 +1294,10 @@ mod credential_tests {
                 SaveTarget::Id(None),
                 "Synthetic account".into(),
                 AccountConfig {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     registrar: "pbx.test".into(),
                     username: "1000".into(),
                     password: "synthetic".into(),
@@ -1269,6 +1354,10 @@ mod credential_tests {
         store
             .write(&SavedSettings {
                 accounts: vec![SavedAccount {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     enabled: true,
                     key: key.into(),
                     name: "Durable replacement".into(),
@@ -1318,6 +1407,10 @@ mod credential_tests {
         store
             .write(&SavedSettings {
                 accounts: vec![SavedAccount {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     enabled: true,
                     key: "abcd-5678".into(),
                     name: "Durable replacement".into(),
@@ -1478,6 +1571,10 @@ mod credential_tests {
         store
             .write(&SavedSettings {
                 accounts: vec![SavedAccount {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     enabled: true,
                     key: "abcd-5678".into(),
                     name: "Durable replacement".into(),
@@ -1510,6 +1607,10 @@ mod credential_tests {
             id: Some(1),
             name: "Synthetic account".into(),
             account: AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: "pbx.test".into(),
                 username: "1000".into(),
                 password: String::new(),
@@ -1586,6 +1687,10 @@ mod credential_tests {
                 SaveTarget::Id(None),
                 "Synthetic account".into(),
                 AccountConfig {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     registrar: "pbx.test".into(),
                     username: "1000".into(),
                     password: "synthetic".into(),
@@ -1666,6 +1771,10 @@ mod credential_tests {
         store
             .write(&SavedSettings {
                 accounts: vec![SavedAccount {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     enabled: true,
                     key: old_key.into(),
                     name: "Original".into(),
@@ -1698,6 +1807,10 @@ mod credential_tests {
                 SaveTarget::Id(Some(id)),
                 "Replacement".into(),
                 AccountConfig {
+                    transport: Default::default(),
+                    media_security: Default::default(),
+                    auth_username: None,
+                    outbound_proxy: None,
                     registrar: "127.0.0.1:5070".into(),
                     username: "1001".into(),
                     password: password.into(),

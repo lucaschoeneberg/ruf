@@ -39,6 +39,7 @@ impl EngineState {
             &mut snapshot.calls[position]
         } else {
             snapshot.calls.push(CallSnapshot {
+                security: Default::default(),
                 id,
                 account_id: snapshot.call_account_id.unwrap_or_default(),
                 state: snapshot.call,

@@ -213,3 +213,6 @@ mod clipboard_tests {
         assert!(validate_clipboard_text(&"é".repeat(513)).is_err());
     }
 }
+
+#[cfg(all(test, feature = "native-test-hooks"))]
+mod security_tests;

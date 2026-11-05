@@ -31,6 +31,8 @@ export interface NativeSdk {
     baresipReferPolicy: string;
     reCallControls: string;
     baresipCallControls: string;
+    reSecurity: string;
+    baresipSecurity: string;
   };
   modules: string[];
   openssl: { version: string };
@@ -186,6 +188,8 @@ export async function createSoftwareBill(
       baresipCallControls: await read(
         "native/patches/baresip-call-controls.patch",
       ),
+      reSecurity: await read("native/patches/re-security.patch"),
+      baresipSecurity: await read("native/patches/baresip-security.patch"),
     };
     if (
       JSON.stringify(sdk.sources) !== JSON.stringify(pins) ||
@@ -256,10 +260,12 @@ export function addNative(
               ? JSON.stringify([
                   sdk.patches.reSipNat,
                   sdk.patches.reCallControls,
+                  sdk.patches.reSecurity,
                 ])
               : JSON.stringify([
                   sdk.patches.baresipReferPolicy,
                   sdk.patches.baresipCallControls,
+                  sdk.patches.baresipSecurity,
                 ]),
           ),
         },

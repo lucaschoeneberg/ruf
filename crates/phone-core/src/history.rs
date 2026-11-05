@@ -48,6 +48,8 @@ pub struct ObservedCallEvent {
 }
 
 /// Transitions delivered in order to a nonblocking observer, independently of UI snapshots.
+// Started intentionally owns one complete bounded account snapshot; keep observer API stable.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ObservedCallKind {
     /// The native engine observed a real incoming/outgoing call.

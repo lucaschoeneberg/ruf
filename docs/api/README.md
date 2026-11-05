@@ -68,10 +68,13 @@ inputs, output DTOs and error codes are unchanged.
 
 ## AccountConfig (credential-bearing input only)
 
+Defaulted transport/authentication/proxy/media fields and observed per-call security
+are documented in [account security](account-security.md).
+
 | Field       | Required / default | Validation and meaning                                                                                                                                                                                                |
 | ----------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `registrar` | required string    | DNS/IPv4 spelling, optional `:port`. <=255 bytes total; host <=253, labels 1–63 ASCII alphanumeric/hyphen, no leading/trailing hyphen. Port is ASCII digits, nonzero u16. No URI, userinfo, parameters, path or IPv6. |
-| `username`  | required string    | 1–80 ASCII letters/digits or `_ . + -`. Also the authentication username.                                                                                                                                             |
+| `username`  | required string    | 1–80 ASCII letters/digits or `_ . + -`. Default authentication username; `authUsername` may override it.                                                                                                              |
 | `password`  | required string    | 1–1024 UTF-8 bytes, no NUL. **Only on update**, an empty string retrieves/keeps the existing secret. New accounts require a password. Never returned to webviews, serialized in metadata or logged; Debug redacts it. |
 | `audioMode` | optional, `system` | Engine-wide `system` microphone/speaker, or `testTone` (440 Hz input, received.wav output in app cache). Applies to all accounts; cannot change while the engine exists. Restart to choose another mode.              |
 

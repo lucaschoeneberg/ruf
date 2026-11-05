@@ -598,6 +598,10 @@ mod diagnostic_tests {
                 number: Some("+4930555000".into()),
             }),
             accounts: vec![phone_core::AccountSnapshot {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 id: 7,
                 name: "PRIVATE_ACCOUNT".into(),
                 registrar: "private.example.test".into(),

@@ -69,6 +69,10 @@ impl Lab {
         .unwrap();
         engine
             .configure_account(&AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: endpoint.to_string(),
                 username: "events-test".into(),
                 password: "synthetic-only".into(),
@@ -537,6 +541,10 @@ fn retiring_accounts_finish_pending_register_before_unregistering() {
                     Some(id),
                     "Replacement",
                     &AccountConfig {
+                        transport: Default::default(),
+                        media_security: Default::default(),
+                        auth_username: None,
+                        outbound_proxy: None,
                         registrar: lab.peer.local_addr().unwrap().to_string(),
                         username: "replacement-test".into(),
                         password: "synthetic-only".into(),
@@ -603,6 +611,10 @@ fn retired_register_timeout_preserves_replacement_registration() {
             Some(id),
             "Replacement",
             &AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: lab.peer.local_addr().unwrap().to_string(),
                 username: "events-test".into(),
                 password: "replacement-synthetic-only".into(),
@@ -863,6 +875,10 @@ fn disabled_account_retains_selection_and_requires_ack_before_native_registratio
     );
     lab.settle();
     let config = AccountConfig {
+        transport: Default::default(),
+        media_security: Default::default(),
+        auth_username: None,
+        outbound_proxy: None,
         registrar: lab.peer.local_addr().unwrap().to_string(),
         username: "events-test".into(),
         password: "synthetic-only".into(),

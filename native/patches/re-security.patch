@@ -1,0 +1,590 @@
+diff --git a/include/re_sdp.h b/include/re_sdp.h
+index c5a8404..e21822c 100644
+--- a/include/re_sdp.h
++++ b/include/re_sdp.h
+@@ -189,3 +189,6 @@ struct sdp_extmap {
+ };
+ 
+ int sdp_extmap_decode(struct sdp_extmap *ext, const char *val);
++
++/** False when decoded remote SDP requested a protocol unsupported by this media. */
++bool sdp_media_remote_proto_supported(const struct sdp_media *m);
+diff --git a/include/re_sip.h b/include/re_sip.h
+index 82a518e..d6c86e8 100644
+--- a/include/re_sip.h
++++ b/include/re_sip.h
+@@ -469,3 +469,18 @@ int sip_uas_auth_print(struct re_printf *pf,
+ 		       const struct sip_uas_auth *auth);
+ int sip_uas_auth_check(struct sip_uas_auth *auth, const struct sip_msg *msg,
+ 		       sip_uas_auth_h *authh, void *arg);
++
++/** Borrowed authenticated outbound TLS target of this live message connection;
++ * NULL for unverified/accepted inbound/closed/plaintext connections. */
++const char *sip_msg_tls_peer_verified_host(const struct sip_msg *msg);
++/** Require TLS for the entire dialog. This policy cannot be cleared. */
++void sip_dialog_require_tls(struct sip_dialog *dlg);
++/** True if this dialog cannot send/accept plaintext signaling. */
++bool sip_dialog_tls_required(const struct sip_dialog *dlg);
++
++/** Private SDK-safe security failure provenance; never interpret as SIP status. */
++enum sip_security_error {
++    SIP_SECURITY_CERTIFICATE = 20001, /**< Certificate/expected host rejected. */
++    SIP_SECURITY_TRANSPORT = 20002,   /**< Required signaling transport unavailable. */
++    SIP_SECURITY_MEDIA = 20003        /**< Mandatory SDES-SRTP negotiation failed. */
++};
+diff --git a/include/re_tls.h b/include/re_tls.h
+index 61b05a4..ae61f36 100644
+--- a/include/re_tls.h
++++ b/include/re_tls.h
+@@ -138,3 +138,11 @@ struct evp_pkey_st;
+ int tls_set_certificate_openssl(struct tls *tls, struct x509_st *cert,
+ 				struct evp_pkey_st *pkey, bool up_ref);
+ int tls_add_certf(struct tls *tls, const char *certf, const char *host);
++
++/** Install an outbound server chain verifier; callback receives X509_STORE_CTX.
++ * The callback MUST validate chain and expected DNS/IP identity, and set its error.
++ * Returns zero on success; arg must outlive the TLS context. */
++int tls_set_server_verify_handler(struct tls *tls,
++    int (*handler)(void *store_ctx, void *arg), void *arg);
++/** True only for an established outbound connection with a verified peer certificate. */
++bool tls_peer_verified_server(const struct tls_conn *tc);
+diff --git a/src/sdp/media.c b/src/sdp/media.c
+index f9b88ca..6970348 100644
+--- a/src/sdp/media.c
++++ b/src/sdp/media.c
+@@ -1009,3 +1009,5 @@ int sdp_media_debug(struct re_printf *pf, const struct sdp_media *m)
+ 
+ 	return err;
+ }
++
++bool sdp_media_remote_proto_supported(const struct sdp_media *m) { return m && !m->uproto; }
+diff --git a/src/sip/ctrans.c b/src/sip/ctrans.c
+index f1abbf0..d621ab0 100644
+--- a/src/sip/ctrans.c
++++ b/src/sip/ctrans.c
+@@ -127,6 +127,7 @@ static bool cmp_handler(struct le *le, void *arg)
+ 	struct sip_ctrans *ct = le->data;
+ 	const struct sip_msg *msg = arg;
+ 
++	if (ct->tp == SIP_TRANSP_TLS && msg->tp != SIP_TRANSP_TLS) return false;
+ 	if (pl_strcmp(&msg->via.branch, ct->branch))
+ 		return false;
+ 
+@@ -250,8 +251,8 @@ static void invite_response(struct sip_ctrans *ct, const struct sip_msg *msg)
+ 			ct->state = COMPLETED;
+ 
+ 			(void)request_copy(&ct->mb_ack, ct, "ACK", msg);
+-			(void)sip_send(ct->sip, NULL, ct->tp, &ct->dst,
+-				       ct->mb_ack);
++			(void)sip_send_conn(ct->sip, NULL, ct->tp, &ct->dst, ct->host,
++				       ct->mb_ack, NULL, NULL);
+ 
+ 			ct->resph(0, msg, ct->arg);
+ 
+@@ -268,7 +269,7 @@ static void invite_response(struct sip_ctrans *ct, const struct sip_msg *msg)
+ 		if (msg->scode < 300)
+ 			break;
+ 
+-		(void)sip_send(ct->sip, NULL, ct->tp, &ct->dst, ct->mb_ack);
++		(void)sip_send_conn(ct->sip, NULL, ct->tp, &ct->dst, ct->host, ct->mb_ack, NULL, NULL);
+ 		break;
+ 
+ 	default:
+@@ -405,7 +406,7 @@ int sip_ctrans_cancel(struct sip_ctrans *ct)
+ 		goto out;
+ 
+ 	err = sip_ctrans_request(NULL, ct->sip, ct->tp, &ct->dst, cancel,
+-				 ct->branch, NULL, mb, NULL, NULL, NULL);
++				 ct->branch, ct->host, mb, NULL, NULL, NULL);
+ 	if (err)
+ 		goto out;
+ 
+diff --git a/src/sip/dialog.c b/src/sip/dialog.c
+index b1d0c12..8124700 100644
+--- a/src/sip/dialog.c
++++ b/src/sip/dialog.c
+@@ -39,6 +39,9 @@ struct sip_dialog {
+ 	size_t rpos;
+ 	enum sip_transp tp;
+ 	uint32_t srcport;
++	bool tls_required;
++	char *tls_peer_host;
++	struct sa tls_peer_addr;
+ };
+ 
+ 
+@@ -52,6 +55,7 @@ static void destructor(void *arg)
+ {
+ 	struct sip_dialog *dlg = arg;
+ 
++	mem_deref(dlg->tls_peer_host);
+ 	mem_deref(dlg->callid);
+ 	mem_deref(dlg->ltag);
+ 	mem_deref(dlg->rtag);
+@@ -60,6 +64,21 @@ static void destructor(void *arg)
+ }
+ 
+ 
++static int bind_tls_peer(struct sip_dialog *dlg, const struct sip_msg *msg)
++{
++    const char *host = sip_msg_tls_peer_verified_host(msg);
++    char *copy = NULL;
++    if (dlg->tls_required && msg->tp != SIP_TRANSP_TLS) return SIP_SECURITY_TRANSPORT;
++    if (msg->tp == SIP_TRANSP_TLS) dlg->tls_required = true;
++    if (!host) return 0;
++    if (str_dup(&copy, host)) return ENOMEM;
++    mem_deref(dlg->tls_peer_host);
++    dlg->tls_peer_host = copy;
++    dlg->tls_peer_addr = msg->src;
++    return 0;
++}
++
++
+ /**
+  * Allocate a SIP Dialog
+  *
+@@ -143,6 +162,7 @@ int sip_dialog_alloc(struct sip_dialog **dlgp,
+ 		err = uri_decode(&dlg->route, &pl);
+ 	}
+ 
++    if (!err && !msg_param_decode(&dlg->route.params, "transport", &pl) && !pl_strcasecmp(&pl, "tls")) dlg->tls_required = true;
+  out:
+ 	if (err)
+ 		mem_deref(dlg);
+@@ -255,6 +275,7 @@ int sip_dialog_accept(struct sip_dialog **dlgp, const struct sip_msg *msg)
+ 		err = uri_decode(&dlg->route, &pl);
+ 	}
+ 
++    if (!err) err = bind_tls_peer(dlg, msg);
+  out:
+ 	if (err)
+ 		mem_deref(dlg);
+@@ -285,6 +306,7 @@ int sip_dialog_create(struct sip_dialog *dlg, const struct sip_msg *msg)
+ 	if (!dlg || dlg->rtag || !dlg->cpos || !msg)
+ 		return EINVAL;
+ 
++	if (dlg->tls_required && msg->tp != SIP_TRANSP_TLS) return SIP_SECURITY_TRANSPORT;
+ 	contact = sip_msg_hdr(msg, SIP_HDR_CONTACT);
+ 
+ 	if (!contact)
+@@ -353,6 +375,7 @@ int sip_dialog_create(struct sip_dialog *dlg, const struct sip_msg *msg)
+ 	dlg->rseq = msg->req ? msg->cseq.num : 0;
+ 	dlg->tp   = msg->tp;
+ 
++    if (!err) err = bind_tls_peer(dlg, msg);
+  out:
+ 	mem_deref(renc.mb);
+ 	mem_deref(rtag);
+@@ -384,6 +407,7 @@ int sip_dialog_fork(struct sip_dialog **dlgp, struct sip_dialog *odlg,
+ 	if (!dlgp || !odlg || !odlg->cpos || !msg)
+ 		return EINVAL;
+ 
++	if (odlg->tls_required && msg->tp != SIP_TRANSP_TLS) return SIP_SECURITY_TRANSPORT;
+ 	contact = sip_msg_hdr(msg, SIP_HDR_CONTACT);
+ 
+ 	if (!contact || !msg->callid.p)
+@@ -396,6 +420,7 @@ int sip_dialog_fork(struct sip_dialog **dlgp, struct sip_dialog *odlg,
+ 	if (!dlg)
+ 		return ENOMEM;
+ 
++	dlg->tls_required = odlg->tls_required;
+ 	dlg->callid  = mem_ref(odlg->callid);
+ 	dlg->ltag    = mem_ref(odlg->ltag);
+ 	dlg->hash    = odlg->hash;
+@@ -447,6 +472,7 @@ int sip_dialog_fork(struct sip_dialog **dlgp, struct sip_dialog *odlg,
+ 		err = uri_decode(&dlg->route, &pl);
+ 	}
+ 
++    if (!err) err = bind_tls_peer(dlg, msg);
+  out:
+ 	if (err)
+ 		mem_deref(dlg);
+@@ -477,6 +503,7 @@ int sip_dialog_update(struct sip_dialog *dlg, const struct sip_msg *msg)
+ 
+ 	if (!dlg || !msg)
+ 		return EINVAL;
++	if (dlg->tls_required && msg->tp != SIP_TRANSP_TLS) return SIP_SECURITY_TRANSPORT;
+ 
+ 	contact = sip_msg_hdr(msg, SIP_HDR_CONTACT);
+ 	if (!contact)
+@@ -556,6 +583,7 @@ bool sip_dialog_rseq_valid(struct sip_dialog *dlg, const struct sip_msg *msg)
+ {
+ 	if (!dlg || !msg || !msg->req)
+ 		return false;
++	if (dlg->tls_required && msg->tp != SIP_TRANSP_TLS) return false;
+ 
+ 	if (msg->cseq.num < dlg->rseq)
+ 		return false;
+@@ -724,6 +752,7 @@ bool sip_dialog_cmp(const struct sip_dialog *dlg, const struct sip_msg *msg)
+ {
+ 	if (!dlg || !msg)
+ 		return false;
++	if (dlg->tls_required && msg->tp != SIP_TRANSP_TLS) return false;
+ 
+ 	if (pl_strcmp(&msg->callid, dlg->callid))
+ 		return false;
+@@ -751,6 +780,7 @@ bool sip_dialog_cmp_half(const struct sip_dialog *dlg,
+ {
+ 	if (!dlg || !msg)
+ 		return false;
++	if (dlg->tls_required && msg->tp != SIP_TRANSP_TLS) return false;
+ 
+ 	if (pl_strcmp(&msg->callid, dlg->callid))
+ 		return false;
+@@ -760,3 +790,12 @@ bool sip_dialog_cmp_half(const struct sip_dialog *dlg,
+ 
+ 	return true;
+ }
++
++void sip_dialog_require_tls(struct sip_dialog *dlg) { if (dlg) dlg->tls_required = true; }
++bool sip_dialog_tls_required(const struct sip_dialog *dlg) { return dlg && dlg->tls_required; }
++const char *sip_dialog_tls_peer(const struct sip_dialog *dlg, struct sa *peer)
++{
++    if (!dlg || !dlg->tls_peer_host || !peer) return NULL;
++    *peer = dlg->tls_peer_addr;
++    return dlg->tls_peer_host;
++}
+diff --git a/src/sip/request.c b/src/sip/request.c
+index 9c0a5ae..e524df3 100644
+--- a/src/sip/request.c
++++ b/src/sip/request.c
+@@ -31,6 +31,9 @@ struct sip_request {
+ 	char *met;
+ 	char *uri;
+ 	char *host;
++	char *tls_peer_host;
++	struct sa tls_peer_addr;
++	bool tls_required;
+ 	char *branch;
+ 	struct mbuf *mb;
+ 	sip_send_h *sendh;
+@@ -91,6 +94,7 @@ static void destructor(void *arg)
+ 	mem_deref(req->met);
+ 	mem_deref(req->uri);
+ 	mem_deref(req->host);
++	mem_deref(req->tls_peer_host);
+ 	mem_deref(req->branch);
+ 	mem_deref(req->mb);
+ }
+@@ -149,7 +153,7 @@ static void response_handler(int err, const struct sip_msg *msg, void *arg)
+ 
+ 	req->ct = NULL;
+ 
+-	if (!req->canceled && (err || (msg && msg->scode == 503)) &&
++	if (err != EAUTH && !req->canceled && (err || (msg && msg->scode == 503)) &&
+ 	    (req->addrl.head || req->srvl.head)) {
+ 
+ 		err = request_next(req);
+@@ -216,6 +220,9 @@ static int request(struct sip_request *req, enum sip_transp tp,
+ 	struct mbuf *mb   = NULL;
+ 	int err = ENOMEM;
+ 
++	char *verify_host = req->host;
++	if (req->tls_required && tp != SIP_TRANSP_TLS) return SIP_SECURITY_TRANSPORT;
++	if (tp == SIP_TRANSP_TLS && req->tls_peer_host && sa_cmp(dst, &req->tls_peer_addr, SA_ALL)) verify_host = req->tls_peer_host;
+ 	req->provrecv = false;
+ 
+ 	mem_deref(req->branch);
+@@ -236,12 +243,12 @@ static int request(struct sip_request *req, enum sip_transp tp,
+ 	}
+ 
+ 	if (!req->stateful) {
+-		err = sip_send_conn(req->sip, NULL, tp, dst, req->host, mb,
++		err = sip_send_conn(req->sip, NULL, tp, dst, verify_host, mb,
+ 				    connect_handler, req);
+ 	}
+ 	else {
+ 		err = sip_ctrans_request(&req->ct, req->sip, tp, dst, req->met,
+-					 req->branch, req->host, mb,
++					 req->branch, verify_host, mb,
+ 					 connect_handler, response_handler,
+ 					 req);
+ 	}
+@@ -688,6 +695,7 @@ static int sip_request_alloc(struct sip_request **reqp,
+ 
+ 	if (tp != SIP_TRANSP_NONE) {
+ 		req->tp = tp;
++		req->tp_selected = true;
+ 	}
+ 	else if (!msg_param_decode(&route->params, "transport", &pl)) {
+ 
+@@ -943,6 +951,17 @@ static int drequestv(struct sip_request **reqp, struct sip *sip, bool stateful,
+ 	if (err)
+ 		goto out;
+ 
++    req->tls_required = sip_dialog_tls_required(dlg);
++    if (req->tls_required) {
++        struct pl transport;
++        const struct uri *route = sip_dialog_route(dlg);
++        const char *bound;
++        if (!msg_param_decode(&route->params, "transport", &transport)
++            && pl_strcasecmp(&transport, "tls")) { mem_deref(req); err = SIP_SECURITY_TRANSPORT; goto out; }
++        req->tp = SIP_TRANSP_TLS; req->tp_selected = true;
++        bound = sip_dialog_tls_peer(dlg, &req->tls_peer_addr);
++        if (bound && (err = str_dup(&req->tls_peer_host, bound))) { mem_deref(req); goto out; }
++    }
+ 	req->completeh = completeh;
+ 	req->reqp = reqp;
+ 	req->srcport = sip_dialog_srcport(dlg);
+@@ -1093,3 +1112,9 @@ void sip_request_cancel_wait(struct sip_request *req)
+ 	/* A later provisional response sends CANCEL through response_handler. */
+ 	if (req->provrecv) (void)sip_ctrans_cancel(req->ct);
+ }
++
++const char *sip_request_tls_host(const struct sip_request *req, const struct sa *dst)
++{
++    if (!req) return NULL;
++    return req->tls_peer_host && sa_cmp(dst, &req->tls_peer_addr, SA_ALL) ? req->tls_peer_host : req->host;
++}
+diff --git a/src/sip/sip.h b/src/sip/sip.h
+index 9f19383..1afee49 100644
+--- a/src/sip/sip.h
++++ b/src/sip/sip.h
+@@ -104,3 +104,7 @@ int  sip_keepalive_udp(struct sip_keepalive *ka, struct sip *sip,
+ /* sip_conncfg */
+ struct sip_conncfg *sip_conncfg_find(struct sip *sip,
+ 				     const struct sa *paddr);
++
++const char *sip_dialog_tls_peer(const struct sip_dialog *dlg, struct sa *peer);
++
++const char *sip_request_tls_host(const struct sip_request *req, const struct sa *dst);
+diff --git a/src/sip/strans.c b/src/sip/strans.c
+index 83a153e..060df4a 100644
+--- a/src/sip/strans.c
++++ b/src/sip/strans.c
+@@ -82,6 +82,7 @@ static bool cmp_handler(struct le *le, void *arg)
+ 	struct sip_strans *st = le->data;
+ 	const struct sip_msg *msg = arg;
+ 
++	if (st->msg->tp == SIP_TRANSP_TLS && msg->tp != SIP_TRANSP_TLS) return false;
+ 	if (!strans_cmp(st->msg, msg))
+ 		return false;
+ 
+@@ -97,6 +98,7 @@ static bool cmp_ack_handler(struct le *le, void *arg)
+ 	struct sip_strans *st = le->data;
+ 	const struct sip_msg *msg = arg;
+ 
++	if (st->msg->tp == SIP_TRANSP_TLS && msg->tp != SIP_TRANSP_TLS) return false;
+ 	if (!strans_cmp(st->msg, msg))
+ 		return false;
+ 
+@@ -112,6 +114,7 @@ static bool cmp_cancel_handler(struct le *le, void *arg)
+ 	struct sip_strans *st = le->data;
+ 	const struct sip_msg *msg = arg;
+ 
++	if (st->msg->tp == SIP_TRANSP_TLS && msg->tp != SIP_TRANSP_TLS) return false;
+ 	if (!strans_cmp(st->msg, msg))
+ 		return false;
+ 
+diff --git a/src/sip/transp.c b/src/sip/transp.c
+index dc0f8fa..08c701e 100644
+--- a/src/sip/transp.c
++++ b/src/sip/transp.c
+@@ -82,6 +82,7 @@ struct sip_conn {
+ 	struct sip *sip;
+ 	uint32_t ka_interval;
+ 	bool established;
++	char *tls_verify_host;
+ 
+ 	enum sip_transp tp;
+ 	struct websock_conn *websock_conn;
+@@ -136,6 +137,7 @@ static void conn_destructor(void *arg)
+ 	mem_deref(conn->sc);
+ 	mem_deref(conn->tc);
+ 	mem_deref(conn->mb);
++	mem_deref(conn->tls_verify_host);
+ 	mem_deref(conn->websock_conn);
+ }
+ 
+@@ -223,7 +225,7 @@ static struct le *transp_apply_all(struct sip *sip, enum sip_transp tp, int af,
+ 
+ 
+ static struct sip_conn *conn_find(struct sip *sip, const struct sa *paddr,
+-				  bool secure)
++				  bool secure, const char *host)
+ {
+ 	struct le *le;
+ 
+@@ -233,6 +235,8 @@ static struct sip_conn *conn_find(struct sip *sip, const struct sa *paddr,
+ 
+ 		struct sip_conn *conn = le->data;
+ 
++		if (conn->tp != (secure ? SIP_TRANSP_TLS : SIP_TRANSP_TCP)) continue;
++		if (secure && (!str_isset(host) || !conn->tls_verify_host || str_casecmp(host, conn->tls_verify_host))) continue;
+ 		if (secure && !conn->sc)
+ 			continue;
+ 
+@@ -278,6 +282,7 @@ static void conn_close(struct sip_conn *conn, int err)
+ {
+ 	struct le *le;
+ 
++	conn->established = false;
+ 	conn->websock_conn = mem_deref(conn->websock_conn);
+ 
+ 	conn->sc = mem_deref(conn->sc);
+@@ -776,7 +781,8 @@ static int conn_send(struct sip_connqent **qentp, struct sip *sip, bool secure,
+ 	(void) host;
+ #endif
+ 
+-	conn = conn_find(sip, dst, secure);
++	if (secure && !str_isset(host)) return EINVAL;
++	conn = conn_find(sip, dst, secure, host);
+ 	if (conn) {
+ 		if (connh)
+ 			err = connh(&conn->laddr, dst, mb, arg);
+@@ -800,6 +806,7 @@ static int conn_send(struct sip_connqent **qentp, struct sip *sip, bool secure,
+ 	conn->paddr = *dst;
+ 	conn->sip   = sip;
+ 	conn->tp    = secure ? SIP_TRANSP_TLS : SIP_TRANSP_TCP;
++	if (secure) { err = str_dup(&conn->tls_verify_host, host); if (err) goto out; }
+ 
+ 	conncfg = sip_conncfg_find(sip, dst);
+ 	if (conncfg && conncfg->srcport) {
+@@ -1597,6 +1604,7 @@ int sip_transp_send(struct sip_connqent **qentp, struct sip *sip, void *sock,
+ 		conn = sock;
+ 
+ 		if (conn && conn->tc) {
++			if (secure && (!conn->sc || (host && (!conn->tls_verify_host || str_casecmp(host, conn->tls_verify_host))))) return EAUTH;
+ 			if (connh) {
+ 				err = connh(&conn->laddr, dst, mb, arg);
+ 				if (err)
+@@ -2078,3 +2086,17 @@ int sip_conncfg_set(struct sip *sip, const struct sa *paddr,
+ 
+ 	return 0;
+ }
++
++const char *sip_msg_tls_peer_verified_host(const struct sip_msg *msg)
++{
++#ifdef USE_TLS
++    const struct sip_conn *conn;
++    if (!msg || msg->tp != SIP_TRANSP_TLS || !msg->sock) return NULL;
++    conn = msg->sock;
++    if (conn->established && conn->tc && conn->sc && conn->tls_verify_host
++        && tls_peer_verified_server(conn->sc)) return conn->tls_verify_host;
++#else
++    (void)msg;
++#endif
++    return NULL;
++}
+diff --git a/src/sipsess/ack.c b/src/sipsess/ack.c
+index b7f798a..542105c 100644
+--- a/src/sipsess/ack.c
++++ b/src/sipsess/ack.c
+@@ -16,6 +16,7 @@
+ #include <re_sip.h>
+ #include <re_sipsess.h>
+ #include "sipsess.h"
++#include "../sip/sip.h"
+ 
+ 
+ struct sipsess_ack {
+@@ -25,6 +26,7 @@ struct sipsess_ack {
+ 	struct sip_request *req;
+ 	struct sip_dialog *dlg;
+ 	struct mbuf *mb;
++	char *tls_host;
+ 	enum sip_transp tp;
+ 	uint32_t cseq;
+ };
+@@ -39,6 +41,7 @@ static void destructor(void *arg)
+ 	mem_deref(ack->req);
+ 	mem_deref(ack->dlg);
+ 	mem_deref(ack->mb);
++	mem_deref(ack->tls_host);
+ }
+ 
+ 
+@@ -60,6 +63,15 @@ static int send_complete_handler(enum sip_transp tp, const struct sa *dst,
+ 	if (!ack->mb) return ENOMEM;
+ 	ack->dst = *dst;
+ 	ack->tp  = tp;
++    if (tp == SIP_TRANSP_TLS) {
++        struct sa bound;
++        const char *host = sip_dialog_tls_peer(ack->dlg, &bound);
++        char *copy = NULL;
++        if (!host || !sa_cmp(dst, &bound, SA_ALL)) {
++            if (pl_strdup(&copy, &sip_dialog_route(ack->dlg)->host)) return ENOMEM;
++        } else if (str_dup(&copy, host)) return ENOMEM;
++        mem_deref(ack->tls_host); ack->tls_host = copy;
++    }
+ 
+ 	tmr_start(&ack->tmr, 64 * SIP_T1, tmr_handler, ack);
+ 
+@@ -143,5 +155,5 @@ int sipsess_ack_again(struct sipsess_sock *sock, const struct sip_msg *msg)
+ 	if (!ack)
+ 		return ENOENT;
+ 
+-	return sip_send(sock->sip, NULL, ack->tp, &ack->dst, ack->mb);
++	return sip_send_conn(sock->sip, NULL, ack->tp, &ack->dst, ack->tls_host, ack->mb, NULL, NULL);
+ }
+diff --git a/src/tls/openssl/tls.c b/src/tls/openssl/tls.c
+index 73ee066..03e4956 100644
+--- a/src/tls/openssl/tls.c
++++ b/src/tls/openssl/tls.c
+@@ -44,6 +44,8 @@ struct tls {
+ 	SSL_CTX *ctx;
+ 	X509 *cert;
+ 	char *pass;          /**< password for private key             */
++	int (*server_verifyh)(void *, void *);
++	void *server_verify_arg;
+ 	bool verify_server;  /**< Enable SIP TLS server verification   */
+ 	bool verify_client;  /**< Enable SIP TLS client verification   */
+ 	struct session_reuse reuse;
+@@ -2115,3 +2117,35 @@ int tls_set_certificate_chain(struct tls *tls, const char *path)
+ 
+ 	return 0;
+ }
++
++static int server_verify_handler(X509_STORE_CTX *ctx, void *arg)
++{
++    struct tls *tls = arg;
++    SSL *ssl = X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
++    if (!ssl || SSL_is_server(ssl))
++        return X509_verify_cert(ctx);
++    return tls->server_verifyh(ctx, tls->server_verify_arg);
++}
++int tls_set_server_verify_handler(struct tls *tls,
++    int (*handler)(void *, void *), void *arg)
++{
++    if (!tls || !handler) return EINVAL;
++    tls->server_verifyh = handler;
++    tls->server_verify_arg = arg;
++    SSL_CTX_set_cert_verify_callback(tls->ctx, server_verify_handler, tls);
++    return 0;
++}
++bool tls_peer_verified_server(const struct tls_conn *tc)
++{
++    char *ip;
++    bool identity;
++    if (!tc || !tc->tls->verify_server || SSL_is_server(tc->ssl)
++        || !SSL_is_init_finished(tc->ssl)
++        || !(SSL_get_verify_mode(tc->ssl) & SSL_VERIFY_PEER)
++        || !SSL_get0_peer_certificate(tc->ssl)
++        || SSL_get_verify_result(tc->ssl) != X509_V_OK) return false;
++    ip = X509_VERIFY_PARAM_get0_host(SSL_get0_param(tc->ssl), 0) ? NULL : X509_VERIFY_PARAM_get1_ip_asc(SSL_get0_param(tc->ssl));
++    identity = ip || X509_VERIFY_PARAM_get0_host(SSL_get0_param(tc->ssl), 0);
++    OPENSSL_free(ip);
++    return identity;
++}
+diff --git a/src/tls/openssl/tls_tcp.c b/src/tls/openssl/tls_tcp.c
+index 214e607..176abf6 100644
+--- a/src/tls/openssl/tls_tcp.c
++++ b/src/tls/openssl/tls_tcp.c
+@@ -154,7 +154,7 @@ static int tls_connect(struct tls_conn *tc)
+ 			DEBUG_WARNING("connect: error (r=%d, ssl_err=%d)\n",
+ 				      r, ssl_err);
+ 			tls_flush_error();
+-			err = EPROTO;
++			err = SSL_get_verify_result(tc->ssl) == X509_V_OK ? EPROTO : EAUTH;
+ 			break;
+ 		}
+ 
+@@ -184,7 +184,7 @@ static int tls_accept(struct tls_conn *tc)
+ 			DEBUG_WARNING("accept error: (r=%d, ssl_err=%d)\n",
+ 				      r, ssl_err);
+ 			tls_flush_error();
+-			err = EPROTO;
++			err = SSL_get_verify_result(tc->ssl) == X509_V_OK ? EPROTO : EAUTH;
+ 			break;
+ 		}
+ 

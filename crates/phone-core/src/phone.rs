@@ -96,19 +96,76 @@ pub struct AudioDevices {
     pub outputs: Vec<AudioDevice>,
 }
 
-/// SIP/UDP account input. Never serialize this credential-bearing type.
+/// Configured SIP transport. TLS never falls back to plaintext.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SipTransport {
+    /// Plaintext SIP over UDP (legacy default).
+    #[default]
+    Udp,
+    /// Plaintext SIP over TCP.
+    Tcp,
+    /// Certificate and hostname verified TLS.
+    Tls,
+}
+/// Account media policy; Required uses SDES-SRTP and requires TLS signaling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum MediaSecurityPolicy {
+    /// No media encryption requested (legacy default).
+    #[default]
+    Disabled,
+    /// Require valid SDES-SRTP with no plaintext media fallback.
+    Required,
+}
+/// Native observation of the audio stream, independent of configured policy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum MediaProtection {
+    /// No native media negotiation evidence yet.
+    #[default]
+    Unknown,
+    /// The native stream has no encryption module.
+    Unprotected,
+    /// Native SDES-SRTP contexts are ready; does not prove end-to-end encryption.
+    SdesSrtp,
+}
+/// Observed security of one dialog; reset for every new native call token.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSecurity {
+    /// Actual received dialog transport, or null before native evidence.
+    pub signaling_transport: Option<SipTransport>,
+    /// The actual connection authenticated the configured registrar/proxy host.
+    pub tls_peer_verified: bool,
+    /// Native audio stream encryption observation.
+    pub media: MediaProtection,
+}
+/// SIP account input. Never serialize this credential-bearing type.
 #[derive(Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AccountConfig {
     /// DNS name or IPv4 registrar, optionally with a nonzero port.
     pub registrar: String,
-    /// SIP and authentication username.
+    /// SIP address username; also the default digest username.
     pub username: String,
     /// Secret input; never returned through IPC or written to metadata.
     pub password: String,
     /// Audio backend choice; microphone/speaker by default.
     #[serde(default)]
     pub audio_mode: AudioMode,
+    /// Configured transport; omitted legacy values use UDP.
+    #[serde(default)]
+    pub transport: SipTransport,
+    /// Required SDES-SRTP is accepted only with TLS; omitted values disable it.
+    #[serde(default)]
+    pub media_security: MediaSecurityPolicy,
+    /// Optional digest username; null uses the SIP username.
+    #[serde(default)]
+    pub auth_username: Option<String>,
+    /// Optional DNS/IPv4 outbound proxy with optional port, never a raw SIP URI.
+    #[serde(default)]
+    pub outbound_proxy: Option<String>,
 }
 
 impl fmt::Debug for AccountConfig {
@@ -117,6 +174,10 @@ impl fmt::Debug for AccountConfig {
             .field("registrar", &self.registrar)
             .field("username", &self.username)
             .field("password", &"[REDACTED]")
+            .field("transport", &self.transport)
+            .field("media_security", &self.media_security)
+            .field("auth_username", &self.auth_username)
+            .field("outbound_proxy", &self.outbound_proxy)
             .field("audio_mode", &self.audio_mode)
             .finish()
     }
@@ -148,6 +209,12 @@ pub enum ErrorCode {
     CredentialCleanupPending,
     /// Native initialization, queueing or execution failed.
     NativeFailure,
+    /// TLS certificate chain or expected host identity was rejected.
+    CertificateRejected,
+    /// Network/TLS transport failed or attempted an insecure signaling downgrade.
+    TransportFailure,
+    /// Mandatory SDES-SRTP negotiation failed; plaintext media remains blocked.
+    MediaSecurityRequired,
     /// The peer returned a redirect; the application does not follow it automatically.
     SipRedirect,
     /// The final SIP response rejected authentication.
@@ -346,7 +413,7 @@ pub struct AccountSnapshot {
     pub name: String,
     /// SIP registrar; validated using AccountConfig rules.
     pub registrar: String,
-    /// SIP authentication username, without the password.
+    /// SIP address username; auth_username may override digest authentication.
     pub username: String,
     /// Saved activation intent; disabled accounts retain identity and credentials.
     pub enabled: bool,
@@ -362,6 +429,18 @@ pub struct AccountSnapshot {
     pub last_error: Option<PhoneError>,
     /// A queued deletion is awaiting the native event loop.
     pub removing: bool,
+    /// Configured transport; omitted legacy values use UDP.
+    #[serde(default)]
+    pub transport: SipTransport,
+    /// Required SDES-SRTP is accepted only with TLS; omitted values disable it.
+    #[serde(default)]
+    pub media_security: MediaSecurityPolicy,
+    /// Optional digest username; null uses the SIP username.
+    #[serde(default)]
+    pub auth_username: Option<String>,
+    /// Optional DNS/IPv4 outbound proxy with optional port, never a raw SIP URI.
+    #[serde(default)]
+    pub outbound_proxy: Option<String>,
 }
 
 /// Sanitized, display-only SIP From identity of the current incoming call.
@@ -395,6 +474,8 @@ pub enum TransferState {
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct CallSnapshot {
+    /// Actual native signaling/media evidence, never inferred from preferences.
+    pub security: CallSecurity,
     /// Guard token required by every call-control API.
     pub id: String,
     /// Owning account, independent of selected outgoing account.
@@ -536,6 +617,35 @@ impl AccountConfig {
                 .all(|c| c.is_ascii_alphanumeric() || b"_.+-".contains(&c))
         {
             return Err(invalid());
+        }
+        if self.media_security == MediaSecurityPolicy::Required
+            && self.transport != SipTransport::Tls
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidInput,
+                "Required SDES-SRTP requires TLS signaling.",
+            ));
+        }
+        if let Some(auth) = &self.auth_username
+            && (auth.is_empty()
+                || auth.len() > 80
+                || !auth
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"_.+-".contains(&c)))
+        {
+            return Err(PhoneError::new(
+                ErrorCode::InvalidInput,
+                "Authentication username must contain 1–80 simple SIP username bytes.",
+            ));
+        }
+        if let Some(proxy) = &self.outbound_proxy {
+            let check = Self {
+                registrar: proxy.clone(),
+                outbound_proxy: None,
+                auth_username: None,
+                ..self.clone()
+            };
+            check.validate()?;
         }
         if self.password.is_empty() || self.password.len() > 1024 || self.password.contains('\0') {
             return Err(PhoneError::new(

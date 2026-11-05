@@ -142,7 +142,7 @@ impl RecordingPolicy {
 
 type Reply<T> = mpsc::Sender<Result<T, PhoneError>>;
 enum Message {
-    Observe(ObservedCallEvent),
+    Observe(Box<ObservedCallEvent>),
     Entries(HistoryFilter, Reply<Vec<HistoryEntry>>),
     Page(HistoryFilter, u32, u32, Reply<(Vec<HistoryEntry>, u32)>),
     Entry(String, Reply<HistoryEntry>),
@@ -233,7 +233,7 @@ fn worker(
             Message::Observe(event) => match database
                 .as_mut()
                 .map_err(|_| storage_error())
-                .and_then(|db| db.observe(event))
+                .and_then(|db| db.observe(*event))
             {
                 Ok(update) => changed |= update,
                 Err(_) => {
@@ -420,7 +420,7 @@ pub(crate) fn setup(app: &tauri::AppHandle) {
         .state::<PhoneState>()
         .with(|session| {
             session.set_call_observer(Some(Arc::new(move |event| {
-                let _ = sink.send(Message::Observe(event));
+                let _ = sink.send(Message::Observe(Box::new(event)));
             })));
             Ok(())
         })
@@ -594,6 +594,10 @@ mod query_tests {
     }
     fn account() -> AccountSnapshot {
         AccountSnapshot {
+            transport: Default::default(),
+            media_security: Default::default(),
+            auth_username: None,
+            outbound_proxy: None,
             id: 7,
             name: "Renamed".into(),
             registrar: "pbx.TEST".into(),

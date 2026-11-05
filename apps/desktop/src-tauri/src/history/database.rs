@@ -304,6 +304,10 @@ mod tests {
 
     fn account() -> AccountSnapshot {
         AccountSnapshot {
+            transport: Default::default(),
+            media_security: Default::default(),
+            auth_username: None,
+            outbound_proxy: None,
             id: 1,
             name: "Synthetic".into(),
             registrar: "pbx.test".into(),

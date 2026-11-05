@@ -7,6 +7,7 @@
 #include "audio_devices.h"
 #include "audio_diagnostics.h"
 #include "network_roam.h"
+#include "security.h"
 #include <re.h>
 #include <rem.h>
 #include <baresip.h>
@@ -38,7 +39,7 @@ struct sip_event {
 typedef void (*event_callback)(const struct sip_event *event, void *arg);
 enum { EV_READY=1, EV_REGISTERING, EV_REGISTERED, EV_REG_FAILED,
        EV_CALLING, EV_RINGING, EV_INCOMING, EV_ACTIVE, EV_CLOSED, EV_ERROR, EV_STOPPED, EV_STALE, EV_REMOVED, EV_REMOVE_FAILED, EV_ACCOUNT_APPLIED, EV_ACCOUNT_REJECTED, EV_AUDIO_APPLIED, EV_AUDIO_FAILED, EV_RING_STARTED, EV_RING_STOPPED, EV_ANSWER_FAILED, EV_BUSY_INCOMING, EV_DIAL_STARTED, EV_DIAL_FAILED, EV_LOCAL_END, EV_INTERRUPTING,
-       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED, EV_TEST_STARTED, EV_TEST_LEVEL, EV_TEST_STOPPED, EV_TEST_FAILED, EV_SELECTED, EV_MUTED, EV_LOCAL_HOLD_PENDING, EV_LOCAL_HOLD_DONE, EV_CONTROL_FAILED, EV_TRANSFER_PENDING, EV_TRANSFER_RESULT, EV_CONTROL_REJECTED, EV_RECOVERY_FAILED, EV_RECOVERING, EV_CONSULT_FAILED, EV_CALL_ERROR };
+       EV_PROGRESS, EV_HOLD, EV_RESUME, EV_DTMF_START, EV_DTMF_END, EV_TRANSFER_FAILED, EV_REDIRECT, EV_ANSWER_CLOSED, EV_TEST_STARTED, EV_TEST_LEVEL, EV_TEST_STOPPED, EV_TEST_FAILED, EV_SELECTED, EV_MUTED, EV_LOCAL_HOLD_PENDING, EV_LOCAL_HOLD_DONE, EV_CONTROL_FAILED, EV_TRANSFER_PENDING, EV_TRANSFER_RESULT, EV_CONTROL_REJECTED, EV_RECOVERY_FAILED, EV_RECOVERING, EV_CONSULT_FAILED, EV_CALL_ERROR, EV_SECURITY };
 enum { OP_ACCOUNT=1, OP_DIAL, OP_ANSWER, OP_HANGUP, OP_STOP, OP_REMOVE, OP_SOUND, OP_PREVIEW, OP_PREVIEW_STOP, OP_SOUND_RESTORE, OP_REJECT, OP_TEST_MIC, OP_TEST_SPEAKER, OP_TEST_STOP, OP_DISABLE, OP_ENABLE, OP_MUTE, OP_HOLD, OP_TRANSFER, OP_CONSULT, OP_SWITCH, OP_CANCEL_CONSULT, OP_COMPLETE_TRANSFER };
 
 struct request {
@@ -46,12 +47,14 @@ struct request {
     int operation;
     uint32_t account_id;
     uint64_t call_generation;
-    char *registrar, *username, *password, *destination;
+    char *registrar, *username, *password, *destination, *auth_username, *outbound_proxy;
+    int transport, media_security;
 };
 struct sip_account {
     uint32_t id;
     struct ua *ua;
-    char registrar[256];
+    char registrar[256], next_hop[256];
+    int transport, media_security;
 };
 struct native_dialog {
     struct call *call;
@@ -76,6 +79,7 @@ struct engine {
     struct tmr control_timer;
     int control_action;
     char consultation_destination[65];
+    char test_ca[1024];
     char recording[128];
     int audio_mode;
     bool ringtone_enabled;
@@ -422,7 +426,7 @@ static void free_request(struct request *r) {
         size_t n = strlen(r->password);
         while (n--) *p++ = 0;
     }
-    free(r->registrar); free(r->username); free(r->password); free(r->destination); free(r);
+    free(r->auth_username); free(r->outbound_proxy); free(r->registrar); free(r->username); free(r->password); free(r->destination); free(r);
 }
 static void remove_pending(struct engine *e, struct request *r) {
     struct request **p = &e->pending;
@@ -513,6 +517,27 @@ static int event_status(const char *text, char separator) {
     return (text[0] - '0') * 100 + (text[1] - '0') * 10 + text[2] - '0';
 }
 
+static const char *transport_name(int transport) { return transport == 2 ? "tls" : transport == 1 ? "tcp" : "udp"; }
+enum { SECURITY_CERTIFICATE = SIP_SECURITY_CERTIFICATE, SECURITY_TRANSPORT = SIP_SECURITY_TRANSPORT, SECURITY_MEDIA = SIP_SECURITY_MEDIA };
+static int security_error(const struct sip_account *account, int error) {
+    if (error == SECURITY_MEDIA) return SECURITY_MEDIA;
+    if (account && account->transport == 2 && error == EAUTH) return SECURITY_CERTIFICATE;
+    if (account && account->transport == 2 && error) return SECURITY_TRANSPORT;
+    return error;
+}
+static void emit_security(struct engine *e, const struct sip_account *account, struct call *call, bool negotiating) {
+    if (!call || e->current->call != call) return;
+    enum sip_transp tp = call_transp(call);
+    int observed = tp == SIP_TRANSP_UDP ? 1 : tp == SIP_TRANSP_TCP ? 2 : tp == SIP_TRANSP_TLS ? 3 : 0;
+    char host[256]; str_ncpy(host, account->next_hop, sizeof(host));
+    char *port = strchr(host, ':'); if (port) *port = 0;
+    if (tp == SIP_TRANSP_TLS && call_tls_peer_verified_for(call, host)) observed |= 4;
+    if (!negotiating && observed) {
+        if (!account->media_security) observed |= 1 << 3;
+        else if (stream_is_secure(audio_strm(call_audio(call)))) observed |= 2 << 3;
+    }
+    emit(e, EV_SECURITY, observed);
+}
 #include "call_controls.h"
 
 static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) {
@@ -528,8 +553,9 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
     switch (kind) {
     case BEVENT_REGISTERING: emit_account(e, EV_REGISTERING, 0, account->id); break;
     case BEVENT_REGISTER_OK: emit_account(e, EV_REGISTERED, 0, account->id); break;
-    case BEVENT_REGISTER_FAIL: emit_account(e, EV_REG_FAILED, event_status(bevent_get_text(event), ' '), account->id); break;
+    case BEVENT_REGISTER_FAIL: emit_account(e, EV_REG_FAILED, ua_registration_error(ua) ? security_error(account, ua_registration_error(ua)) : event_status(bevent_get_text(event), ' '), account->id); break;
     case BEVENT_CALL_INCOMING:
+        if (account->transport == 2 && call_transp(call) != SIP_TRANSP_TLS) { ua_hangup(ua, call, 488, "TLS Required"); break; }
         stop_audio_test(e);
         if (e->current->call && e->current->call != call) {
             emit_incoming(e, call, EV_BUSY_INCOMING, account->id, sip_engine_reserve_call_generation(e));
@@ -593,11 +619,19 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
             /* A sent answer without ACK is a failed setup, unlike an unanswered
              * remote CANCEL. Local hangup first marks the call terminated. */
             bool answer_failed = e->current->answered && call_state(call) == CALL_STATE_INCOMING && !call_scode(call);
+            if (call_native_error(call)) emit(e, EV_CALL_ERROR, security_error(account, call_native_error(call)));
             stop_ring(e); e->current->call = NULL; e->current->ua = NULL;
             emit(e, answer_failed ? EV_ANSWER_CLOSED : EV_CLOSED, call_scode(call));
             e->current->account_id = 0;
             dialog_closed(e, call_scode(call));
         }
+        break;
+    case BEVENT_CALL_REMOTE_SDP:
+    case BEVENT_CALL_LOCAL_SDP:
+        emit_security(e, account, call, true);
+        break;
+    case BEVENT_CALL_MENC:
+        emit_security(e, account, call, false);
         break;
     case BEVENT_AUDIO_ERROR:
         if (e->diagnostics) fprintf(stderr, "sip.diag event=audio-error ms=%" PRIu64 " call=%" PRIu64 "\n", tmr_jiffies() - e->diagnostic_started, e->current->generation);
@@ -605,6 +639,7 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
         break;
     default: break;
     }
+    if (call && e->current->call == call && (kind == BEVENT_CALL_INCOMING || kind == BEVENT_CALL_ESTABLISHED || kind == BEVENT_CALL_PROGRESS || kind == BEVENT_CALL_OUTGOING)) emit_security(e, account, call, false);
     e->current = e->selected;
 }
 
@@ -652,7 +687,7 @@ static void queue_handler(int id, void *data, void *arg) {
             emit_account(e, EV_ACCOUNT_APPLIED, 0, r->account_id);
             break;
         }
-        (void)snprintf(uri, sizeof(uri), "<sip:%s@%s>;regint=60;audio_codecs=PCMU/8000/1,PCMA/8000/1", r->username, r->registrar);
+        (void)snprintf(uri, sizeof(uri), "<sip:%s@%s;transport=%s>;regint=60;audio_codecs=PCMU/8000/1,PCMA/8000/1", r->username, r->registrar, transport_name(r->transport));
         error = ua_alloc(&replacement, uri);
         if (!error) error = account_set_call_transfer(ua_account(replacement), false);
         if (!error) {
@@ -660,20 +695,26 @@ static void queue_handler(int id, void *data, void *arg) {
             ua_remove_extension(replacement, "replaces");
         }
         if (!error) error = ua_add_xhdr_filter(replacement, "Privacy");
-        if (!error) error = account_set_auth_user(ua_account(replacement), r->username);
+        if (!error) error = account_set_auth_user(ua_account(replacement), r->auth_username[0] ? r->auth_username : r->username);
         if (!error) error = account_set_auth_pass(ua_account(replacement), r->password);
+        if (!error && r->media_security) error = account_set_mediaenc(ua_account(replacement), "srtp-mand");
+        if (!error && r->outbound_proxy[0]) {
+            char proxy[320];
+            snprintf(proxy, sizeof(proxy), "sip:%s;transport=%s", r->outbound_proxy, transport_name(r->transport));
+            error = account_set_outbound(ua_account(replacement), proxy, 0);
+        }
         if (error) { mem_deref(replacement); break; }
         struct ua *previous = account->ua;
+        struct sip_account previous_config = *account;
         account->ua = NULL;
-        char previous_registrar[256];
-        str_ncpy(previous_registrar, account->registrar, sizeof(previous_registrar));
         account->id = r->account_id;
         account->ua = replacement;
+        account->transport = r->transport; account->media_security = r->media_security;
+        str_ncpy(account->next_hop, r->outbound_proxy[0] ? r->outbound_proxy : r->registrar, sizeof(account->next_hop));
         str_ncpy(account->registrar, r->registrar, sizeof(account->registrar));
         error = ua_register(replacement);
         if (error) {
-            account->ua = previous;
-            str_ncpy(account->registrar, previous_registrar, sizeof(account->registrar));
+            *account = previous_config;
             mem_deref(replacement);
             if (!previous) memset(account, 0, sizeof(*account));
         } else {
@@ -718,7 +759,7 @@ static void queue_handler(int id, void *data, void *arg) {
             if (error) break;
         }
         if (!account || !account->ua || !ua_isregistered(account->ua)) { error = ENOTCONN; break; }
-        (void)snprintf(uri, sizeof(uri), "sip:%s@%s", r->destination, account->registrar);
+        (void)snprintf(uri, sizeof(uri), "sip:%s@%s;transport=%s", r->destination, account->registrar, transport_name(account->transport));
         error = ua_connect(account->ua, &e->current->call, NULL, uri, VIDMODE_OFF);
         /* ua_connect destroys a partially-created call when setup fails. */
         if (error) { e->current->call = NULL; e->current->ua = NULL; }
@@ -823,7 +864,9 @@ int sip_engine_run(void *handle) {
        not answer them: the account defaults to manual answer mode. */
     const char config[] =
         "sip_listen 0.0.0.0:0\n"
-        "sip_transports udp\n"
+        "sip_transports udp,tcp,tls\n"
+        "sip_tls_resume none\n"
+        "sip_verify_server yes\n"
         "call_max_calls 2\n"
         "call_accept yes\n"
         "rtp_ports 40000-40100\n"
@@ -862,6 +905,9 @@ int sip_engine_run(void *handle) {
         str_ncpy(audio->play_dev, "default", sizeof(audio->play_dev));
     }
     if (!error) error = baresip_init(conf_config());
+#ifdef SIP_NATIVE_TEST_HOOKS
+    if (!error) dnsc_getaddrinfo(net_dnsc(baresip_network()), true);
+#endif
     /* Upstream auto-enumeration excludes IPv4 loopback. Local PBX calls still
        need a matching media address; add it through the existing network API. */
     if (!error) {
@@ -869,13 +915,16 @@ int sip_engine_run(void *handle) {
         error = sa_set_str(&loopback, "127.0.0.1", 0);
         if (!error) error = net_add_address(baresip_network(), &loopback);
     }
-    if (!error) error = ua_init("SIP native milestone", true, false, false);
+    if (!error) error = ua_init("SIP native milestone", true, true, true);
+    if (!error) error = tls_set_session_reuse(uag_tls(), false);
+    if (!error) error = sip_security_configure(uag_tls(), e->test_ca[0] ? e->test_ca : NULL);
     if (!error && e->diagnostics) {
         e->diagnostic_started = tmr_jiffies();
         diagnostic_engine = e;
         sip_set_trace_handler(uag_sip(), diagnostic_trace);
     }
     if (!error) error = bevent_register(event_handler, e);
+    if (!error) error = module_load("", "srtp");
     if (!error) error = module_load("", "g711");
     if (!error) error = module_load("", "auconv");
     if (!error) error = module_load("", "auresamp");
@@ -923,7 +972,7 @@ int sip_engine_run(void *handle) {
 }
 
 int sip_engine_request(void *handle, int operation, uint32_t account_id, uint64_t call_generation, const char *registrar,
-                       const char *username, const char *password, const char *destination) {
+                       const char *username, const char *password, const char *destination, int transport, int media_security, const char *auth_username, const char *outbound_proxy) {
     struct engine *e = handle;
     struct request *r;
     int error;
@@ -934,12 +983,14 @@ int sip_engine_request(void *handle, int operation, uint32_t account_id, uint64_
     }
     r = calloc(1, sizeof(*r));
     if (!r) return ENOMEM;
+    r->transport = transport; r->media_security = media_security;
+    r->auth_username = copy_string(auth_username); r->outbound_proxy = copy_string(outbound_proxy);
     r->operation = operation;
     r->account_id = account_id;
     r->call_generation = call_generation;
     r->registrar = copy_string(registrar); r->username = copy_string(username);
     r->password = copy_string(password); r->destination = copy_string(destination);
-    if (!r->registrar || !r->username || !r->password || !r->destination) { free_request(r); return ENOMEM; }
+    if (!r->registrar || !r->username || !r->password || !r->destination || !r->auth_username || !r->outbound_proxy) { free_request(r); return ENOMEM; }
     LOCK(&e->lock);
     for (struct request *p = e->pending; p; p = p->next) ++pending;
     if (!e->running || e->stop_requested) error = ENOTCONN;
@@ -960,3 +1011,11 @@ void sip_engine_destroy(void *handle) {
     LOCK_CLOSE(&e->lock);
     free(e);
 }
+
+#ifdef SIP_NATIVE_TEST_HOOKS
+int sip_engine_set_test_ca(void *handle, const char *path) {
+    struct engine *e = handle;
+    if (!e || !path || !path[0] || strlen(path) >= sizeof(e->test_ca) || e->running) return EINVAL;
+    str_ncpy(e->test_ca, path, sizeof(e->test_ca)); return 0;
+}
+#endif

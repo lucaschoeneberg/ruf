@@ -6,6 +6,10 @@ use phone_core::{
 
 fn account() -> AccountConfig {
     AccountConfig {
+        transport: Default::default(),
+        media_security: Default::default(),
+        auth_username: None,
+        outbound_proxy: None,
         registrar: "127.0.0.1:5070".into(),
         username: "1000".into(),
         password: "lab-password;with@punctuation".into(),
@@ -97,6 +101,10 @@ fn multiple_accounts() -> EngineSnapshot {
     EngineSnapshot {
         accounts: vec![
             AccountSnapshot {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 id: 1,
                 name: "Büro".into(),
                 registrar: "pbx.test".into(),
@@ -109,6 +117,10 @@ fn multiple_accounts() -> EngineSnapshot {
                 registered_at_ms: None,
             },
             AccountSnapshot {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 id: 2,
                 name: "Privat".into(),
                 registrar: "home.test".into(),

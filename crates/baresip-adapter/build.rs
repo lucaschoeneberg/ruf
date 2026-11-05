@@ -83,6 +83,8 @@ fn build_telephony() {
         "Native SIP NAT patch changed; run bun run native:build"
     );
     for (name, file) in [
+        ("reSecurity", "re-security.patch"),
+        ("baresipSecurity", "baresip-security.patch"),
         ("reCallControls", "re-call-controls.patch"),
         ("baresipCallControls", "baresip-call-controls.patch"),
     ] {
@@ -104,9 +106,22 @@ fn build_telephony() {
             "Native SDK needs coreaudio; run bun run native:build"
         );
     }
+    assert!(
+        manifest["modules"]
+            .as_array()
+            .is_some_and(|modules| modules.iter().any(|module| module == "srtp")),
+        "SDK requires SRTP; rebuild native SDK"
+    );
+    assert!(
+        prefix.join("include/openssl/ssl.h").exists(),
+        "SDK requires matching OpenSSL headers"
+    );
+    println!("cargo:rerun-if-changed=native/security.c");
+    println!("cargo:rerun-if-changed=native/security.h");
     let mut bridge = cc::Build::new();
     bridge
         .file("native/bridge.c")
+        .file("native/security.c")
         .file("native/audio_devices.c")
         .file("native/audio_diagnostics.c")
         .file("native/network_roam.c")
@@ -117,6 +132,9 @@ fn build_telephony() {
         bridge
             .define("WIN32", None)
             .define("_CRT_SECURE_NO_WARNINGS", None);
+    }
+    if std::env::var_os("CARGO_FEATURE_NATIVE_TEST_HOOKS").is_some() {
+        bridge.define("SIP_NATIVE_TEST_HOOKS", None);
     }
     bridge.compile("sip_bridge");
     println!(

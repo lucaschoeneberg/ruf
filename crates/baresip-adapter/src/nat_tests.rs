@@ -84,6 +84,10 @@ impl Lab {
         let mapped = Self::socket();
         engine
             .configure_account(&AccountConfig {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
                 registrar: registrar.local_addr().unwrap().to_string(),
                 username: "nat-test".into(),
                 password: "synthetic-only".into(),

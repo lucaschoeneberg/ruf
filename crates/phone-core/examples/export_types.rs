@@ -24,6 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("../../apps/desktop/src/lib/generated/AppInfo.ts");
     let config = Config::default();
     let types = [
+        phone_core::SipTransport::decl(&config),
+        phone_core::MediaSecurityPolicy::decl(&config),
+        phone_core::MediaProtection::decl(&config),
+        phone_core::CallSecurity::decl(&config),
         AppPreferences::decl(&config),
         ContactsPreferences::decl(&config),
         HistoryPreferences::decl(&config),

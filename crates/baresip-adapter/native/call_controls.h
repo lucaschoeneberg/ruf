@@ -157,7 +157,7 @@ static void control_tick(void *arg) {
                 const struct sip_event started = { EV_DIAL_STARTED, 0, next->account_id, next->generation, NULL, e->consultation_destination, NULL };
                 e->callback(&started, e->callback_arg);
                 char uri[512];
-                snprintf(uri, sizeof(uri), "sip:%s@%s", e->consultation_destination, account->registrar);
+                snprintf(uri, sizeof(uri), "sip:%s@%s;transport=%s", e->consultation_destination, account->registrar, transport_name(account->transport));
                 int error = ua_connect(account->ua, &next->call, NULL, uri, VIDMODE_OFF);
                 if (error) {
                     const struct sip_event failed = { EV_DIAL_FAILED, error, next->account_id, next->generation, NULL, NULL, NULL };

@@ -71,18 +71,27 @@ Without `native`, no SDK is needed and telephony reports `notLinked`.
 
 ## Selected functionality
 
-Static modules: `g711`, `auconv`, `auresamp`, `ausine`, `aufile`, plus `coreaudio`
+Static modules: `g711`, `auconv`, `auresamp`, `ausine`, `aufile`, `srtp`, plus `coreaudio`
 on macOS or `wasapi` on Windows. Audio stays entirely within baresip. Test-tone
 mode uses 440 Hz input and writes decoded incoming PCM to WAV; system mode uses
 the platform microphone/speaker and requires manual device/permission testing.
 The file player's upstream path buffer allows at most 127 UTF-8 bytes; a longer
 path is rejected explicitly. Each test call overwrites its selected WAV.
 
-This milestone supports up to eight accounts, SIP/UDP, G.711, one call, answer,
-reject/hangup and observable registration/call states. It does not implement
-TLS/SRTP, IPv6 registrar syntax, outbound proxies, general media NAT traversal,
-transfers or full SIP interoperability.
-OpenSSL is linked as an upstream dependency; this does not enable encrypted calls.
+The native adapter supports up to eight accounts, per-account UDP/TCP/verified TLS,
+G.711, mandatory SDES-SRTP with TLS, separate digest usernames and structured
+outbound proxies. Existing two-dialog controls remain in baresip. IPv6 registrar
+literal syntax and general media NAT traversal are not implemented. Provider
+interoperability still requires verification. See [account security](../docs/api/account-security.md)
+for trust, observations, migration, safe failures and isolated native tests.
+
+The security patches bind TLS connections and in-dialog continuation to verified
+host identity, enforce a sticky TLS floor and block mandatory media before valid
+keys and during renegotiation. Native OS trust evaluation uses no exported root
+bundle or runtime Homebrew CA path. Matching OpenSSL headers are staged alongside
+the static libraries by the existing CMake probe. Build-time Homebrew OpenSSL is
+still an external input: this host's objects warn of a macOS 27 target despite
+Ruf's macOS 14 minimum; this work does not verify older macOS compatibility.
 
 The tracked [libre NAT extension](patches/README.md) learns the observed local
 SIP/UDP address from validated REGISTER responses and uses it for Contact/Via,
