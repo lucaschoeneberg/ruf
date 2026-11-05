@@ -32,6 +32,17 @@ index 82a518e..d6c86e8 100644
 +    SIP_SECURITY_TRANSPORT = 20002,   /**< Required signaling transport unavailable. */
 +    SIP_SECURITY_MEDIA = 20003        /**< Mandatory SDES-SRTP negotiation failed. */
 +};
+diff --git a/include/re_sipsess.h b/include/re_sipsess.h
+index 5bdefe7..53d843a 100644
+--- a/include/re_sipsess.h
++++ b/include/re_sipsess.h
+@@ -88,3 +88,6 @@ void sipsess_abort(struct sipsess *sess);
+ bool sipsess_ack_pending(const struct sipsess *sess);
+ const struct sip_msg *sipsess_msg(const struct sipsess *sess);
+ enum sdp_neg_state sipsess_sdp_neg_state(const struct sipsess *sess);
++
++/** True only after matched remote BYE/CANCEL; not an underlying transport failure. */
++bool sipsess_peer_terminated(const struct sipsess *sess);
 diff --git a/include/re_tls.h b/include/re_tls.h
 index 61b05a4..ae61f36 100644
 --- a/include/re_tls.h
@@ -517,6 +528,16 @@ index b7f798a..542105c 100644
 -	return sip_send(sock->sip, NULL, ack->tp, &ack->dst, ack->mb);
 +	return sip_send_conn(sock->sip, NULL, ack->tp, &ack->dst, ack->tls_host, ack->mb, NULL, NULL);
  }
+diff --git a/src/sipsess/sess.c b/src/sipsess/sess.c
+index a64530f..594d54f 100644
+--- a/src/sipsess/sess.c
++++ b/src/sipsess/sess.c
+@@ -397,3 +397,5 @@ enum sdp_neg_state sipsess_sdp_neg_state(const struct sipsess *sess)
+ {
+ 	return sess ? sess->neg_state : SDP_NEG_NONE;
+ }
++
++bool sipsess_peer_terminated(const struct sipsess *sess) { return sess && sess->peerterm; }
 diff --git a/src/tls/openssl/tls.c b/src/tls/openssl/tls.c
 index 73ee066..03e4956 100644
 --- a/src/tls/openssl/tls.c

@@ -149,7 +149,7 @@ index ffd1ea1..4e17f66 100644
  	.mediah    = media_alloc,
  	.txrekeyh  = media_txrekey
 diff --git a/src/call.c b/src/call.c
-index cad246b..662c26c 100644
+index cad246b..1813c8f 100644
 --- a/src/call.c
 +++ b/src/call.c
 @@ -49,6 +49,8 @@ struct call {
@@ -218,15 +218,16 @@ index cad246b..662c26c 100644
  
  	if (call->state == CALL_STATE_ESTABLISHED)
  		return;
-@@ -2318,6 +2333,7 @@ static void sipsess_close_handler(int err, const struct sip_msg *msg,
+@@ -2318,6 +2333,8 @@ static void sipsess_close_handler(int err, const struct sip_msg *msg,
  	const struct sip_hdr *reason_hdr = NULL;
  
  	MAGIC_CHECK(call);
-+	call->native_error = err;
++	/* Matched BYE/CANCEL uses ECONNRESET upstream but is expected peer intent. */
++	call->native_error = sipsess_peer_terminated(call->sess) ? 0 : err;
  
  	if (err) {
  		info("%s: session closed: %m\n", call->peer_uri, err);
-@@ -2468,6 +2484,8 @@ static struct call *call_find_replaces(const struct list *calls,
+@@ -2468,6 +2485,8 @@ static struct call *call_find_replaces(const struct list *calls,
  
  	for (le = list_head(calls); le; le = le->next) {
  		struct call *call = le->data;
@@ -235,7 +236,7 @@ index cad246b..662c26c 100644
  
  		if (pl_isset(&msg.from.tag) && pl_isset(&msg.to.tag) &&
  		    sip_dialog_cmp(sipsess_dialog(call->sess), &msg)) {
-@@ -2499,6 +2517,7 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
+@@ -2499,6 +2518,7 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
  	if (!call || !msg)
  		return EINVAL;
  
@@ -243,7 +244,7 @@ index cad246b..662c26c 100644
  	call->outgoing = false;
  	if (pl_isset(&msg->from.dname)) {
  		err = pl_strdup(&call->peer_name, &msg->from.dname);
-@@ -2654,6 +2673,7 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
+@@ -2654,6 +2674,7 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
  	bool media;
  
  	MAGIC_CHECK(call);
@@ -251,7 +252,7 @@ index cad246b..662c26c 100644
  
  	info("call: SIP Progress: %u %r (%r/%r)\n",
  	     msg->scode, &msg->reason, &msg->ctyp.type, &msg->ctyp.subtype);
-@@ -3656,3 +3676,11 @@ bool call_sdp_change_allowed(const struct call *call)
+@@ -3656,3 +3677,11 @@ bool call_sdp_change_allowed(const struct call *call)
  		|| (sdp_state == SDP_NEG_NONE
  		|| sdp_state == SDP_NEG_REMOTE_OFFER);
  }
