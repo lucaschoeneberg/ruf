@@ -5,6 +5,7 @@
 #include <openssl/pem.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include "security.h"
 #ifdef __APPLE__
 #include <Security/Security.h>
@@ -92,9 +93,15 @@ static int platform_verify(X509_STORE_CTX *ctx, const char *host) {
 static int platform_verify(X509_STORE_CTX *ctx, const char *host) {
     X509_STORE *store=X509_STORE_new(); X509_STORE_CTX *verify=X509_STORE_CTX_new();
     (void)host;
-    int loaded=store && X509_STORE_set_default_paths(store);
-    const char *files[]={"/etc/ssl/certs/ca-certificates.crt","/etc/pki/tls/certs/ca-bundle.crt","/etc/ssl/ca-bundle.pem"};
+    int loaded=0; /* Never consult SSL_CERT_FILE or SSL_CERT_DIR. */
+    const char *files[]={"/etc/ssl/certs/ca-certificates.crt","/etc/pki/tls/certs/ca-bundle.crt","/etc/ssl/ca-bundle.pem","/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem","/etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt"};
     for (size_t i=0;store && i<sizeof(files)/sizeof(files[0]);++i) if (X509_STORE_load_file(store,files[i])==1) loaded=1;
+    const char *directories[]={"/etc/ssl/certs","/etc/pki/tls/certs"};
+    for (size_t i=0;store && i<sizeof(directories)/sizeof(directories[0]);++i) {
+        struct stat status;
+        if (!stat(directories[i],&status) && S_ISDIR(status.st_mode)
+            && X509_STORE_load_path(store,directories[i])==1) loaded=1;
+    }
     int ok=loaded && verify && X509_STORE_CTX_init(verify,store,X509_STORE_CTX_get0_cert(ctx),X509_STORE_CTX_get0_untrusted(ctx))==1;
     if (ok) { X509_STORE_CTX_set_purpose(verify,X509_PURPOSE_SSL_SERVER); ok=X509_verify_cert(verify)==1; }
     X509_STORE_CTX_free(verify); X509_STORE_free(store); return ok;

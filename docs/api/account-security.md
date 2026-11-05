@@ -47,8 +47,9 @@ macOS uses Security.framework server trust policy, including deliberately truste
 private CAs and distrust settings. Windows uses the default CryptoAPI chain engine
 and SSL server policy. Both independently check the expected DNS name or IP SAN;
 copying a platform root list into OpenSSL is not treated as equivalent OS policy.
-Linux uses OpenSSL's runtime OS trust locations and conventional distro CA bundles;
-the OS CA package is required. Packaged runtime trust never reads a Homebrew path.
+Linux loads explicit conventional distro CA bundles and hashed OS CA directories;
+the OS CA package is required. `SSL_CERT_FILE` and `SSL_CERT_DIR` do not add trust.
+Packaged runtime trust never reads a Homebrew path.
 Static OpenSSL build selection remains a separate build-time input.
 
 Private-PBX operators intentionally configure trust through OS trust settings.
@@ -113,5 +114,7 @@ unpatched source fails the five original policy checks; the additional authority
 predicate has a separate pre-fix real-wire regression. The Python fixture requires
 Python 3 and the OpenSSL CLI, generates one-day roots/keys under ignored
 `native/build`, and runs private loopback TLS/DNS endpoints without OS changes.
-Native Windows runtime,
+`bun scripts/check-native-trust.mjs` checks the exact Linux verifier branch rejects
+environment-injected CAs; running that C branch on macOS does not establish Linux
+runtime or OS store integration. Native Windows runtime,
 Linux distro trust and older macOS runtime require separate observed verification.
