@@ -12,6 +12,8 @@ version: string,
  */
 telephony: TelephonyStatus, };
 
+export type AboutLink = "company" | "imprint" | "privacy";
+
 export type AudioMode = "system" | "testTone";
 
 export type SoundSettings = {

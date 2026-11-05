@@ -95,7 +95,16 @@ const server = Bun.spawn(
     String(port),
     "--strictPort",
   ],
-  { cwd: root, stdout: "ignore", stderr: "pipe" },
+  {
+    cwd: root,
+    stdout: "ignore",
+    stderr: "pipe",
+    env: {
+      ...process.env,
+      VITE_RUF_CHANGELOG_URL:
+        "https://raw.githubusercontent.com/example/ruf/main/CHANGELOG.md",
+    },
+  },
 );
 const serverErrors = new Response(server.stderr).text();
 let passed = false;

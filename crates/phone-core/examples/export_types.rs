@@ -1,9 +1,10 @@
 //! Generate the frontend IPC contract from its canonical Rust types.
 
 use phone_core::{
-    AccountConfig, AccountSnapshot, AppInfo, AudioDevice, AudioDevices, AudioMode, CallEvent,
-    CallEventKind, CallState, CallerIdentity, DesktopSettings, EngineSnapshot, ErrorCode,
-    NotificationPermission, PhoneError, RegistrationState, SoundSettings, TelephonyStatus,
+    AboutLink, AccountConfig, AccountSnapshot, AppInfo, AudioDevice, AudioDevices, AudioMode,
+    CallEvent, CallEventKind, CallState, CallerIdentity, DesktopSettings, EngineSnapshot,
+    ErrorCode, NotificationPermission, PhoneError, RegistrationState, SoundSettings,
+    TelephonyStatus,
 };
 use phone_core::{
     CallDirection, CallOutcome, ContactReference, HistoryEntry, HistoryFilter, HistoryPage,
@@ -20,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let types = [
         TelephonyStatus::decl(&config),
         AppInfo::decl(&config),
+        AboutLink::decl(&config),
         AudioMode::decl(&config),
         SoundSettings::decl(&config),
         AudioDevice::decl(&config),

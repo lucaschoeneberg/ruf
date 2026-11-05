@@ -1,9 +1,14 @@
 //! Generate Tauri metadata and explicit application-command permissions.
 
+mod sbom_build;
+
 fn main() {
+    sbom_build::verify();
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "get_app_info",
+            "open_about_link",
+            "get_software_bill",
             "get_contacts",
             "refresh_contacts",
             "copy_phone_number",

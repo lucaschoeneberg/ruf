@@ -12,7 +12,7 @@
     "apps/desktop"
   ],
   "scripts": {
-    "dev": "bun run --cwd apps/desktop tauri dev",
+    "dev": "bun scripts/build-desktop.mjs --dev",
     "dev:web": "bun run --cwd apps/desktop dev",
     "build": "bun run --cwd apps/desktop build",
     "check": "bun run --cwd apps/desktop check",
@@ -22,7 +22,7 @@
     "format:check": "bun fmt --check && cargo fmt --all -- --check",
     "desktop:build": "bun scripts/build-desktop.mjs",
     "native:build": "bun native/build.mjs",
-    "dev:native": "bun run --cwd apps/desktop tauri dev --features native",
+    "dev:native": "bun scripts/build-desktop.mjs --dev --features native",
     "lab:up": "docker compose -f tests/interop/asterisk/compose.yml up -d --wait",
     "lab:down": "docker compose -f tests/interop/asterisk/compose.yml down",
     "test:asterisk": "bun scripts/asterisk-smoke.mjs",

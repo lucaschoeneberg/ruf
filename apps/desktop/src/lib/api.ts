@@ -6,6 +6,7 @@ import type {
   SoundSettings,
   AudioDevices,
   DesktopSettings,
+  AboutLink,
 } from "./generated/AppInfo";
 
 async function desktopInvoke<T>(
@@ -20,6 +21,9 @@ async function desktopInvoke<T>(
 export async function getAppInfo(): Promise<AppInfo> {
   return desktopInvoke<AppInfo>("get_app_info");
 }
+
+export const openAboutLink = (link: AboutLink) =>
+  desktopInvoke<void>("open_about_link", { link });
 
 export const getEngineSnapshot = () =>
   desktopInvoke<EngineSnapshot>("get_engine_snapshot");
@@ -127,3 +131,6 @@ export function errorMessage(error: unknown): string {
     return error.message;
   return "Die Telefonie-Aktion konnte nicht abgeschlossen werden.";
 }
+
+/** Exact CycloneDX JSON embedded by the selected desktop build. */
+export const getSoftwareBill = () => desktopInvoke<string>("get_software_bill");

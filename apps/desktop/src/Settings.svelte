@@ -33,6 +33,7 @@
   import AccountSetup from "./lib/components/AccountSetup.svelte";
   import SoundPanel from "./lib/components/SoundPanel.svelte";
   import ContactsSettings from "./lib/components/ContactsSettings.svelte";
+  import AboutPanel from "./lib/components/AboutPanel.svelte";
   import Icon from "./lib/components/Icon.svelte";
 
   type Section = SettingsSection;
@@ -156,7 +157,8 @@
       id: "about",
       label: "Über Ruf",
       icon: "info",
-      terms: "version speicherung schlüsselbund protokoll asterisk testanlage",
+      terms:
+        "version changelog neuerungen änderungen autor mardu firma impressum datenschutz software sbom lizenzen open source speicherung schlüsselbund protokoll",
     },
   ] as const;
   const visibleSections = $derived(
@@ -1003,53 +1005,7 @@
           </p>
         </details>
       {:else}
-        <div class="settings-title">
-          <div>
-            <img src="/ruf.svg" alt="" width="48" height="48" />
-            <h1>Über Ruf</h1>
-            <p>Ein kompaktes Telefon für deinen Desktop.</p>
-          </div>
-        </div>
-        <h2 class="settings-group">Diese Version</h2>
-        <div class="setting-row">
-          <div class="setting-description">
-            <h3>Version</h3>
-            <p>Open Source · MIT-Lizenz</p>
-          </div>
-          <span>{info?.version ?? "Browser-Vorschau"}</span>
-        </div>
-        <div class="setting-row">
-          <div class="setting-description">
-            <h3>Konten & Passwörter</h3>
-            <p>
-              Konten bleiben nach einem Neustart erhalten. Passwörter liegen im
-              macOS-Schlüsselbund bzw. Windows Credential Manager und werden nie
-              an diese Ansicht zurückgegeben.
-            </p>
-          </div>
-        </div>
-        <div class="setting-row">
-          <div class="setting-description">
-            <h3>Telefonie</h3>
-            <p>
-              Derzeit SIP/UDP ohne Verschlüsselung und G.711. Nutze diese
-              Entwicklungsversion nur im isolierten Testnetz. Ein Gespräch
-              gleichzeitig. macOS-Kontakte lassen sich nach deiner Freigabe
-              durchsuchen und anrufen. Der lokale Verlauf zeigt deine Anrufe mit
-              Ergebnis, Dauer und dem verwendeten Konto.
-            </p>
-          </div>
-        </div>
-        <details class="settings-lab">
-          <summary>Lokale Asterisk-Testanlage</summary>
-          <p>
-            Starte im Projekt <code>bun run lab:up</code>. Server:
-            <code>127.0.0.1:5070</code>, Benutzer: <code>1000</code>,
-            öffentliches Testpasswort: <code>sip-lab-only-not-a-secret</code>.
-            Der Echotest ist unter <code>600</code> erreichbar. Für den automatischen
-            Audiotest wähle vor dem ersten Konto den Testton.
-          </p>
-        </details>
+        <AboutPanel {info} />
       {/if}
     </div>
   </main>

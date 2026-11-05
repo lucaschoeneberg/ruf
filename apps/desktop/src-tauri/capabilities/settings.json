@@ -5,6 +5,8 @@
   "windows": ["settings"],
   "permissions": [
     "allow-get-app-info",
+    "allow-open-about-link",
+    "allow-get-software-bill",
     "allow-get-contacts-permission",
     "allow-request-contacts-permission",
     "allow-open-contacts-settings",

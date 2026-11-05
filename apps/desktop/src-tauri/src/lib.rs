@@ -1,5 +1,6 @@
 //! Desktop lifecycle and IPC composition; application logic lives in phone-core.
 
+mod about;
 mod call_notifications;
 mod commands;
 mod contacts;
@@ -39,6 +40,8 @@ pub fn run() {
         })
         .on_window_event(shell::window_event)
         .invoke_handler(tauri::generate_handler![
+            about::open_about_link,
+            about::get_software_bill,
             commands::get_app_info,
             contacts::get_contacts,
             contacts::refresh_contacts,
@@ -92,4 +95,11 @@ pub fn run() {
             history::shutdown(app);
         }
     });
+}
+
+/// Return the inventory compiled into this executable without initializing the app.
+/// Development checks without a matching packaged inventory return `None`.
+pub fn software_bill() -> Option<&'static str> {
+    let json = include_str!(concat!(env!("OUT_DIR"), "/software-bill.cdx.json"));
+    (json != "{}").then_some(json)
 }

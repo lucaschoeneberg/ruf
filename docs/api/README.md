@@ -1,5 +1,8 @@
 # Desktop IPC API
 
+The settings-only company links and compiled software-inventory commands are
+documented in [About-page links and SBOM](about.md).
+
 Native macOS phonebook commands and generated DTOs are documented in
 [Contacts](contacts.md). Local call-history commands, queries and callbacks are
 documented in [History](history.md). `EngineSnapshot.callerContact` is an authorized

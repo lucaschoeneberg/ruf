@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-software-bill"
+description = "Enables the get_software_bill command without any pre-configured scope."
+commands.allow = ["get_software_bill"]
+
+[[permission]]
+identifier = "deny-get-software-bill"
+description = "Denies the get_software_bill command without any pre-configured scope."
+commands.deny = ["get_software_bill"]

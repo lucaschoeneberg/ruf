@@ -251,6 +251,156 @@ export default async function settingsRegressions(
     }
   };
   await check(
+    "About shows authorship, company links and offline licenses",
+    "",
+    async () => {
+      await page.getByRole("button", { name: "Über Ruf", exact: true }).click();
+      await page
+        .locator("footer")
+        .getByText("Autor: Mardu GmbH", { exact: true })
+        .waitFor();
+      if (
+        await page
+          .getByRole("list", { name: "Zentrale Softwarekomponenten" })
+          .isVisible()
+      )
+        throw Error("Software details should start collapsed");
+      for (const [label, link, href] of [
+        ["Website", "company", "https://www.mardu.de/"],
+        ["Impressum", "imprint", "https://www.mardu.de/publisher"],
+        ["Datenschutz", "privacy", "https://www.mardu.de/privacy"],
+      ]) {
+        const anchor = page.getByRole("link", {
+          name: new RegExp(`^${label}`),
+        });
+        if ((await anchor.getAttribute("href")) !== href)
+          throw Error(`Incorrect ${label} URL`);
+        await anchor.click();
+        await page.waitForFunction(
+          (link) =>
+            window.__settingsTest.commands.some(
+              (item) =>
+                item.command === "open_about_link" && item.args.link === link,
+            ),
+          link,
+        );
+      }
+      await page.getByText("Software & Lizenzen", { exact: true }).click();
+      const overview = page.getByRole("list", {
+        name: "Zentrale Softwarekomponenten",
+      });
+      for (const name of ["Svelte", "Tauri", "rusqlite", "IBM Plex Sans"])
+        if (!(await overview.textContent()).includes(name))
+          throw Error(`Missing central component: ${name}`);
+      if ((await overview.locator("li").count()) > 8)
+        throw Error(
+          "The compact software overview should show only central components",
+        );
+      await page
+        .getByText("Lizenztexte & Herkunftshinweise", { exact: true })
+        .click();
+      await page.getByText("Ruf · MIT-Lizenz", { exact: true }).click();
+      const licenseText = page.getByRole("textbox", {
+        name: "Ruf MIT-Lizenz",
+        exact: true,
+      });
+      await licenseText.waitFor();
+      if (
+        !(await licenseText.inputValue()).includes(
+          "Permission is hereby granted",
+        )
+      )
+        throw Error("Bundled MIT license missing");
+      await page
+        .getByText("Lizenztexte & Herkunftshinweise", { exact: true })
+        .click();
+      await page.getByText("Projektinventar (SBOM)", { exact: true }).click();
+      const packages = JSON.parse(
+        await page
+          .getByRole("textbox", {
+            name: "SBOM als CycloneDX-JSON",
+            exact: true,
+          })
+          .inputValue(),
+      );
+      if (
+        packages.bomFormat !== "CycloneDX" ||
+        !packages.components.some((item) => item.name === "tauri") ||
+        packages.components.some((item) => item.name === "baresip")
+      )
+        throw Error("Portable preview must expose its own software inventory");
+    },
+  );
+  await check(
+    "consumer changelog loads GitHub text without rendering HTML",
+    "",
+    async () => {
+      const route = "https://raw.githubusercontent.com/**";
+      await page.route(route, (request) =>
+        request.fulfill({
+          status: 200,
+          contentType: "text/plain",
+          body: "# Was ist neu?\n\n## 0.2.0 · Beispiel\n\n- Kontakte schneller finden.\n- <img src=x onerror=alert(1)>\n",
+        }),
+      );
+      try {
+        await page
+          .getByRole("button", { name: "Über Ruf", exact: true })
+          .click();
+        await page.getByText("Was ist neu?", { exact: true }).click();
+        await page
+          .getByRole("heading", { name: "0.2.0 · Beispiel", exact: true })
+          .waitFor();
+        await page
+          .getByText("Kontakte schneller finden.", { exact: true })
+          .waitFor();
+        if (await page.locator(".changelog img").count())
+          throw Error("Remote HTML was rendered");
+      } finally {
+        await page.unroute(route);
+      }
+    },
+  );
+  await check(
+    "consumer changelog keeps bundled notes when GitHub is unavailable",
+    "",
+    async () => {
+      const route = "https://raw.githubusercontent.com/**";
+      await page.route(route, (request) => request.abort());
+      try {
+        await page
+          .getByRole("button", { name: "Über Ruf", exact: true })
+          .click();
+        await page.getByText("Was ist neu?", { exact: true }).click();
+        await page
+          .getByRole("heading", { name: "0.1.0 · Vorschau", exact: true })
+          .waitFor();
+        await page
+          .getByText("Online-Änderungen konnten nicht geladen werden.", {
+            exact: false,
+          })
+          .waitFor();
+      } finally {
+        await page.unroute(route);
+      }
+    },
+  );
+  await check(
+    "About reports browser failures without navigating away",
+    "about-link-failure",
+    async () => {
+      await page.getByRole("button", { name: "Über Ruf", exact: true }).click();
+      await page.getByRole("link", { name: /^Impressum/ }).click();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "Die Seite konnte nicht geöffnet werden" })
+        .waitFor();
+      await page
+        .getByRole("heading", { name: "Über Ruf", exact: true })
+        .waitFor();
+    },
+  );
+  await check(
     "credential reconnect is explicit, sends only id and preserves drafts",
     "credential-access",
     async () => {

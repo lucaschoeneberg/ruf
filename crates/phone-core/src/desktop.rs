@@ -2,6 +2,19 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Fixed external destinations available from the application's About page.
+/// URLs are selected by the desktop shell; callers cannot supply arbitrary URLs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum AboutLink {
+    /// Mardu GmbH's company website.
+    Company,
+    /// Mardu GmbH's legal notice.
+    Imprint,
+    /// Mardu GmbH's website privacy policy.
+    Privacy,
+}
+
 /// Native operating-system notification authorization; reading it never prompts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
