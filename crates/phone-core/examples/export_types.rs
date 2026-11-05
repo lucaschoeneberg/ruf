@@ -3,7 +3,7 @@
 use phone_core::{
     AccountConfig, AccountSnapshot, AppInfo, AudioDevice, AudioDevices, AudioMode, CallEvent,
     CallEventKind, CallState, CallerIdentity, DesktopSettings, EngineSnapshot, ErrorCode,
-    PhoneError, RegistrationState, SoundSettings, TelephonyStatus,
+    NotificationPermission, PhoneError, RegistrationState, SoundSettings, TelephonyStatus,
 };
 use phone_core::{
     CallDirection, CallOutcome, ContactReference, HistoryEntry, HistoryFilter, HistoryPage,
@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CallerIdentity::decl(&config),
         AccountSnapshot::decl(&config),
         EngineSnapshot::decl(&config),
+        NotificationPermission::decl(&config),
         DesktopSettings::decl(&config),
         ContactSource::decl(&config),
         ContactsPermission::decl(&config),

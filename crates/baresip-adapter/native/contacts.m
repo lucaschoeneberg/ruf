@@ -6,6 +6,10 @@
 #include <string.h>
 #include <stdatomic.h>
 
+#ifndef SIP_CONTACT_AUTHORIZATION_TIMEOUT_NS
+#define SIP_CONTACT_AUTHORIZATION_TIMEOUT_NS (180 * NSEC_PER_SEC)
+#endif
+
 /* Embedded NULs must never turn a source number into a different dial target. */
 static const char *utf8(NSString *value) {
     if (!value) return "";
@@ -24,19 +28,27 @@ static int permission_value(CNAuthorizationStatus status) {
     }
 }
 
+static int request_authorization(CNContactStore *store, NSError **error) {
+    /* Called only from a Rust blocking worker, never the UI thread.
+     * The completion queue is independent of this waiting worker. */
+    dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+    __block NSError *request_error = nil;
+    [store requestAccessForEntityType:CNEntityTypeContacts completionHandler:^(BOOL granted, NSError *failure) {
+        (void)granted;
+        request_error = failure;
+        dispatch_semaphore_signal(completed);
+    }];
+    if (dispatch_semaphore_wait(completed,
+            dispatch_time(DISPATCH_TIME_NOW, SIP_CONTACT_AUTHORIZATION_TIMEOUT_NS))) return 1;
+    *error = request_error;
+    return 0;
+}
+
 static int authorize(CNContactStore *store, int request_access, int *permission) {
     CNAuthorizationStatus status = [CNContactStore authorizationStatusForEntityType:CNEntityTypeContacts];
     if (request_access && status == CNAuthorizationStatusNotDetermined) {
-        /* Called only from a Rust blocking worker, never the UI thread.
-         * The completion queue is independent of this waiting worker. */
-        dispatch_semaphore_t completed = dispatch_semaphore_create(0);
-        __block NSError *request_error = nil;
-        [store requestAccessForEntityType:CNEntityTypeContacts completionHandler:^(BOOL granted, NSError *error) {
-            (void)granted;
-            request_error = error;
-            dispatch_semaphore_signal(completed);
-        }];
-        dispatch_semaphore_wait(completed, DISPATCH_TIME_FOREVER);
+        NSError *request_error = nil;
+        if (request_authorization(store, &request_error)) return 1;
         status = [CNContactStore authorizationStatusForEntityType:CNEntityTypeContacts];
         *permission = permission_value(status);
         /* An ordinary denial is an access decision; infrastructure errors are failures. */

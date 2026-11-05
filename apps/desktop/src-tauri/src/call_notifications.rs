@@ -12,6 +12,7 @@ use tauri::Manager;
 
 const MAX_TITLE_CHARACTERS: usize = 128;
 const REOFFER_DELAY: Duration = Duration::from_secs(2);
+const MAX_DELIVERY_ATTEMPTS: u8 = 3;
 
 #[derive(Default)]
 struct Registry {
@@ -23,6 +24,9 @@ struct Offer {
     call_id: String,
     claimed: Option<Instant>,
     caption: (String, String),
+    delivery_attempts: u8,
+    retry_at: Option<Instant>,
+    delivery_failed: bool,
 }
 #[derive(Default)]
 struct Change {
@@ -150,6 +154,13 @@ impl Registry {
                         title: caption.0,
                         body: caption.1,
                     });
+                } else if offer.claimed.is_none() && offer.retry_at.is_some_and(|at| now >= at) {
+                    offer.retry_at = None;
+                    change.show = Some(Banner {
+                        token: offer.token.clone(),
+                        title: offer.caption.0.clone(),
+                        body: offer.caption.1.clone(),
+                    });
                 }
                 return Ok(change);
             }
@@ -169,9 +180,34 @@ impl Registry {
             call_id: id.to_owned(),
             claimed: None,
             caption: (title.clone(), body.clone()),
+            delivery_attempts: 0,
+            retry_at: None,
+            delivery_failed: false,
         });
         change.show = Some(Banner { token, title, body });
         Ok(change)
+    }
+
+    fn delivery_finished(&mut self, token: &str, success: bool, now: Instant) {
+        if let Some(offer) = self.active.as_mut().filter(|offer| offer.token == token) {
+            offer.delivery_failed = !success;
+            offer.delivery_attempts = offer.delivery_attempts.saturating_add(1);
+            offer.retry_at = if success || offer.delivery_attempts >= MAX_DELIVERY_ATTEMPTS {
+                None
+            } else {
+                Some(now + REOFFER_DELAY * u32::from(offer.delivery_attempts))
+            };
+        }
+    }
+
+    fn retry_authorized_delivery(&mut self, now: Instant) {
+        if let Some(offer) = self.active.as_mut()
+            && offer.delivery_failed
+            && offer.claimed.is_none()
+        {
+            offer.delivery_attempts = 0;
+            offer.retry_at = Some(now);
+        }
     }
 
     fn claim(
@@ -326,10 +362,18 @@ fn deliver(app: &tauri::AppHandle, snapshot: &EngineSnapshot, enabled: bool) {
             let _ = baresip_adapter::dismiss_call_notification(&token);
         }
         if let Some(banner) = change.show {
-            // Denied/failed delivery is latched for this call: no prompt and no
-            // retry spam at the observer poll rate.
-            let _ =
+            let result =
                 baresip_adapter::show_call_notification(&banner.token, &banner.title, &banner.body);
+            if let Ok(mut registry) = state.registry.lock() {
+                registry.delivery_finished(&banner.token, result.is_ok(), Instant::now());
+            }
+            if result.is_err() {
+                // No caller data or opaque action token in diagnostics. Retrying
+                // is bounded and never asks for authorization during an incoming call.
+                eprintln!(
+                    "Native call notification delivery failed; check notification authorization"
+                );
+            }
         }
     });
 }
@@ -397,6 +441,19 @@ pub(crate) fn refresh_authorization(app: &tauri::AppHandle) {
         let _ = baresip_adapter::dismiss_call_notification(token);
     });
 }
+
+/// A foreground settings read may observe an OS grant made outside Ruf.
+/// Resume a failed live offer without duplicating an already delivered notice.
+pub(crate) fn authorization_observed(
+    app: &tauri::AppHandle,
+    permission: phone_core::NotificationPermission,
+) {
+    if permission == phone_core::NotificationPermission::Authorized
+        && let Ok(mut registry) = app.state::<NotificationState>().registry.lock()
+    {
+        registry.retry_authorized_delivery(Instant::now());
+    }
+}
 pub(crate) fn shutdown(app: &tauri::AppHandle) {
     let state = app.state::<NotificationState>();
     // Pair the stop predicate with the waiter's mutex to avoid a lost wakeup.
@@ -409,11 +466,12 @@ pub(crate) fn shutdown(app: &tauri::AppHandle) {
     }
     refresh_authorization(app);
 }
-pub(crate) fn permission(request: bool) -> Result<Option<bool>, PhoneError> {
+pub(crate) fn permission(request: bool) -> Result<phone_core::NotificationPermission, PhoneError> {
     baresip_adapter::call_notification_permission(request).map(|permission| match permission {
-        NotificationPermission::Authorized => Some(true),
-        NotificationPermission::NotDetermined | NotificationPermission::Denied => Some(false),
-        NotificationPermission::Unsupported => None,
+        NotificationPermission::NotDetermined => phone_core::NotificationPermission::NotDetermined,
+        NotificationPermission::Denied => phone_core::NotificationPermission::Denied,
+        NotificationPermission::Authorized => phone_core::NotificationPermission::Authorized,
+        NotificationPermission::Unsupported => phone_core::NotificationPermission::Unsupported,
     })
 }
 
@@ -495,6 +553,155 @@ mod tests {
                 .dismiss
                 .as_deref(),
             Some("b")
+        );
+    }
+    #[test]
+    fn failed_delivery_retries_with_backoff_and_stops_after_three_attempts() {
+        let mut registry = Registry::default();
+        let now = Instant::now();
+        let snapshot = incoming("retry-call");
+        let first = next(&mut registry, &snapshot, now, "bound").show.unwrap();
+        registry.delivery_finished(&first.token, false, now);
+        assert!(next(&mut registry, &snapshot, now, "unused").show.is_none());
+        let second = next(
+            &mut registry,
+            &snapshot,
+            now + Duration::from_secs(2),
+            "unused",
+        )
+        .show
+        .expect("transient delivery failure must not lose the call banner");
+        assert_eq!(second.token, "bound");
+        registry.delivery_finished(&second.token, false, now + Duration::from_secs(2));
+        assert!(
+            next(
+                &mut registry,
+                &snapshot,
+                now + Duration::from_secs(3),
+                "unused"
+            )
+            .show
+            .is_none()
+        );
+        let third = next(
+            &mut registry,
+            &snapshot,
+            now + Duration::from_secs(6),
+            "unused",
+        )
+        .show
+        .unwrap();
+        registry.delivery_finished(&third.token, false, now + Duration::from_secs(6));
+        assert!(
+            next(
+                &mut registry,
+                &snapshot,
+                now + Duration::from_secs(60),
+                "unused"
+            )
+            .show
+            .is_none()
+        );
+        assert!(
+            next(&mut registry, &incoming("next-call"), now, "new")
+                .show
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn successful_delivery_or_withdrawal_cancels_pending_retry() {
+        let mut registry = Registry::default();
+        let now = Instant::now();
+        let snapshot = incoming("retry-call");
+        next(&mut registry, &snapshot, now, "bound");
+        registry.delivery_finished("bound", false, now);
+        registry.delivery_finished("obsolete", true, now);
+        let retry = next(
+            &mut registry,
+            &snapshot,
+            now + Duration::from_secs(2),
+            "unused",
+        )
+        .show
+        .unwrap();
+        registry.delivery_finished(&retry.token, true, now);
+        assert!(
+            next(
+                &mut registry,
+                &snapshot,
+                now + Duration::from_secs(60),
+                "unused"
+            )
+            .show
+            .is_none()
+        );
+        registry.delivery_finished("bound", false, now);
+        next(&mut registry, &EngineSnapshot::default(), now, "unused");
+        registry.delivery_finished("bound", false, now);
+        assert!(
+            next(
+                &mut registry,
+                &EngineSnapshot::default(),
+                now + Duration::from_secs(60),
+                "unused"
+            )
+            .show
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn observing_authorized_permission_recovers_a_failed_live_offer_only() {
+        let mut registry = Registry::default();
+        let now = Instant::now();
+        let snapshot = incoming("permission-changed");
+        next(&mut registry, &snapshot, now, "bound");
+        for attempt in 0..MAX_DELIVERY_ATTEMPTS {
+            registry.delivery_finished("bound", false, now);
+            let _ = next(
+                &mut registry,
+                &snapshot,
+                now + REOFFER_DELAY * u32::from(attempt + 1),
+                "unused",
+            );
+        }
+        assert!(
+            next(
+                &mut registry,
+                &snapshot,
+                now + Duration::from_secs(60),
+                "unused"
+            )
+            .show
+            .is_none()
+        );
+        registry.retry_authorized_delivery(now);
+        let retry = next(&mut registry, &snapshot, now, "unused")
+            .show
+            .expect("granting access in system settings must recover the ringing offer");
+        assert_eq!(retry.token, "bound");
+        registry.delivery_finished("bound", true, now);
+        registry.retry_authorized_delivery(now);
+        assert!(next(&mut registry, &snapshot, now, "unused").show.is_none());
+        registry.delivery_finished("bound", false, now);
+        assert!(
+            registry
+                .claim(
+                    CallNotificationAction::Answer("bound".into()),
+                    &snapshot,
+                    now
+                )
+                .is_some()
+        );
+        registry.retry_authorized_delivery(now);
+        assert!(next(&mut registry, &snapshot, now, "unused").show.is_none());
+        next(&mut registry, &EngineSnapshot::default(), now, "unused");
+        registry.retry_authorized_delivery(now);
+        assert!(
+            next(&mut registry, &EngineSnapshot::default(), now, "unused")
+                .show
+                .is_none()
         );
     }
     #[test]

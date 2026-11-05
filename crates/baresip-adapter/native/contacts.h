@@ -12,7 +12,9 @@ typedef void (*sip_contact_callback)(void *context, const char *identifier,
  * Checks/requests authorization without enumerating contacts.
  * Returns zero on success (including denial), nonzero on authorization failure.
  * request_access must be zero unless the person explicitly requested access.
- * Both functions are synchronous and must run on a blocking worker. */
+ * Explicit consent has a three-minute deadline; a stalled request returns failure
+ * and late callbacks do not access the caller's stack. Both functions are
+ * synchronous and must run on a blocking worker. */
 int sip_contacts_permission(int request_access, int *permission);
 
 /* Uses the same authorization behavior; nonzero also reports read failures. */

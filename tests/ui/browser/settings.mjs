@@ -40,11 +40,46 @@ export default async function settingsRegressions(
       soundSettings,
       ringtonePlaying: false,
     };
+    const credentialCode = {
+      "credential-access": "credentialAccessRequired",
+      "credential-cancel": "credentialAccessRequired",
+      "credential-missing": "credentialMissing",
+      "credential-failure": "credentialFailure",
+      "credential-storage": "storageFailure",
+    }[scenario];
+    if (credentialCode) {
+      saved.registration = "failed";
+      saved.lastError = {
+        code: credentialCode,
+        message: "Synthetic local credential failure",
+        sipStatus: null,
+      };
+      snapshot.registration = "failed";
+      snapshot.lastError = saved.lastError;
+    }
+    const notificationPermission =
+      scenario === "notification-permission"
+        ? "notDetermined"
+        : scenario === "notification-denied"
+          ? "denied"
+          : "unsupported";
+    const desktop = {
+      autostartEnabled: false,
+      autostartAvailable: true,
+      notificationsEnabled:
+        scenario === "notification-permission" ||
+        scenario === "notification-denied",
+      notificationsGranted:
+        notificationPermission === "unsupported" ? null : false,
+      notificationPermission,
+    };
     const callbacks = new Map();
     const listeners = new Map();
     let callbackId = 0;
     window.__settingsTest = {
       snapshot,
+      desktop,
+      requestPermissionResult: "authorized",
       commands: [],
       closed: false,
       failDesktopSave: true,
@@ -87,6 +122,11 @@ export default async function settingsRegressions(
           return;
         }
         if (command === "settings_ready") return;
+        if (command === "open_about_link") {
+          if (scenario === "about-link-failure")
+            throw { code: "nativeFailure", message: "Browser unavailable" };
+          return;
+        }
         if (command === "quit_app") {
           state.quit = true;
           return;
@@ -109,21 +149,15 @@ export default async function settingsRegressions(
               code: "storageFailure",
               message: "Preferences unavailable",
             };
-          return {
-            autostartEnabled: false,
-            autostartAvailable: true,
-            notificationsEnabled: scenario === "notification-permission",
-            notificationsGranted:
-              scenario === "notification-permission" ? false : null,
-          };
+          return structuredClone(state.desktop);
         }
         if (command === "request_notification_permission") {
-          return {
-            autostartEnabled: false,
-            autostartAvailable: true,
-            notificationsEnabled: true,
-            notificationsGranted: true,
-          };
+          state.desktop.notificationPermission = state.requestPermissionResult;
+          state.desktop.notificationsGranted =
+            state.requestPermissionResult === "unsupported"
+              ? null
+              : state.requestPermissionResult === "authorized";
+          return structuredClone(state.desktop);
         }
         if (command === "get_audio_devices") {
           if (scenario === "devices-failure" && state.deviceAttempts++ === 0)
@@ -136,15 +170,32 @@ export default async function settingsRegressions(
         if (command === "save_desktop_settings") {
           if (state.failDesktopSave)
             throw { code: "storageFailure", message: "Desktop save failed" };
-          return {
-            ...args,
-            autostartAvailable: true,
-            notificationsGranted: null,
-          };
+          Object.assign(state.desktop, args);
+          return structuredClone(state.desktop);
         }
         if (command === "save_sound_settings") {
           state.snapshot.revision++;
           state.snapshot.soundSettings = { ...args.sound };
+          return structuredClone(state.snapshot);
+        }
+        if (command === "reconnect_account") {
+          if (scenario === "credential-cancel")
+            throw {
+              code: "credentialAccessRequired",
+              message: "Synthetic cancelled permission",
+              sipStatus: null,
+            };
+          if (args.id !== 1 || state.snapshot.call !== "idle")
+            throw {
+              code: "invalidState",
+              message: "Account cannot reconnect now",
+              sipStatus: null,
+            };
+          state.snapshot.revision++;
+          state.snapshot.registration = "registering";
+          state.snapshot.accounts[0].registration = "registering";
+          state.snapshot.accounts[0].lastError = null;
+          state.snapshot.lastError = null;
           return structuredClone(state.snapshot);
         }
         if (command === "save_account") {
@@ -199,6 +250,164 @@ export default async function settingsRegressions(
       failures.push(`${name}: ${error.message}`);
     }
   };
+  await check(
+    "credential reconnect is explicit, sends only id and preserves drafts",
+    "credential-access",
+    async () => {
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            ({ command }) => command === "reconnect_account",
+          ),
+        )
+      )
+        throw new Error(
+          "Loading settings prompted for credential access automatically",
+        );
+      await page
+        .getByLabel("Name", { exact: true })
+        .fill("Nicht gespeicherter Name");
+      await page
+        .getByLabel("Passwort", { exact: true })
+        .fill("unsaved-secret-draft");
+      await page
+        .getByRole("button", { name: "Erneut verbinden", exact: true })
+        .click();
+      await page.getByText("Wird verbunden …", { exact: true }).waitFor();
+      const commands = await page.evaluate(() =>
+        window.__settingsTest.commands.filter(
+          ({ command }) => command === "reconnect_account",
+        ),
+      );
+      if (
+        commands.length !== 1 ||
+        JSON.stringify(commands[0].args) !== '{"id":1}'
+      )
+        throw new Error(
+          "Reconnect did not use exactly the existing account id",
+        );
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            ({ command }) => command === "save_account",
+          ),
+        )
+      )
+        throw new Error("Reconnect saved unsaved metadata or password");
+      if (
+        (await page.getByLabel("Name", { exact: true }).inputValue()) !==
+          "Nicht gespeicherter Name" ||
+        (await page.getByLabel("Passwort", { exact: true }).inputValue()) !==
+          "unsaved-secret-draft"
+      )
+        throw new Error("Successful reconnect discarded the unsaved draft");
+    },
+  );
+  await check(
+    "cancelled credential access keeps drafts and allows an explicit retry",
+    "credential-cancel",
+    async () => {
+      await page
+        .getByLabel("Name", { exact: true })
+        .fill("Entwurf nach Abbruch");
+      await page
+        .getByLabel("Passwort", { exact: true })
+        .fill("unsaved-cancelled-draft");
+      await page
+        .getByRole("button", { name: "Erneut verbinden", exact: true })
+        .click();
+      await page.getByRole("alert").waitFor();
+      if (
+        (await page.getByLabel("Name", { exact: true }).inputValue()) !==
+          "Entwurf nach Abbruch" ||
+        (await page.getByLabel("Passwort", { exact: true }).inputValue()) !==
+          "unsaved-cancelled-draft"
+      )
+        throw new Error("Cancelled credential access discarded the draft");
+      if (
+        await page
+          .getByRole("button", { name: "Erneut verbinden", exact: true })
+          .isDisabled()
+      )
+        throw new Error("Cancelled access left explicit retry disabled");
+      const commands = await page.evaluate(() =>
+        window.__settingsTest.commands.filter(
+          ({ command }) => command === "reconnect_account",
+        ),
+      );
+      if (
+        commands.length !== 1 ||
+        JSON.stringify(commands[0].args) !== '{"id":1}'
+      )
+        throw new Error(
+          "Cancellation retried automatically or sent the draft password",
+        );
+    },
+  );
+  await check(
+    "credential reconnect is blocked while a call is present",
+    "credential-access",
+    async () => {
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        Object.assign(f.snapshot, {
+          call: "incoming",
+          callId: "credential-call",
+          callAccountId: 1,
+        });
+        f.emit(f.snapshot);
+      });
+      const reconnect = page.getByRole("button", {
+        name: "Erneut verbinden",
+        exact: true,
+      });
+      await reconnect.waitFor();
+      if (!(await reconnect.isDisabled()))
+        throw new Error("Reconnect remained enabled during a call");
+      await reconnect.dispatchEvent("click");
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            ({ command }) => command === "reconnect_account",
+          ),
+        )
+      )
+        throw new Error(
+          "A disabled reconnect still invoked the credential command",
+        );
+    },
+  );
+  await check(
+    "missing stored credential requires password entry before save",
+    "credential-missing",
+    async () => {
+      if (
+        await page
+          .getByRole("button", { name: "Erneut verbinden", exact: true })
+          .count()
+      )
+        throw new Error(
+          "Missing password offered a futile credential-access retry",
+        );
+      await page
+        .getByRole("button", { name: "Speichern & verbinden", exact: true })
+        .click();
+      await page
+        .getByText("Gib dein SIP-Passwort ein", { exact: false })
+        .waitFor();
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            ({ command }) =>
+              command === "save_account" || command === "reconnect_account",
+          ),
+        )
+      )
+        throw new Error(
+          "Missing credential initiated a save or prompt without a password",
+        );
+    },
+  );
   await check(
     "continue editing restores focus to the changed field",
     "",
@@ -425,6 +634,149 @@ export default async function settingsRegressions(
         "Mein Entwurf"
       )
         throw Error("Removed account draft was lost");
+    },
+  );
+  await check(
+    "enabled defaults retain an explicit first authorization action",
+    "notification-permission",
+    async () => {
+      await page
+        .getByRole("button", { name: "Allgemein", exact: true })
+        .click();
+      if (
+        !(await page
+          .getByLabel("Eingehende Anrufe anzeigen", { exact: true })
+          .isChecked())
+      )
+        throw new Error("Saved enabled notification preference was lost");
+      if (
+        !(await page
+          .getByRole("button", { name: "Allgemein speichern", exact: true })
+          .isDisabled())
+      )
+        throw new Error("Unchanged defaults were marked dirty");
+      await page
+        .getByRole("button", { name: "Mitteilungen erlauben", exact: true })
+        .waitFor();
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            ({ command }) => command === "request_notification_permission",
+          ),
+        )
+      )
+        throw new Error(
+          "Settings requested permission without an explicit action",
+        );
+    },
+  );
+  await check(
+    "denied notifications explain OS recovery without promising another prompt",
+    "notification-denied",
+    async () => {
+      await page
+        .getByRole("button", { name: "Allgemein", exact: true })
+        .click();
+      if (
+        await page
+          .getByRole("button", { name: "Mitteilungen erlauben", exact: true })
+          .count()
+      )
+        throw new Error(
+          "Denied permission still offers an ineffective permission prompt",
+        );
+      await page
+        .getByText(
+          /Mitteilungen.*Systemeinstellungen|Systemeinstellungen.*Mitteilungen/,
+        )
+        .waitFor();
+    },
+  );
+  await check(
+    "unsupported authorization response stays distinct from denial",
+    "notification-permission",
+    async () => {
+      await page
+        .getByRole("button", { name: "Allgemein", exact: true })
+        .click();
+      await page.evaluate(
+        () => (window.__settingsTest.requestPermissionResult = "unsupported"),
+      );
+      await page
+        .getByRole("button", { name: "Mitteilungen erlauben", exact: true })
+        .click();
+      await page
+        .getByText(
+          "Systemmitteilungen sind in diesem Startmodus nicht verfügbar.",
+          { exact: false },
+        )
+        .waitFor();
+      if (
+        await page
+          .getByText(
+            "Erlaube Mitteilungen für Ruf in den Systemeinstellungen.",
+            { exact: false },
+          )
+          .count()
+      )
+        throw new Error(
+          "Unsupported context was described as a denied OS preference",
+        );
+      if (
+        await page
+          .getByRole("button", { name: "Mitteilungen erlauben", exact: true })
+          .count()
+      )
+        throw new Error("Unsupported context still offers a permission prompt");
+    },
+  );
+  await check(
+    "returning from OS permission settings refreshes status and preserves drafts",
+    "notification-denied",
+    async () => {
+      await page
+        .getByRole("button", { name: "Allgemein", exact: true })
+        .click();
+      await page
+        .getByLabel("Bei der Anmeldung starten", { exact: true })
+        .check();
+      await page.evaluate(() => {
+        const f = window.__settingsTest;
+        f.desktop.notificationPermission = "authorized";
+        f.desktop.notificationsGranted = true;
+        f.commands = [];
+        window.dispatchEvent(new Event("focus"));
+      });
+      await page.waitForFunction(() =>
+        window.__settingsTest.commands.some(
+          ({ command }) => command === "get_desktop_settings",
+        ),
+      );
+      await page
+        .getByText("Mitteilungen sind erlaubt.", { exact: false })
+        .waitFor();
+      if (
+        !(await page
+          .getByLabel("Bei der Anmeldung starten", { exact: true })
+          .isChecked())
+      )
+        throw new Error("Authorization refresh overwrote the autostart draft");
+      if (
+        await page
+          .getByRole("button", { name: "Allgemein speichern", exact: true })
+          .isDisabled()
+      )
+        throw new Error(
+          "Authorization refresh reset the dirty preference baseline",
+        );
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            ({ command }) => command === "request_notification_permission",
+          ),
+        )
+      )
+        throw new Error("A focus refresh requested permission automatically");
     },
   );
   await check(

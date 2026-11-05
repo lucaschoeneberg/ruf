@@ -178,6 +178,13 @@ entitlement in the actual code signature. `bun run test:macos-contacts [bundle]`
 verifies both and the bundle signature; checking only source plist files is not
 sufficient. Native authorization completion errors are propagated instead of
 being mistaken for a normal undecided/denied response.
+Explicit contact authorization has a three-minute deadline. A stalled system
+request returns `nativeFailure`, releases the contacts operation gate and permits
+a later retry. Late completion callbacks retain their own state and never access
+the returned caller's stack. This deadline does not cancel an OS dialog or infer
+the user's access decision. `bun run test:macos-contact-timeouts` verifies stalled
+and late consent callbacks with a fake store; it requests no real permission and
+reads no personal contacts.
 
 `contact-favorites.json` in Tauri's app data directory stores schema version 1 and
 an array of native identifiers under `favorites`. A same-directory temporary file

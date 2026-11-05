@@ -4,6 +4,12 @@
 #include "call_notifications.h"
 #include <string.h>
 
+/* A stalled notification daemon must not retain the delivery worker forever. */
+#ifndef SIP_NOTIFICATION_SERVICE_TIMEOUT_NS
+#define SIP_NOTIFICATION_SERVICE_TIMEOUT_NS (5 * NSEC_PER_SEC)
+#endif
+#define SIP_NOTIFICATION_AUTHORIZATION_TIMEOUT_NS (180 * NSEC_PER_SEC)
+
 static NSString *const category_id = @"org.sipsoftphone.incoming";
 static NSString *const accept_id = @"accept";
 static NSString *const reject_id = @"reject";
@@ -112,7 +118,8 @@ static int read_permission(int *permission) {
         result = permission_value(settings.authorizationStatus);
         dispatch_semaphore_signal(completed);
     }];
-    dispatch_semaphore_wait(completed, DISPATCH_TIME_FOREVER);
+    if (dispatch_semaphore_wait(completed,
+            dispatch_time(DISPATCH_TIME_NOW, SIP_NOTIFICATION_SERVICE_TIMEOUT_NS))) return 1;
     *permission = result;
     return 0;
 }
@@ -132,7 +139,8 @@ int sip_call_notifications_permission(int request, int *permission) {
                 failed = error != nil;
                 dispatch_semaphore_signal(completed);
             }];
-            dispatch_semaphore_wait(completed, DISPATCH_TIME_FOREVER);
+            if (dispatch_semaphore_wait(completed,
+                    dispatch_time(DISPATCH_TIME_NOW, SIP_NOTIFICATION_AUTHORIZATION_TIMEOUT_NS))) return 1;
             if (failed) return 1;
             return read_permission(permission);
         } @catch (NSException *exception) {
@@ -158,6 +166,7 @@ int sip_call_notifications_show(const char *token_bytes, const char *title_bytes
                 @autoreleasepool {
                     @try {
                         dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+                        __block BOOL failed = NO;
                         @synchronized(state_lock) {
                             /* A withdrawal during the settings query cancels delivery. */
                             if (![active_token isEqualToString:token]) return;
@@ -168,13 +177,36 @@ int sip_call_notifications_show(const char *token_bytes, const char *title_bytes
                             /* Baresip owns ringing. No notification sound or foreground action. */
                             UNNotificationRequest *notification = [UNNotificationRequest requestWithIdentifier:token content:content trigger:nil];
                             [center addNotificationRequest:notification withCompletionHandler:^(NSError *error) {
-                                result = error ? 1 : 0;
+                                failed = error != nil;
+                                /* Acceptance can arrive after our bounded wait and withdrawal.
+                                 * Clean up that stale request, while preserving a live retry
+                                 * using the same token for the same incoming call. */
+                                dispatch_async(delivery_queue, ^{
+                                    @autoreleasepool {
+                                        @try {
+                                            @synchronized(state_lock) {
+                                                if (![active_token isEqualToString:token]) {
+                                                    NSArray<NSString *> *tokens = @[token];
+                                                    [center removePendingNotificationRequestsWithIdentifiers:tokens];
+                                                    [center removeDeliveredNotificationsWithIdentifiers:tokens];
+                                                }
+                                            }
+                                        } @catch (NSException *exception) {
+                                            (void)exception;
+                                        }
+                                    }
+                                });
                                 dispatch_semaphore_signal(completed);
                             }];
                         }
-                        /* Keep the delivery queue occupied until acceptance. A queued withdrawal
-                         * therefore removes the accepted request, even if it raced the callback. */
-                        dispatch_semaphore_wait(completed, DISPATCH_TIME_FOREVER);
+                        /* Serialize withdrawal with acceptance up to the service deadline.
+                         * The completion above cleans up acceptance arriving after a timeout. */
+                        if (dispatch_semaphore_wait(completed,
+                                dispatch_time(DISPATCH_TIME_NOW, SIP_NOTIFICATION_SERVICE_TIMEOUT_NS))) {
+                            result = 1;
+                        } else {
+                            result = failed ? 1 : 0;
+                        }
                     } @catch (NSException *exception) {
                         (void)exception;
                         result = 1;

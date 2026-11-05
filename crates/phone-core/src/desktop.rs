@@ -2,6 +2,20 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Native operating-system notification authorization; reading it never prompts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum NotificationPermission {
+    /// No notification permission decision has been made; a foreground request may prompt.
+    NotDetermined,
+    /// The user or operating-system policy disabled notifications; use OS settings to change it.
+    Denied,
+    /// Notification delivery is authorized, subject to the user's display and Focus settings.
+    Authorized,
+    /// This platform or launch context cannot deliver native call notifications.
+    Unsupported,
+}
+
 /// Actual login-start and notification settings returned by the desktop shell.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -12,7 +26,10 @@ pub struct DesktopSettings {
     pub autostart_available: bool,
     /// User preference for a single system notification per incoming call.
     pub notifications_enabled: bool,
-    /// Actual native OS permission; null when unavailable in this launch context.
-    /// An unknown or denied permission never prevents native ringing or answering.
+    /// Canonical native OS authorization; distinguishes the first request from prior denial.
+    /// A read never opens a permission prompt, and denial does not prevent native ringing.
+    pub notification_permission: NotificationPermission,
+    /// Compatibility projection: true for authorized, false for notDetermined/denied,
+    /// and null for unsupported. Use notificationPermission to choose recovery actions.
     pub notifications_granted: Option<bool>,
 }

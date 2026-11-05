@@ -412,6 +412,8 @@
         });
     };
     const timer = setInterval(poll, 2000);
+    const refreshAuthorization = () => void refreshDesktopState();
+    window.addEventListener("focus", refreshAuthorization);
     document.addEventListener("visibilitychange", poll);
     return () => {
       mounted = false;
@@ -419,6 +421,7 @@
       clearInterval(timer);
       for (const unlisten of unlisteners) unlisten();
       document.removeEventListener("visibilitychange", poll);
+      window.removeEventListener("focus", refreshAuthorization);
       account.password = "";
       void stopOwnedPreview().catch(() => {});
     };
@@ -434,6 +437,7 @@
   }
   async function saveDesktop() {
     if (busy || loading || browser || !desktopSettings || !desktopDirty) return;
+    const current = ++epoch;
     busy = true;
     error = null;
     feedback = "";
@@ -442,32 +446,61 @@
         autostartEnabled,
         notificationsEnabled,
       );
-      if (!mounted) return;
+      if (!mounted || current !== epoch) return;
       resetDesktop(result);
       feedback = "Allgemeine Einstellungen gespeichert.";
     } catch (reason) {
-      if (mounted) error = errorMessage(reason);
+      if (mounted && current === epoch) error = errorMessage(reason);
     } finally {
-      if (mounted) busy = false;
+      if (mounted && current === epoch) busy = false;
+    }
+  }
+  async function refreshDesktopState() {
+    if (browser || !mounted || loading || busy || !desktopSettings) return;
+    const current = ++epoch;
+    try {
+      const result = await getDesktopSettings();
+      if (!mounted || current !== epoch) return;
+      if (!desktopDirty) resetDesktop(result);
+      else desktopSettings = result;
+      permissionFeedback = "";
+    } catch (reason) {
+      if (mounted && current === epoch) error = errorMessage(reason);
     }
   }
   async function allowNotifications() {
-    if (busy || loading || browser || !desktopSettings) return;
+    if (
+      busy ||
+      loading ||
+      browser ||
+      !notificationsEnabled ||
+      desktopSettings?.notificationPermission !== "notDetermined"
+    )
+      return;
+    const current = ++epoch;
     busy = true;
     error = null;
     permissionFeedback = "";
     try {
       const result = await requestNotificationPermission();
-      if (!mounted) return;
+      if (!mounted || current !== epoch) return;
       // Permission is OS state; preserve unsaved preference edits and their baseline.
       desktopSettings = result;
-      permissionFeedback = result.notificationsGranted
-        ? "Mitteilungen sind erlaubt. Speichere gegebenenfalls deine Änderungen."
-        : "Erlaube Mitteilungen für Ruf in den Systemeinstellungen. Der Klingelton funktioniert unabhängig davon.";
+      const messages = {
+        authorized:
+          "Die Freigabe wurde aktualisiert. Speichere gegebenenfalls deine Änderungen.",
+        denied:
+          "Die Systemfreigabe ist weiterhin deaktiviert. Der Klingelton funktioniert unabhängig davon.",
+        notDetermined:
+          "Die Anfrage wurde noch nicht bestätigt. Du kannst sie erneut starten.",
+        unsupported:
+          "Die Freigabe konnte in diesem Startmodus nicht angefragt werden.",
+      };
+      permissionFeedback = messages[result.notificationPermission];
     } catch (reason) {
-      if (mounted) error = errorMessage(reason);
+      if (mounted && current === epoch) error = errorMessage(reason);
     } finally {
-      if (mounted) busy = false;
+      if (mounted && current === epoch) busy = false;
     }
   }
   function resetSound(value: SoundSettings) {
@@ -810,18 +843,23 @@
                 wenn das Telefonfenster verborgen ist. Beim Aktivieren kann das
                 Betriebssystem nach deiner Erlaubnis fragen.
               </p>
-              {#if desktopSettings?.notificationsEnabled && desktopSettings.notificationsGranted === false}<p
-                  id="notifications-denied"
+              {#if notificationsEnabled && desktopSettings}<p
+                  id="notifications-status"
                 >
-                  Mitteilungen brauchen deine Freigabe. Wurde sie bereits
-                  abgelehnt, erlaube Mitteilungen in den Systemeinstellungen für
-                  Ruf. Anrufe bleiben im Telefonfenster sichtbar.
-                </p>{:else if desktopSettings?.notificationsGranted === null}<p
-                  id="notifications-permission"
-                >
-                  Systemmitteilungen sind in diesem Startmodus nicht verfügbar.
-                  Nutze dafür die installierte App. Der Klingelton bleibt
-                  verfügbar.
+                  {#if desktopSettings.notificationPermission === "notDetermined"}
+                    Noch keine Freigabe erteilt. Klicke auf „Mitteilungen
+                    erlauben“, um die Systemabfrage zu öffnen.
+                  {:else if desktopSettings.notificationPermission === "denied"}
+                    Mitteilungen sind in den Systemeinstellungen für Ruf
+                    deaktiviert. Erlaube sie dort. Anrufe bleiben im
+                    Telefonfenster sichtbar.
+                  {:else if desktopSettings.notificationPermission === "authorized"}
+                    Mitteilungen sind erlaubt.
+                  {:else}
+                    Systemmitteilungen sind in diesem Startmodus nicht
+                    verfügbar. Nutze dafür die installierte App. Der Klingelton
+                    bleibt verfügbar.
+                  {/if}
                 </p>{/if}
             </div>
             <div class="setting-control sound-toggle">
@@ -829,13 +867,13 @@
                 id="notifications-enabled"
                 type="checkbox"
                 bind:checked={notificationsEnabled}
-                aria-describedby={`notifications-help${desktopSettings?.notificationsEnabled && desktopSettings.notificationsGranted === false ? " notifications-denied" : desktopSettings?.notificationsGranted === null ? " notifications-permission" : ""}`}
+                aria-describedby={`notifications-help${notificationsEnabled && desktopSettings ? " notifications-status" : ""}`}
               /><span aria-hidden="true"
                 >{notificationsEnabled ? "Ein" : "Aus"}</span
               >
             </div>
           </div>
-          {#if notificationsEnabled && desktopSettings?.notificationsGranted === false}
+          {#if notificationsEnabled && desktopSettings?.notificationPermission === "notDetermined"}
             <div class="settings-form-actions">
               <p>
                 Die Freigabe gilt für Systemmitteilungen auf diesem Computer.

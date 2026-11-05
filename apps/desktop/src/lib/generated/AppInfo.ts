@@ -233,6 +233,8 @@ soundSettings: SoundSettings,
  */
 ringtonePlaying: boolean, };
 
+export type NotificationPermission = "notDetermined" | "denied" | "authorized" | "unsupported";
+
 export type DesktopSettings = {
 /**
  * Whether the operating system currently starts this installed app at login.
@@ -247,8 +249,13 @@ autostartAvailable: boolean,
  */
 notificationsEnabled: boolean,
 /**
- * Actual native OS permission; null when unavailable in this launch context.
- * An unknown or denied permission never prevents native ringing or answering.
+ * Canonical native OS authorization; distinguishes the first request from prior denial.
+ * A read never opens a permission prompt, and denial does not prevent native ringing.
+ */
+notificationPermission: NotificationPermission,
+/**
+ * Compatibility projection: true for authorized, false for notDetermined/denied,
+ * and null for unsupported. Use notificationPermission to choose recovery actions.
  */
 notificationsGranted: boolean | null, };
 

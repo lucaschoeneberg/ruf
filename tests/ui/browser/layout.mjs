@@ -57,6 +57,7 @@ export default async function layoutRegressions(page) {
             autostartEnabled: false,
             notificationsEnabled: true,
             notificationsGranted: null,
+            notificationPermission: "unsupported",
           };
         if (command === "get_audio_devices") return { inputs: [], outputs: [] };
         return null;

@@ -1,6 +1,6 @@
 //! Desktop preferences. OS login-start state is authoritative; secrets stay in PhoneSession.
 use crate::{phone::PhoneSession, store};
-use phone_core::{DesktopSettings, ErrorCode, PhoneError};
+use phone_core::{DesktopSettings, ErrorCode, NotificationPermission, PhoneError};
 use std::path::Path;
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
@@ -70,12 +70,19 @@ pub(crate) fn autostart_available(app: &tauri::AppHandle) -> bool {
 pub(crate) fn settings(app: &tauri::AppHandle) -> Result<DesktopSettings, PhoneError> {
     let preferences = with_session(app, |session| Ok(session.desktop_preferences()))?;
     let available = autostart_available(app);
+    let notification_permission = crate::call_notifications::permission(false)?;
+    crate::call_notifications::authorization_observed(app, notification_permission);
     Ok(DesktopSettings {
         autostart_enabled: available
             && app.autolaunch().is_enabled().map_err(|_| desktop_error())?,
         autostart_available: available,
         notifications_enabled: preferences.notifications_enabled,
-        notifications_granted: crate::call_notifications::permission(false)?,
+        notification_permission,
+        notifications_granted: match notification_permission {
+            NotificationPermission::Authorized => Some(true),
+            NotificationPermission::NotDetermined | NotificationPermission::Denied => Some(false),
+            NotificationPermission::Unsupported => None,
+        },
     })
 }
 
@@ -96,7 +103,9 @@ pub(crate) fn save_settings(
     // Authorization can fail or wait for a user decision. Do it before changing
     // login-start state, and without holding the phone-session mutex.
     if notifications && !preferences.notifications_enabled {
-        crate::call_notifications::permission(true)?;
+        if crate::call_notifications::permission(false)? == NotificationPermission::NotDetermined {
+            crate::call_notifications::permission(true)?;
+        }
         crate::call_notifications::refresh_authorization(app);
     }
     let previous = available && app.autolaunch().is_enabled().map_err(|_| desktop_error())?;
@@ -123,8 +132,26 @@ fn set_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), PhoneError
     .map_err(|_| desktop_error())
 }
 
-pub(crate) fn configure_login_once(app: &tauri::AppHandle) -> Result<(), PhoneError> {
-    let _update = PREFERENCES_UPDATE.lock().map_err(|_| desktop_error())?;
+fn try_preferences_update(
+    update: impl FnOnce() -> Result<(), PhoneError>,
+) -> Result<bool, PhoneError> {
+    // Foreground updates may be waiting for an OS permission decision. Automatic
+    // login setup runs from the phone observer and must never wait behind them.
+    let _update = match PREFERENCES_UPDATE.try_lock() {
+        Ok(update) => update,
+        Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
+        Err(std::sync::TryLockError::Poisoned(_)) => return Err(desktop_error()),
+    };
+    update()?;
+    Ok(true)
+}
+
+/// Return false when foreground preferences must finish before automatic setup.
+pub(crate) fn configure_login_once(app: &tauri::AppHandle) -> Result<bool, PhoneError> {
+    try_preferences_update(|| configure_login(app))
+}
+
+fn configure_login(app: &tauri::AppHandle) -> Result<(), PhoneError> {
     if !autostart_available(app) {
         return Ok(());
     }
@@ -152,6 +179,22 @@ fn desktop_error() -> PhoneError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_foreground_preferences_defer_automatic_setup_without_blocking_observation() {
+        let foreground = PREFERENCES_UPDATE.lock().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            sender.send(try_preferences_update(|| Ok(()))).unwrap();
+        });
+        let result = receiver.recv_timeout(std::time::Duration::from_secs(1));
+        drop(foreground);
+        // Join before asserting so a broken blocking implementation cannot leak a worker.
+        let joined = worker.join();
+        assert!(joined.is_ok());
+        assert!(!result.unwrap().unwrap());
+        assert!(try_preferences_update(|| Ok(())).unwrap());
+    }
     #[test]
     fn login_start_excludes_temporary_or_development_bundles() {
         let root = std::path::PathBuf::from("/installed");

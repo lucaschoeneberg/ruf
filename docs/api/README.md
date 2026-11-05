@@ -132,8 +132,8 @@ and registration errors as described in [history](history.md).
 are per account. Missing/inaccessible saved credentials restore a visibly failed
 account that can be repaired by supplying a password. No secret is read back.
 
-Answer/hangup capture an internal call generation; delayed actions for call A
-cannot affect replacement call B. The opaque `callId` is a session-local generation token, not a SIP Call-ID. It is null while idle and reserved before a successful outgoing attempt is queued. Both call-control commands require the displayed token; empty/stale tokens reject with `invalidState`. Duplicate answers reject. `answering` means the native answer is pending an ACK; only the native established event reports `active` (or `held` when already remotely held). Engine lifetime
+Answer/reject/hangup capture an internal call generation; delayed actions for call A
+cannot affect replacement call B. The opaque `callId` is a session-local generation token, not a SIP Call-ID. It is null while idle and reserved before a successful outgoing attempt is queued. All three call-control commands require the displayed token; empty/stale tokens reject with `invalidState`. Duplicate answers reject. `answering` means the native answer is pending an ACK; only the native established event reports `active` (or `held` when already remotely held). Engine lifetime
 belongs to the application, rather than either webview.
 
 All incoming “Ablehnen” controls in the main window, tray/application menu and
@@ -285,21 +285,37 @@ reject with `invalidInput`. Existing-window focus/build failures use `nativeFail
 
 Settings-only commands:
 
-| Command                           | Required input                                               | Output / errors                                                                                                                                                                                                                                                                   |
-| --------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_desktop_settings`            | none                                                         | `DesktopSettings`; `storageFailure` or `nativeFailure` if the store/OS state is unavailable.                                                                                                                                                                                      |
-| `request_notification_permission` | none                                                         | `DesktopSettings` after an explicit foreground OS authorization request. Denial returns `notificationsGranted: false`; unsupported launch contexts return null. Native bridge failures use `nativeFailure`; persistence read failures use `storageFailure`. Settings window only. |
-| `save_desktop_settings`           | `{autostartEnabled: boolean, notificationsEnabled: boolean}` | Actual `DesktopSettings` after saving. `invalidInput` when enabling login start in unsupported locations; `storageFailure` on persistence errors; `nativeFailure` for OS operations.                                                                                              |
+| Command                           | Required input                                               | Output / errors                                                                                                                                                                                                                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get_desktop_settings`            | none                                                         | `DesktopSettings`; `storageFailure` or `nativeFailure` if the store/OS state is unavailable.                                                                                                                                                                                                                       |
+| `request_notification_permission` | none                                                         | `DesktopSettings` after an explicit foreground authorization action. Only `notDetermined` can present the first OS permission prompt; denial/unsupported contexts return their canonical status. Native bridge failures use `nativeFailure`; persistence read failures use `storageFailure`. Settings window only. |
+| `save_desktop_settings`           | `{autostartEnabled: boolean, notificationsEnabled: boolean}` | Actual `DesktopSettings` after saving. `invalidInput` when enabling login start in unsupported locations; `storageFailure` on persistence errors; `nativeFailure` for OS operations.                                                                                                                               |
 
-`DesktopSettings` has required boolean `autostartEnabled`, `autostartAvailable`,
-`notificationsEnabled`, and nullable boolean `notificationsGranted`. Login-start
-registration comes from the official OS integration plugin. On macOS it checks
+`DesktopSettings` has required booleans `autostartEnabled`, `autostartAvailable`,
+`notificationsEnabled`, required enum `notificationPermission`, and required nullable
+boolean `notificationsGranted`. The enum preserves the actual OS decision:
+
+| `notificationPermission` | `notificationsGranted` | Meaning / foreground recovery                                                                                                                          |
+| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `notDetermined`          | false                  | No decision yet. “Mitteilungen erlauben” explicitly requests permission even when notices are already enabled by default and no preferences are dirty. |
+| `denied`                 | false                  | OS/user policy disabled notices. Change the permission in system settings; another request cannot promise a new prompt.                                |
+| `authorized`             | true                   | Delivery is authorized, subject to OS display/Focus settings.                                                                                          |
+| `unsupported`            | null                   | This platform or launch context cannot deliver native notices; do not offer a permission prompt.                                                       |
+
+`notificationsGranted` remains a compatibility projection; clients must use
+`notificationPermission` to choose permission actions. Query failures reject rather
+than inventing a denied/unsupported state. Settings re-read authorization when the
+window regains focus, without prompting or discarding unsaved preference drafts.
+Login-start registration comes from the official OS integration plugin. On macOS it checks
 the LaunchAgent entry; an external OS background-item policy can still disable
 execution, which this API cannot detect. Release installations in `/Applications/Ruf.app`,
 `~/Applications/Ruf.app`, or the standard Windows per-user/Program Files `Ruf`
 locations can register; debug/temporary bundles cannot register or alter an existing
 installed app's login entry. First successful account registration enables login
-start once. Explicitly disabling it is respected on subsequent starts.
+start once. Explicitly disabling it is respected on subsequent starts. Automatic
+first-registration login-start setup defers while a foreground preference or
+notification authorization operation is pending; the observer continues delivering
+phone state and retries the deferred setup afterward.
 
 The saved schema remains version 1 with a defaulted `desktop` object containing
 `notificationsEnabled` (default true) and `autostartConfigured` (default false).
@@ -307,13 +323,13 @@ Existing metadata without this object loads unchanged; credentials remain in the
 system store. Preference updates serialize the OS change with metadata commits
 and attempt rollback if persistence fails.
 
-`notificationsGranted` reflects native OS authorization: true when authorized,
-false when not yet decided/denied/blocked, null for an unsupported platform or
-launch context (including unbundled macOS binaries and temporary Windows builds).
-Reading settings or receiving calls never requests permission. Only enabling
-notices in foreground settings or clicking “Mitteilungen erlauben” can request it.
-A prior OS denial must be changed in system settings. Focus/display policy can
-still suppress authorized banners; native ringing remains independent.
+Reading settings or receiving calls never requests permission. Saving an explicit
+change from disabled to enabled can request permission only while the OS decision
+is `notDetermined`; unchanged enabled defaults do not request it implicitly.
+Clicking “Mitteilungen erlauben” is the separate first-authorization action. A prior
+OS denial must be changed in system settings. Unsupported contexts include unbundled
+macOS binaries and temporary Windows builds. Focus/display policy can still suppress
+authorized banners; native ringing remains independent.
 
 Incoming calls produce a silent native banner with caller name/number and the
 receiving account, plus **Annehmen** / **Ablehnen**. No window is focused by
@@ -326,6 +342,23 @@ Native delivery runs on a separate worker with a bounded latest-state handoff;
 OS latency cannot stall phone-state events. Show/withdraw/reset effects serialize
 separately from live call authorization, preventing an in-flight show from
 overtaking a cancellation, permission refresh or shutdown.
+Failed delivery retries at most twice for the same still-ringing offer, after
+two and four seconds following each failure. Success, withdrawal or call replacement
+cancels pending retries. These retries never request permission. On macOS, settings
+queries and add-request acknowledgements have five-second deadlines; explicit
+foreground authorization has a separate three-minute deadline. A timed-out native
+operation returns `nativeFailure`. A late acceptance removes the notice if its
+offer was withdrawn, while preserving a live retry with the same token.
+When a foreground settings read observes authorization granted in the OS settings,
+a failed still-ringing offer becomes eligible for a new bounded delivery attempt.
+This preserves its token, does not repeat an already successful banner, and never
+resumes a claimed or withdrawn offer. Reading permission still never prompts.
+
+`bun run test:macos-notification-timeouts` exercises stalled services, late
+callbacks, withdrawal and valid retries without accessing the OS notification
+service. `bun run test:macos-call-notifications` checks isolated native OS delivery,
+action categories, synthetic action responses and withdrawal. The latter uses its
+own test bundle identity, not Ruf's installed authorization.
 
 Every offer uses a fresh random 16-hex-character token, mapped to the current
 session-local `callId`. Tokens carry no caller data and are not exposed via IPC.

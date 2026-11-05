@@ -459,9 +459,14 @@ fn start_observer(app: tauri::AppHandle) {
                         .iter()
                         .any(|account| account.registration == RegistrationState::Registered)
                 {
-                    login_attempted = true;
-                    if desktop::configure_login_once(&app).is_err() {
-                        eprintln!("Login start could not be configured; check desktop settings");
+                    match desktop::configure_login_once(&app) {
+                        Ok(completed) => login_attempted = completed,
+                        Err(_) => {
+                            login_attempted = true;
+                            eprintln!(
+                                "Login start could not be configured; check desktop settings"
+                            );
+                        }
                     }
                 }
                 crate::contacts::enrich_snapshot(&app, &mut snapshot);
