@@ -72,7 +72,7 @@
 
 **Interfaces:** Exercise completed public Engine methods against isolated loopback Asterisk and controlled SIP fixtures. Generate trust/key material in ignored native/build only. Existing test:asterisk must include new tests and retain earlier regressions.
 
-- [ ] Extend native tests to prove returned audio survives hold/resume, mute suppresses transmission, blind/attended transfer reaches final completion, and failed/cancelled operations preserve or resume the original call.
-- [ ] Add verified TLS plus required-SRTP positive audio test and untrusted, hostname-mismatch and plaintext-policy negative tests. Include remote ending during consultation and stale command isolation; cover bounded hold/transfer failure paths with controlled native peers where appropriate.
-- [ ] Run bun run test:asterisk, portable/native Rust suites and clippy, bun run test:ui, bun run test:ui:flows, format:check, check, build, check:versions, types:generate (confirm stable), and desktop:build --features native.
-- [ ] Fix actual failures with regression tests, record commands/results/platform limits, commit evidence and deliver the reviewable branch.
+- [x] Extend native tests to prove returned audio survives hold/resume, mute suppresses transmission, blind/attended transfer reaches final completion, and failed/cancelled operations preserve or resume the original call.
+- [x] Add verified TLS plus required-SRTP positive audio test and untrusted, hostname-mismatch and plaintext-policy negative tests. Include remote ending during consultation and stale command isolation; cover bounded hold/transfer failure paths with controlled native peers where appropriate.
+- [x] Run bun run test:asterisk, portable/native Rust suites and clippy, bun run test:ui, bun run test:ui:flows, format:check, check, build, check:versions, types:generate (confirm stable), and desktop:build --features native.
+- [x] Fix actual failures with regression tests, record commands/results/platform limits, commit evidence and deliver the reviewable branch.
