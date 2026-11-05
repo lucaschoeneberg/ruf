@@ -13,6 +13,10 @@ export default async function contactsPermissions(page, baseUrl) {
       failRequest: false,
       failCopy: false,
       failOpen: false,
+      holdFavorite: false,
+      holdRead: false,
+      resolveFavorite: null,
+      resolveRead: null,
       copied: null,
       commands: [],
       emit() {
@@ -139,6 +143,7 @@ export default async function contactsPermissions(page, baseUrl) {
             autostartAvailable: true,
             notificationsEnabled: false,
             notificationsGranted: null,
+            notificationPermission: "unsupported",
           };
         if (command === "get_contacts_permission") return f.permission;
         if (command === "request_contacts_permission") {
@@ -160,13 +165,25 @@ export default async function contactsPermissions(page, baseUrl) {
           f.copied = args.number;
           return null;
         }
-        if (command === "get_contacts" || command === "refresh_contacts")
-          return {
+        if (command === "get_contacts" || command === "refresh_contacts") {
+          const response = {
             permission: f.permission,
             contacts:
               f.permission === "authorized" ? structuredClone(f.contacts) : [],
           };
+          if (f.holdRead) {
+            f.holdRead = false;
+            return new Promise((resolve) => {
+              f.resolveRead = () => resolve(response);
+            });
+          }
+          return response;
+        }
         if (command === "set_contact_favorite") {
+          if (f.holdFavorite)
+            await new Promise((resolve) => {
+              f.resolveFavorite = resolve;
+            });
           f.contacts.find((item) => item.id === args.id).favorite =
             args.favorite;
           return null;
@@ -429,6 +446,46 @@ export default async function contactsPermissions(page, baseUrl) {
     "Unsupported number remains visibly unavailable",
   );
   await page.getByRole("searchbox").fill("");
+  await page.evaluate(() => {
+    const f = window.__contactPermissionTest;
+    f.holdFavorite = true;
+  });
+  await page
+    .getByRole("button", {
+      name: "Ben Beispiel: Als Favorit merken",
+      exact: true,
+    })
+    .click();
+  await page.waitForFunction(
+    () => !!window.__contactPermissionTest.resolveFavorite,
+  );
+  await page.evaluate(() => {
+    window.__contactPermissionTest.holdRead = true;
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page.waitForFunction(
+    () => !!window.__contactPermissionTest.resolveRead,
+  );
+  await page.evaluate(() => window.__contactPermissionTest.resolveFavorite());
+  await page
+    .getByRole("button", {
+      name: "Ben Beispiel: Favorit entfernen",
+      exact: true,
+    })
+    .waitFor();
+  await page.evaluate(async () => {
+    window.__contactPermissionTest.resolveRead();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  ensure(
+    (await page
+      .getByRole("button", {
+        name: "Ben Beispiel: Favorit entfernen",
+        exact: true,
+      })
+      .count()) === 1,
+    "An older focus refresh reverted the saved favorite",
+  );
   await page.getByRole("searchbox").focus();
   await page.keyboard.press("Tab");
   ensure(

@@ -34,8 +34,10 @@
   let view = $state<View>("dialer");
   let contactFocusId = $state<string | null>(null);
   let historyContactId: string | null = null;
+  let historyScopeRequest = 0;
   let historyScope = $state<{ name: string; numbers: string[] } | null>(null);
   function showContactHistory(contact: Contact) {
+    ++historyScopeRequest;
     historyContactId = contact.id;
     historyScope = {
       name: contact.name,
@@ -69,15 +71,22 @@
     }
   }
   function clearHistoryScope() {
+    ++historyScopeRequest;
     historyContactId = null;
     historyScope = null;
   }
   async function refreshHistoryScope() {
     const id = historyContactId;
     if (!id) return;
+    const request = ++historyScopeRequest;
     try {
       const contacts = await getContacts();
-      if (!mounted || historyContactId !== id) return;
+      if (
+        !mounted ||
+        historyContactId !== id ||
+        request !== historyScopeRequest
+      )
+        return;
       const contact =
         contacts.permission === "authorized"
           ? contacts.contacts.find((contact) => contact.id === id)
@@ -96,7 +105,8 @@
           historyScope = { name: contact.name, numbers };
       } else clearHistoryScope();
     } catch {
-      if (mounted && historyContactId === id) clearHistoryScope();
+      if (mounted && historyContactId === id && request === historyScopeRequest)
+        clearHistoryScope();
     }
   }
   let info = $state<AppInfo | null>(null);

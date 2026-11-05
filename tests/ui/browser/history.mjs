@@ -110,6 +110,8 @@ export default async function historyRegressions(page) {
       copied: null,
       recordingError: null,
       delayed: null,
+      holdContacts: false,
+      pendingContacts: [],
       emit(event = "history-changed") {
         for (const [id, listener] of listeners)
           if (listener.event === event)
@@ -160,13 +162,19 @@ export default async function historyRegressions(page) {
         if (command === "get_app_info")
           return { version: "0.1.0", telephony: "linked" };
         if (command === "get_engine_snapshot") return structuredClone(state);
-        if (command === "get_contacts")
-          return {
+        if (command === "get_contacts") {
+          const response = {
             permission: fixture.contactsAuthorized ? "authorized" : "denied",
             contacts: fixture.contactsAuthorized
               ? [structuredClone(contact)]
               : [],
           };
+          if (fixture.holdContacts)
+            return new Promise((resolve) => {
+              fixture.pendingContacts.push(() => resolve(response));
+            });
+          return response;
+        }
         if (command === "get_contacts_permission") return "authorized";
         if (command === "refresh_contacts")
           return {
@@ -308,6 +316,71 @@ export default async function historyRegressions(page) {
       "No paginated IPC query",
     );
   });
+  await check(
+    "shifted pagination never duplicates a rendered call",
+    async () => {
+      await fresh();
+      await page.evaluate(() => {
+        const f = window.__historyFixture;
+        f.entries.unshift({
+          ...f.entries[0],
+          id: "newest-call",
+          contact: null,
+        });
+      });
+      await page
+        .getByRole("button", { name: "Weitere Anrufe anzeigen", exact: true })
+        .click();
+      await page.locator('.history-panel[aria-busy="false"]').waitFor();
+      await ensure(
+        page
+          .locator(".history-entry")
+          .count()
+          .then((count) => count === 55),
+        "An offset shift duplicated an existing call instead of appending unique calls",
+      );
+      await details("Testanruf 54").waitFor();
+    },
+  );
+  await check(
+    "a fully overlapping page still advances to unread server records",
+    async () => {
+      await fresh();
+      await page.evaluate(() => {
+        const f = window.__historyFixture;
+        const added = Array.from({ length: 50 }, (_, index) => ({
+          ...f.entries[0],
+          id: `newest-call-${index}`,
+          contact: null,
+        }));
+        f.entries.unshift(...added);
+      });
+      const more = page.getByRole("button", {
+        name: "Weitere Anrufe anzeigen",
+        exact: true,
+      });
+      await more.click();
+      await page.locator('.history-panel[aria-busy="false"]').waitFor();
+      await ensure(
+        page
+          .locator(".history-entry")
+          .count()
+          .then((count) => count === 50),
+        "A fully overlapping page duplicated rendered calls",
+      );
+      await more.click();
+      await page.locator('.history-panel[aria-busy="false"]').waitFor();
+      await ensure(
+        page
+          .locator(".history-entry")
+          .count()
+          .then((count) => count === 55),
+        "Pagination repeated the fully overlapping offset instead of reaching unread calls",
+      );
+      await details("Testanruf 54").waitFor();
+      await more.waitFor({ state: "detached" });
+    },
+  );
   await check(
     "refresh retains more than two pages, expanded details and keyboard position",
     async () => {
@@ -964,6 +1037,51 @@ export default async function historyRegressions(page) {
           .count()
           .then((count) => count === 0),
         "Scope or row retained revoked contact name",
+      );
+    },
+  );
+  await check(
+    "contact history scope ignores older same-contact reads",
+    async () => {
+      await fresh();
+      await details("Anna Beispiel").click();
+      await page
+        .getByRole("button", {
+          name: "Kontakt Anna Beispiel öffnen",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("button", {
+          name: "Anrufverlauf von Anna Beispiel",
+          exact: true,
+        })
+        .click();
+      await page.getByText("Für Anna Beispiel", { exact: true }).waitFor();
+      await page.evaluate(() => {
+        const f = window.__historyFixture;
+        f.holdContacts = true;
+        window.dispatchEvent(new Event("focus"));
+        f.contact.name = "Aktueller Kontaktname";
+        window.dispatchEvent(new Event("focus"));
+      });
+      await page.waitForFunction(
+        () => window.__historyFixture.pendingContacts.length === 2,
+      );
+      await page.evaluate(() => window.__historyFixture.pendingContacts[1]());
+      await page
+        .getByText("Für Aktueller Kontaktname", { exact: true })
+        .waitFor();
+      await page.evaluate(async () => {
+        window.__historyFixture.pendingContacts[0]();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await ensure(
+        page
+          .getByText("Für Aktueller Kontaktname", { exact: true })
+          .count()
+          .then((count) => count === 1),
+        "An older read reverted the current contact scope",
       );
     },
   );

@@ -158,6 +158,9 @@
             item.id === contact.id ? { ...item, favorite } : item,
           ),
         };
+      // A focus read may have captured favorites before this write completed.
+      // Re-read current authorization and favorites, invalidating that result.
+      if (mounted) await refresh(false, false);
     } catch {
       if (mounted)
         favoriteError = "Favorit nicht gespeichert. Versuche es erneut.";

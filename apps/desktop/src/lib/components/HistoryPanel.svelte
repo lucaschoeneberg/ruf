@@ -56,6 +56,7 @@
   let query = $state("");
   let filter = $state<HistoryFilter>("all");
   let page = $state<HistoryPage | null>(null);
+  let nextOffset = $state(0);
   let loading = $state(false);
   let expandedId = $state<string | null>(null);
   let confirmation = $state<string | null>(null);
@@ -102,10 +103,18 @@
         if (!more.entries.length) break;
       }
       if (!mounted || id !== requestId) return;
-      page =
-        append && page
-          ? { ...next, entries: [...page.entries, ...next.entries] }
-          : next;
+      // Server progress counts every consumed row, including overlapping IDs.
+      nextOffset = request.offset + next.entries.length;
+      // New calls can shift offset pages between reads. Keep one current record
+      // per ID so an overlapping page cannot break Svelte's keyed call rows.
+      const entries =
+        append && page ? [...page.entries, ...next.entries] : next.entries;
+      page = {
+        ...next,
+        entries: [
+          ...new Map(entries.map((entry) => [entry.id, entry])).values(),
+        ],
+      };
       if (expandedId && !page.entries.some((entry) => entry.id === expandedId))
         expandedId = null;
     } catch {
@@ -556,7 +565,7 @@
           type="button"
           disabled={loading || mutating}
           onclick={() =>
-            void load({ ...currentQuery, offset: page!.entries.length }, true)}
+            void load({ ...currentQuery, offset: nextOffset }, true)}
           >{loading
             ? "Anrufe werden geladen …"
             : "Weitere Anrufe anzeigen"}</button
