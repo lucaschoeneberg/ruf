@@ -2,7 +2,7 @@
 
 ## Project status
 
-This is a development scaffold with no supported production release yet. Build
+This is a development preview with no supported production release yet. Build
 success does not establish telephone, audio or security qualification. Reports
 about existing code are welcome; there is no guaranteed response time, fix date
 or long-term support policy at this stage.

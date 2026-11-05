@@ -17,10 +17,12 @@ jobs:
           - runner: macos-15
             target: aarch64-apple-darwin
             bundle: dmg
+            bundles: app,dmg
             artifact: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           - runner: windows-2022
             target: x86_64-pc-windows-msvc
             bundle: nsis
+            bundles: nsis
             artifact: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
     env:
       CI: true
@@ -36,6 +38,11 @@ jobs:
         run: bun run native:build
       - run: bun run check:versions
       - run: bun run test:network-roam
+      - name: Verify macOS service timeout recovery
+        if: runner.os == 'macOS'
+        run: |
+          bun run test:macos-contact-timeouts
+          bun run test:macos-notification-timeouts
       - run: bun run types:generate
       - name: Verify generated contracts are current
         run: git diff --exit-code -- apps/desktop/src/lib/generated
@@ -46,7 +53,7 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets --features sip-desktop/native -- -D warnings
       - run: cargo test --locked --workspace --features sip-desktop/native
       - name: Build the installer
-        run: bun run desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} --features native
+        run: bun run desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --features native
       - name: Verify signed microphone permissions
         if: runner.os == 'macOS'
         run: bun run test:macos-audio target/${{ matrix.target }}/release/bundle/macos/Ruf.app
@@ -56,7 +63,10 @@ jobs:
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: desktop-${{ matrix.target }}
-          path: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}/*.cdx.json
+            target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}/*.build.json
           if-no-files-found: error
           retention-days: 14
 

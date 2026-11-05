@@ -3,17 +3,24 @@
 Schlankes SIP-Softphone für macOS und Windows mit Rust, Tauri 2 und Svelte.
 Eigener Code steht unter der [MIT-Lizenz](LICENSE).
 
-**Stand: erste native Telefonie-Anbindung.** Ein flüchtiges Konto, SIP/UDP,
-G.711, Anrufsteuerung und echte Statusanzeigen sind eingebunden. Der lokale
-Asterisk-Echotest prüft Anmeldung, Gesprächsaufbau und zurückkehrendes Audio.
-Kontakte, Verlauf, Kalender und mehrere Konten folgen später. Entwicklungspakete
-sind noch keine produktionsreifen Telefone.
+**Stand: 0.1.0-Vorschau für isolierte Testnetze.** SIP/UDP und G.711-RTP sind
+unverschlüsselt. Bis zu acht gespeicherte Konten können unabhängig registriert
+sein; ein Gespräch ist gleichzeitig möglich. Passwörter liegen im
+macOS-Schlüsselbund bzw. Windows Credential Manager. Der lokale Asterisk-Echotest
+prüft Anmeldung, Gesprächsaufbau und zurückkehrendes Audio.
 
-Die dunkle Desktop-Oberfläche startet kompakt mit 360 × 560 Pixeln. Sie bietet
-eine Wähltastatur sowie Navigation für Kontakte und Verlauf. Das Konto wird über
-das Zahnrad eingerichtet; Kontakte und Verlauf zeigen vorerst ehrliche
-Leerzustände ohne angebundene Daten. [Designregeln](apps/desktop/DESIGN.md) und
-[UI-Prüfung](docs/verification/2026-11-04-compact-ui.md) beschreiben den Stand.
+Die dunkle Desktop-Oberfläche startet mit 340 × 500 Pixeln. Sie bietet Wähltastatur,
+macOS-Kontakte nach ausdrücklicher Freigabe, Favoriten und einen lokalen
+SQLite-Anrufverlauf mit Rückruf. Separate Einstellungen verwalten Konten,
+Audiogeräte, Hintergrundbetrieb und Mitteilungen. [Produktumfang](apps/desktop/PRODUCT.md),
+[Designregeln](apps/desktop/DESIGN.md) und [Release-Notizen](docs/releases/0.1.0.md)
+beschreiben die Vorschau. Windows-Kontakte, Kalender, TLS/SRTP und automatische
+Updates sind noch nicht verfügbar.
+
+Release-Ziele sind macOS 14+ auf Apple Silicon und Windows 11 x64. Die Pakete
+nutzen derzeit Ad-hoc-Signierung auf macOS und sind unter Windows unsigniert.
+Für eine öffentliche Produktionsfreigabe sind die offenen Punkte der
+[Release-Checkliste](docs/release-checklist.md) zu erfüllen.
 
 ## Lokal starten
 
@@ -43,7 +50,10 @@ muss dessen Toolchain ausdrücklich auf dieselbe Version eingestellt werden.
 bun run check
 bun run build
 bun run types:generate
+bun run check:versions
 bun run format:check
+bun run test:ui
+bun run test:ui:flows
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 bun run desktop:build
@@ -55,15 +65,15 @@ Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Paket
 
 ## Aufbau
 
-| Pfad                     | Verantwortung                                                  |
-| ------------------------ | -------------------------------------------------------------- |
-| `apps/desktop/src`       | Svelte-Oberfläche                                              |
-| `apps/desktop/src-tauri` | Tauri-App, IPC und spätere Plattformanbindungen                |
-| `crates/phone-core`      | Plattformunabhängige Rust-Verträge und spätere Anwendungslogik |
-| `crates/baresip-adapter` | Sichere Anbindung der nativen Telefonie-Engine                 |
-| `native`                 | Gepinnte native Builds und Lizenztexte                         |
-| `tests/interop`          | Lokale Asterisk-Anlage und echter Audiotest                    |
-| `.github`                | CI, plattformübergreifende Installer und Release-Entwürfe      |
+| Pfad                     | Verantwortung                                                      |
+| ------------------------ | ------------------------------------------------------------------ |
+| `apps/desktop/src`       | Svelte-Oberfläche                                                  |
+| `apps/desktop/src-tauri` | Tauri-App, IPC, Kontenspeicherung, Verlauf und Desktop-Integration |
+| `crates/phone-core`      | Plattformunabhängige Rust-Verträge und Validierung                 |
+| `crates/baresip-adapter` | Sichere Anbindung der nativen Telefonie-Engine                     |
+| `native`                 | Gepinnte native Builds und Lizenztexte                             |
+| `tests/interop`          | Lokale Asterisk-Anlage und echter Audiotest                        |
+| `.github`                | CI, plattformübergreifende Installer und Release-Entwürfe          |
 
 ## Weiterarbeiten
 
@@ -75,6 +85,7 @@ Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Paket
 - [Verhaltensregeln](CODE_OF_CONDUCT.md), [Sicherheitsmeldungen](SECURITY.md) und
   [Lizenzierung und Attribution](docs/licensing.md)
 
-GitHub-Workflows sind vorbereitet. Ein Remote und Repository-Regeln werden erst
-nach Verbindung mit dem tatsächlichen Repository eingerichtet. Es wurde durch
-das Anlegen der Dateien nichts zu GitHub übertragen oder veröffentlicht.
+GitHub-Workflows prüfen Quellcode, Browserzustände, native Builds und das
+Asterisk-Labor. Ein passender Versionstag erstellt nach erfolgreichen Checks einen
+Entwurf als Vorabversion mit Installern und SHA-256-Prüfsummen. Ein Remote und
+Repository-Regeln müssen am tatsächlichen Repository eingerichtet werden.

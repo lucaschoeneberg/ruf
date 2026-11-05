@@ -3,7 +3,8 @@
 Code, documentation, bug reports, interoperability testing and reviews are welcome.
 Read the [Code of Conduct](CODE_OF_CONDUCT.md) and
 [development setup](docs/development.md). Check the [README](README.md) before
-reporting a planned feature as a regression: this app is currently a scaffold.
+reporting a planned feature as a regression: this app is currently a development
+preview. The [release checklist](docs/release-checklist.md) records distribution gaps.
 
 ## Before starting
 

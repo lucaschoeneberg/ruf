@@ -117,7 +117,10 @@ Bun owns installation, workspaces, JavaScript execution and formatting. Run
 `bun install --frozen-lockfile` from the repository root after checkout. Commit
 `bun.lock`; do not generate a second package-manager lockfile. Both `.bun-version`
 and `package.json` pin Bun 1.4.4; `bun run check:versions` verifies the pins and
-actual runtime as well as application/release versions.
+actual runtime as well as application/release versions. It also checks that both
+`rustc` and `cargo` on PATH match `rust-toolchain.toml` and workspace `rust-version`.
+If system/Homebrew Rust shadows Rustup, put the pinned Rustup toolchain first on
+PATH before running checks/builds. `rustup which cargo` identifies that toolchain.
 
 Workspace tools explicitly run with `bun --bun` so their Node shebangs do not
 select a separately installed Node runtime. Existing `node:` standard-library
@@ -130,8 +133,10 @@ Prettier or Svelte formatter plugin dependency. Configuration and generated-file
 exclusions live in `bunfig.toml`; `.editorconfig` remains authoritative for basic
 whitespace. Native C/CMake formatting is unchanged.
 
-Pass arguments directly: `bun run desktop:build --features native --bundles dmg`
-on macOS, or `--bundles nsis` on Windows. Do not insert npm's argument separator.
+Pass arguments directly: `bun run desktop:build --features native --bundles app,dmg`
+on macOS, or `--bundles nsis` on Windows. Requesting both `app,dmg` retains Ruf.app
+for the signature/permission checks; a DMG-only build removes its temporary app
+after packaging. Do not insert npm's argument separator.
 
 References: [Bun formatter](https://bun.com/docs/format),
 [lockfile migration](https://bun.sh/docs/pm/lockfile),

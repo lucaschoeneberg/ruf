@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Check existing issues and the README first: this app is currently a scaffold.
+        Check existing issues and the README first: this app is currently a development preview.
         This report is public. Remove credentials, real numbers, names, addresses,
         Call-IDs, contact lists and private call traces. For security issues, follow
         SECURITY.md and arrange a private channel instead.

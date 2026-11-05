@@ -8,7 +8,7 @@ For incoming contributions, copied assets and distribution requirements, see
 [licensing and attribution](docs/licensing.md). The project's MIT license does not
 replace third-party licenses.
 
-The temporary desktop icons and initial Tauri configuration conventions originate
+The initial scaffold icons (since replaced by Ruf artwork) and Tauri configuration conventions originated
 from [create-tauri-app](https://github.com/tauri-apps/create-tauri-app), distributed
 under MIT or Apache-2.0. Used under MIT:
 

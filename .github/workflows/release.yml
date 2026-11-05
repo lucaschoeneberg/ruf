@@ -24,6 +24,16 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: bun run check:versions
+      - name: Require versioned release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: test -s "docs/releases/${RELEASE_TAG#v}.md"
+
+  quality:
+    name: Release quality
+    needs: version
+    uses: ./.github/workflows/quality.yml
 
   desktop:
     name: Verified installers
@@ -32,7 +42,7 @@ jobs:
 
   draft:
     name: Create release draft
-    needs: [version, desktop]
+    needs: [version, quality, desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -56,10 +66,20 @@ jobs:
           shopt -s nullglob
           mac=(artifacts/desktop-aarch64-apple-darwin/*.dmg)
           windows=(artifacts/desktop-x86_64-pc-windows-msvc/*.exe)
-          if [[ ${#mac[@]} -ne 1 || ${#windows[@]} -ne 1 ]]; then
-            echo "Expected exactly one macOS and one Windows installer."
+          mac_sbom=(artifacts/desktop-aarch64-apple-darwin/*.cdx.json)
+          windows_sbom=(artifacts/desktop-x86_64-pc-windows-msvc/*.cdx.json)
+          mac_evidence=(artifacts/desktop-aarch64-apple-darwin/*.build.json)
+          windows_evidence=(artifacts/desktop-x86_64-pc-windows-msvc/*.build.json)
+          if [[ ${#mac[@]} -ne 1 || ${#windows[@]} -ne 1 || ${#mac_sbom[@]} -ne 1 || ${#windows_sbom[@]} -ne 1 || ${#mac_evidence[@]} -ne 1 || ${#windows_evidence[@]} -ne 1 ]]; then
+            echo "Expected one installer, SBOM and build-hash manifest per desktop target."
             exit 1
           fi
-          gh release create "$RELEASE_TAG" "${mac[@]}" "${windows[@]}" \
-            --verify-tag --draft --title "Ruf $RELEASE_TAG" \
-            --notes-file docs/releases/foundation.md
+          sbom=("${mac_sbom[@]}" "${windows_sbom[@]}")
+          evidence=("${mac_evidence[@]}" "${windows_evidence[@]}")
+          for asset in "${mac[@]}" "${windows[@]}"; do
+            (cd "$(dirname "$asset")" && sha256sum "$(basename "$asset")")
+          done > artifacts/SHA256SUMS
+          gh release create "$RELEASE_TAG" "${mac[@]}" "${windows[@]}" "${sbom[@]}" "${evidence[@]}" \
+            artifacts/SHA256SUMS \
+            --verify-tag --draft --prerelease --title "Ruf $RELEASE_TAG" \
+            --notes-file "docs/releases/${RELEASE_TAG#v}.md"
