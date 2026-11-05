@@ -46,11 +46,11 @@
 
 **Files:** Modify native/build.mjs, crates/baresip-adapter/{build.rs,native/bridge.c,src/ffi.rs,src/engine.rs}, crates/phone-core/src/phone.rs, apps/desktop/src-tauri/src/{store,phone}.rs; add focused native trust helper if required; update native/SBOM documentation and docs/api.
 
-**Interfaces:** Consume Task 1 per-dialog state. Produce defaulted typed account transport and media-security policy plus authentication-user/proxy/private-CA options in AccountConfig, saved metadata and safe snapshots; expose observed per-dialog signaling/media security. Maintain API source compatibility where practical; default legacy persisted accounts to UDP/no media encryption.
+**Interfaces:** Consume Task 1 per-dialog state. Produce defaulted typed account transport and media-security policy plus authentication-user/proxy options in AccountConfig, saved metadata and safe snapshots; expose observed per-dialog signaling/media security. Use SipTransport (udp/tcp/tls), MediaSecurityPolicy (disabled/required), AccountConfig.transport/mediaSecurity/authUsername/outboundProxy; nullable options default to null. CallSnapshot.security is CallSecurity { signalingTransport: SipTransport|null, tlsPeerVerified: boolean, media: unknown|unprotected|sdesSrtp }. Add CertificateRejected/TransportFailure/MediaSecurityRequired error classifications with native provenance. Maintain API source compatibility where practical; default legacy persisted accounts to UDP/no media encryption.
 
 - [ ] Write and run failing tests for defaults, validation, metadata roundtrip, reconnect retention, and native security observations/reset.
 - [ ] Enable and load srtp module in the native SDK; enforce SDK compatibility checks. Configure actual UDP/TCP/TLS per account/destination without accidental UDP override; wire separate auth username and proxy.
-- [ ] Implement certificate/hostname verification and portable packaged trust roots; never disable verification for private CAs. Require TLS for required SDES-SRTP, observe media events and fail closed when media policy is unmet.
+- [ ] Implement certificate/hostname verification and portable packaged trust roots; honor platform trust policy including deliberately trusted private CAs. Do not expose per-account CA injection into the shared TLS context. Tests may inject generated CA trust through a private test-only Rust path. Require TLS for required SDES-SRTP, observe media events and fail closed when media policy is unmet.
 - [ ] Run account/core/native tests and SDK rebuild; document trust paths, fields, errors, migration and security limits; regenerate types.
 - [ ] Commit and write task report with RED/GREEN evidence.
 
@@ -61,7 +61,7 @@
 **Interfaces:** Consume Task 1 Engine controls and Task 2 account/session DTOs. Produce guarded Tauri IPC for each control, Svelte call controls/consultation flow and editable account-security settings. Use generated Rust TypeScript types, existing error presentation and compact layout.
 
 - [ ] Write/run failing UI behavior tests for mute/hold/pending states, two-call switching/cancel/complete, settings validation/defaults and confirmed-security display.
-- [ ] Wire command handlers to existing blocking/session patterns, preserving permission and stale-call guards. Implement complete controls and consultation UI; keep account creation/edit/security under Settings and persist all fields through save/reconnect.
+- [ ] Wire command handlers to existing blocking/session patterns, preserving permission and stale-call guards. Implement complete controls and consultation UI, including distinct per-dialog parties and transfer destination entry or selection from existing authorized contacts (reuse existing permissions; no automatic prompt). Keep account creation/edit/security under Settings and persist all fields through save/reconnect. Show confirmed native security, never a preference-derived lock, and clearly distinguish pending hold/recovery.
 - [ ] Update API docs and product/changelog descriptions accurately without claiming unobserved provider compatibility.
 - [ ] Run UI tests, browser flows, Svelte check/build and portable desktop Rust tests; capture GREEN evidence.
 - [ ] Commit and write task report.

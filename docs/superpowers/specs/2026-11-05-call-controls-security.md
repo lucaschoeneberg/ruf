@@ -23,7 +23,8 @@ implementation and native SIP verification without another planning handoff.
   is the recommended encrypted profile; no automatic plaintext downgrade.
   Required SDES-SRTP must require TLS. Verify server certificate chain and host.
   Trust roots must work in packaged macOS builds without a Homebrew path;
-  explicit trusted private CA configuration may supplement platform roots.
+  private PBX CAs must be intentionally trusted through the platform trust
+  settings. No account-local CA is silently added to a shared TLS context.
 - Distinguish configured encryption from observed SIP transport and media
   protection. Never label a call encrypted based only on a preference. Explain
   that PBX hop encryption does not guarantee end-to-end encryption.
