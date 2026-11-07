@@ -12,6 +12,15 @@ target_include_directories(network_roam_test PRIVATE
 find_library(RE_LIBRARY NAMES re PATHS "${SIP_SDK_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
 target_link_libraries(network_roam_test PRIVATE "${RE_LIBRARY}")
 
+if(APPLE)
+    add_executable(dns_refresh_test dns_refresh.c)
+    target_compile_features(dns_refresh_test PRIVATE c_std_11)
+    target_compile_options(dns_refresh_test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    target_include_directories(dns_refresh_test PRIVATE "${SIP_SDK_PREFIX}/include/re")
+    target_link_libraries(dns_refresh_test PRIVATE "${RE_LIBRARY}" resolv
+        "-framework CoreFoundation" "-framework SystemConfiguration")
+endif()
+
 # These tests deliberately use assertions in every configuration.
 if(MSVC)
     target_compile_options(network_roam_test PRIVATE /W4 /WX /UNDEBUG)
@@ -24,7 +33,7 @@ else()
     endif()
 endif()
 
-add_executable(call_actions_test call_actions.c ../audio_diagnostics.c)
+add_executable(call_actions_test call_actions.c ../audio_diagnostics.c ../security.c)
 target_compile_features(call_actions_test PRIVATE c_std_11)
 target_include_directories(call_actions_test PRIVATE
     "${SIP_SDK_PREFIX}/include" "${SIP_SDK_PREFIX}/include/re")

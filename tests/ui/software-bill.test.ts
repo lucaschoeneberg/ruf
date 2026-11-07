@@ -100,6 +100,8 @@ test("native SDK identity and linkage validation also run without an installed S
       baresipCallControls: "baresip controls fixture",
       reSecurity: "re security fixture",
       baresipSecurity: "baresip security fixture",
+      reReliability: "re reliability fixture",
+      baresipReliability: "baresip reliability fixture",
     },
     modules: ["g711", "coreaudio"],
   };

@@ -133,7 +133,34 @@ It leaves the confirmed hold state intact and allows a later explicit retry.
 Once sent, hold/resume has a separate 10-second command deadline. The adapter confirms local hold
 only after an accepted SIP answer. Refusal and glare (491) restore the previous
 local media state immediately. Every final 2xx is ACKed even if SDP is absent or
-invalid; malformed answers fail without wedging subsequent renegotiation.
+invalid. A final 2xx with absent or invalid SDP is not a refusal: local rollback
+alone cannot confirm the remote direction. It enters the existing bounded
+recovery path, retains `holdPending: true`, reports `nativeFailure` with null
+`sipStatus`, and sends a compensating offer. Accepted compensation releases
+pending state; an invalid/refused compensation ends the uncertain dialog.
+Final 408/481 responses terminate the lost dialog rather than pretending to
+restore an established conversation.
+
+Confirmed local resume restarts the existing receive watchdog with its full
+60-second grace interval, including resume of a parked original after a long
+consultation. Rejected remote SDP retains the last accepted remote description;
+hold/resume events are published after successful media application. An offer
+that replaces the only audio stream with unsupported codecs receives 488 and
+preserves the existing media. Mandatory-SRTP failures remain fatal.
+
+The same codec validation applies to SDP answers: an answer with a nonzero audio
+port and no supported common codec cannot establish a call or confirm hold/resume.
+An invalid accepted hold/resume answer restores the previously accepted SDP and
+enters the confirmed compensation path above. Initial negotiation failure ends
+setup with `nativeFailure`; no active call is published. A malformed answer in
+the ACK of an offerless remote re-INVITE ends the uncertain established dialog
+through the existing deferred native failure path.
+
+Local or remote hangup does not cancel the protocol obligation to ACK a late
+successful re-INVITE response. The native session retains that transaction until
+completion, including when no provisional response preceded hangup. Repeated
+final responses replay the cached ACK; they never restore an application call
+or restart media.
 
 A command timeout rolls back local media but does not pretend that the remote
 session is restored. `holdPending` remains true during recovery, and `lastError`
@@ -155,7 +182,9 @@ transaction stack, ad hoc ACK builder or detached request ownership is added.
 SDP and received audio for the parked call remain disabled while locally held.
 
 Transfer has a 15-second deadline. Final failure, REFER refusal and timeout retain
-the original dialog. The native subscription is retired on timeout, and a late
+the original dialog and its confirmed local hold intent. Failed consultation
+setup restores the retained manual intent; explicit cancellation/return resumes
+the original even if it was previously held. The native subscription is retired on timeout, and a late
 success cannot close that recovered call. Final 2xx NOTIFY confirms success before
 local cleanup ends the original and any consultation. Confirmed attended success
 is forwarded to both dialogs' event FIFOs before each cleanup, so the final idle
@@ -164,10 +193,21 @@ This forwarding does not mean that each dialog sent its own REFER. Actual final 
 retain their numeric `sipStatus` and existing classification; local deadlines and
 native failures use `nativeFailure` with null `sipStatus`.
 
+The conversation list renders transfer/control failures for their owning dialog
+even when the consultation is selected. Numeric dial, consultation and blind
+transfer destinations use libre's existing URI-user encoding (`#` becomes `%23`);
+the validated destination and public command input remain the original number.
+
 A consultation cannot be dialed before original hold succeeds. An already-held
 original proceeds using that confirmed state. Failed setup or unsolicited remote
-consultation termination returns to the original's pre-consultation hold intent;
-explicit cancellation/return can intentionally resume it. Setup failure, including native failure without any SIP status, is also
+consultation termination returns to the original's latest confirmed manual hold
+intent, initially its pre-consultation state. Successful explicit hold/resume and
+selection of the original update that intent; temporary parking for consultation
+or switching does not. A background consultation ending cannot override a later
+manual hold or resume. If either dialog ends during the survivor's outstanding
+hold exchange, automatic return waits for completion and then reconciles the
+survivor to its retained intent. It does not leave the survivor silently parked.
+Explicit cancellation/return can intentionally resume it. Setup failure, including native failure without any SIP status, is also
 reported as a safe operation error on the surviving original, preserving the SIP
 status (for example busy/486). Automatic return/resume does not erase that error;
 the next accepted explicit action or new call clears it. Explicit cancellation
@@ -177,6 +217,19 @@ Unsolicited second incoming calls remain busy-rejected; raising the native dialo
 limit does not accept them. Inbound REFER remains disabled at the account and
 out-of-dialog policy boundaries. Outgoing transfer does not authorize remote
 instructions to dial arbitrary destinations.
+
+A remote BYE from the original during an accepted or still-unanswered REFER does
+not discard its eventual result. One native call/UA owner remains bounded by the
+original 15-second transfer deadline. No closed dialog remains in `calls`.
+The paired surviving consultation projects `transfer: pending` until the result
+or timeout; mute and hangup remain available. Success is forwarded to that exact
+peer generation before closing it; failure or timeout releases controls and
+retains the peer with its operation error. With no live peer, a blind transfer's
+result remains in the last closed call's event buffer only while its generation
+is still current. An old result never replaces a newer call's events or ends it.
+Native owners are released on outcome, deadline and engine shutdown. Starting a
+new call or changing account configuration after all associated calls have ended
+retires the obsolete subscription safely.
 
 A refused local hold (including SIP 488/491) restores both the previous SDP hold
 direction and the existing native receive/player pipeline before reporting the

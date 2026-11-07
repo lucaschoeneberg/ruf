@@ -17,6 +17,12 @@ export type SettingResult = {
 };
 const fields: SettingResult[] = [
   {
+    section: "diagnostics",
+    target: "keyboard-shortcuts",
+    label: "Tastenkombinationen",
+    terms: "tastatur kürzel shortcuts befehle aktionen suche",
+  },
+  {
     section: "general",
     target: "autostart-enabled",
     label: "Bei der Anmeldung starten",
@@ -236,9 +242,8 @@ export function searchSettings(query: string): SettingResult[] {
     .split(/\s+/)
     .filter(Boolean);
   if (!words.length) return [];
-  return fields.filter((f) =>
-    words.every((w) =>
-      `${f.label} ${f.terms}`.toLocaleLowerCase("de").includes(w),
-    ),
-  );
+  return fields.filter((field) => {
+    const text = `${field.label} ${field.terms}`.toLocaleLowerCase("de");
+    return words.every((word) => text.includes(word));
+  });
 }

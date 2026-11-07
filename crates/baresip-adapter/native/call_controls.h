@@ -2,6 +2,19 @@
 static void control_result(struct call *call, int kind, int status, void *arg);
 enum { RECOVERY_NONE, RECOVERY_WAITING, RECOVERY_QUEUED, RECOVERY_RUNNING };
 enum { PENDING_HOLD_QUEUED = 3 };
+/* A closed call may still own a live REFER usage until its existing deadline.
+ * Retain native call/UA references only; generation guards identify its peer. */
+static void retire_transfer(struct engine *e) {
+    struct call *call = e->retired_transfer.call;
+    struct ua *ua = e->retired_transfer.ua;
+    memset(&e->retired_transfer, 0, sizeof(e->retired_transfer));
+    if (call) {
+        call_set_control_handler(call, NULL, NULL);
+        call_cancel_control(call);
+        mem_deref(call);
+    }
+    mem_deref(ua);
+}
 static void fail_recovery(struct engine *e, struct native_dialog *dialog, int status) {
     e->current = dialog;
     dialog->pending = dialog->recovery = 0;
@@ -16,8 +29,9 @@ static void select_dialog(struct engine *e, struct native_dialog *dialog) {
     emit(e, EV_SELECTED, 0);
 }
 static bool controls_busy(const struct engine *e) {
-    return e->control_action || e->dialogs[0].pending || e->dialogs[1].pending ||
-        e->dialogs[0].recovery || e->dialogs[1].recovery;
+    return e->retired_transfer.call || e->control_action || e->dialogs[0].pending || e->dialogs[1].pending ||
+        e->dialogs[0].recovery || e->dialogs[1].recovery ||
+        e->dialogs[0].return_pending || e->dialogs[1].return_pending;
 }
 /* Tones stay on the existing baresip media path. One bounded FIFO belongs to
  * the audible dialog; every stop/switch/close releases the key and cancels time. */
@@ -62,7 +76,12 @@ static void dtmf_tick(void *arg) {
 }
 static void begin_hold(struct engine *e, struct native_dialog *dialog, bool held) {
     e->current = dialog;
-    if (call_is_onhold(dialog->call) == held && !dialog->recovery) { emit(e, EV_LOCAL_HOLD_DONE, held); return; }
+    if (call_is_onhold(dialog->call) == held && !dialog->recovery) {
+        if (dialog->hold_explicit) dialog->return_held = held;
+        dialog->hold_explicit = false;
+        emit(e, EV_LOCAL_HOLD_DONE, held);
+        return;
+    }
     if (!call_sdp_change_allowed(dialog->call)) {
         dialog->hold_target = held;
         dialog->pending = PENDING_HOLD_QUEUED;
@@ -93,6 +112,7 @@ static void dialog_closed(struct engine *e, int status) {
     if (e->dtmf_generation == closed->generation) stop_dtmf(e);
     struct native_dialog *other = closed == &e->dialogs[0] ? &e->dialogs[1] : &e->dialogs[0];
     bool consultation = closed->consultation;
+    bool interrupted_switch = e->control_action == OP_SWITCH;
     bool consultation_failed = consultation && !closed->answered && !closed->local_ending &&
         !e->stopping && (status == 0 || (status >= 300 && status != 487));
     memset(closed, 0, sizeof(*closed));
@@ -101,24 +121,50 @@ static void dialog_closed(struct engine *e, int status) {
     if (other->call) {
         other->consultation = false;
         select_dialog(e, other);
-        if (consultation && !other->pending && !e->stopping) begin_hold(e, other, other->return_held);
+        if (e->retired_transfer.call && e->retired_transfer.transfer_peer_generation == other->generation)
+            emit(e, EV_TRANSFER_PENDING, 0);
+        /* Keep the return intent until any in-flight offer has completed. */
+        if ((consultation || interrupted_switch) && !e->stopping)
+            other->return_pending = true;
         if (consultation_failed) emit(e, EV_CONSULT_FAILED, status <= 699 ? status : 0);
     }
 }
 static void control_result(struct call *call, int kind, int status, void *arg) {
     struct engine *e = arg;
     struct native_dialog *previous = e->current;
+    if (call == e->retired_transfer.call) {
+        /* Only the consultation paired with this REFER can receive its result.
+         * A reused native slot or a new incoming/outgoing call is unrelated. */
+        e->current = &e->retired_transfer;
+        for (size_t i = 0; i < 2; ++i)
+            if (e->dialogs[i].call && e->dialogs[i].generation == e->retired_transfer.transfer_peer_generation)
+                e->current = &e->dialogs[i];
+        bool live_peer = e->current != &e->retired_transfer;
+        emit(e, EV_TRANSFER_RESULT, status);
+        if (kind == 2 && live_peer) {
+            emit(e, EV_LOCAL_END, 0);
+            ua_hangup(e->current->ua, e->current->call, 0, NULL);
+        } else if (kind != 2 && live_peer) emit(e, EV_TRANSFER_FAILED, status);
+        retire_transfer(e);
+        e->current = e->selected;
+        return;
+    }
     struct native_dialog *dialog = NULL;
     for (size_t i = 0; i < 2; ++i) if (e->dialogs[i].call == call) dialog = &e->dialogs[i];
     if (!dialog || !dialog->pending) return;
     e->current = dialog;
     if (kind == 4) {
+        if (dialog->recovery == RECOVERY_RUNNING) {
+            fail_recovery(e, dialog, 0);
+            e->current = previous;
+            return;
+        }
         e->control_action = 0;
         e->action_target = NULL;
         dialog->recovery = status ? RECOVERY_QUEUED : RECOVERY_WAITING;
         dialog->pending = status ? 0 : 1;
         dialog->deadline = tmr_jiffies() + (status ? 10000 : 12000);
-        if (!status) emit(e, EV_RECOVERING, 0);
+        emit(e, EV_RECOVERING, 0);
         e->current = previous;
         return;
     }
@@ -126,11 +172,15 @@ static void control_result(struct call *call, int kind, int status, void *arg) {
     if (kind == 1) {
         if (status >= 200 && status < 300) {
             dialog->recovery = RECOVERY_NONE;
+            if (dialog->hold_explicit) dialog->return_held = dialog->hold_target;
+            dialog->hold_explicit = false;
             (void)stream_enable_rx(audio_strm(call_audio(call)), !dialog->hold_target);
+            if (!dialog->hold_target)
+                stream_enable_rtp_timeout(audio_strm(call_audio(call)), conf_config()->avt.rtp_timeout * 1000);
             emit(e, EV_LOCAL_HOLD_DONE, dialog->hold_target);
         }
         else if (dialog->recovery == RECOVERY_RUNNING) { fail_recovery(e, dialog, status); }
-        else { dialog->recovery = RECOVERY_NONE; e->control_action = 0; e->action_target = NULL; emit(e, EV_CONTROL_FAILED, status); }
+        else { dialog->hold_explicit = false; dialog->recovery = RECOVERY_NONE; e->control_action = 0; e->action_target = NULL; emit(e, EV_CONTROL_FAILED, status); }
     } else {
         emit(e, EV_TRANSFER_RESULT, status);
         if (kind == 2) {
@@ -150,12 +200,15 @@ static void control_result(struct call *call, int kind, int status, void *arg) {
 static void control_tick(void *arg) {
     struct engine *e = arg;
     e->current = e->selected;
+    if (e->retired_transfer.call && tmr_jiffies() >= e->retired_transfer.deadline)
+        control_result(e->retired_transfer.call, 3, 0, e);
     for (size_t i = 0; i < 2; ++i) {
         struct native_dialog *dialog = &e->dialogs[i];
         if (dialog->call && dialog->pending == PENDING_HOLD_QUEUED) {
             if (tmr_jiffies() >= dialog->deadline) {
                 e->current = dialog;
                 dialog->pending = 0;
+                dialog->hold_explicit = false;
                 e->control_action = 0;
                 e->action_target = NULL;
                 emit(e, EV_CONTROL_FAILED, 0);
@@ -180,6 +233,10 @@ static void control_tick(void *arg) {
                 begin_hold(e, dialog, call_is_onhold(dialog->call));
             }
         }
+        if (dialog->call && dialog->return_pending && !dialog->pending && !dialog->recovery) {
+            dialog->return_pending = false;
+            begin_hold(e, dialog, dialog->return_held);
+        }
     }
     if (e->control_action && !e->dialogs[0].pending && !e->dialogs[1].pending) {
         int action = e->control_action;
@@ -199,7 +256,9 @@ static void control_tick(void *arg) {
                 const struct sip_event started = { EV_DIAL_STARTED, 0, next->account_id, next->generation, NULL, e->consultation_destination, NULL };
                 e->callback(&started, e->callback_arg);
                 char uri[512];
-                snprintf(uri, sizeof(uri), "sip:%s@%s;transport=%s", e->consultation_destination, account->registrar, transport_name(account->transport));
+                struct pl destination;
+                pl_set_str(&destination, e->consultation_destination);
+                re_snprintf(uri, sizeof(uri), "sip:%H@%s;transport=%s", uri_user_escape, &destination, account->registrar, transport_name(account->transport));
                 int error = ua_connect(account->ua, &next->call, NULL, uri, VIDMODE_OFF);
                 if (error) {
                     const struct sip_event failed = { EV_DIAL_FAILED, error, next->account_id, next->generation, NULL, NULL, NULL };
@@ -212,6 +271,7 @@ static void control_tick(void *arg) {
             }
         } else if (action == OP_SWITCH && target && target->call) {
             select_dialog(e, target);
+            target->hold_explicit = true;
             begin_hold(e, target, false);
         }
     }
@@ -252,7 +312,7 @@ static void control_request(struct engine *e, struct request *r) {
             e->control_action = OP_SWITCH;
             e->action_target = dialog;
             begin_hold(e, other, true);
-        } else { begin_hold(e, dialog, !strcmp(r->destination, "1")); }
+        } else { dialog->hold_explicit = true; begin_hold(e, dialog, !strcmp(r->destination, "1")); }
         break;
     case OP_CONSULT:
         if (other->call || strlen(r->destination) > 64) { error = EBUSY; break; }
@@ -284,6 +344,7 @@ static void control_request(struct engine *e, struct request *r) {
         if (r->operation == OP_COMPLETE_TRANSFER && (!other->call || call_state(other->call) != CALL_STATE_ESTABLISHED)) { error = EINVAL; break; }
         /* Attended transfer always sends REFER from original to consultation. */
         if (r->operation == OP_COMPLETE_TRANSFER && dialog->consultation) { struct native_dialog *swap = dialog; dialog = other; other = swap; e->current = dialog; }
+        dialog->transfer_peer_generation = r->operation == OP_COMPLETE_TRANSFER ? other->generation : 0;
         dialog->pending = 2;
         dialog->deadline = tmr_jiffies() + 15000;
         emit(e, EV_TRANSFER_PENDING, 0);

@@ -36,7 +36,7 @@ static void execute(struct engine *engine, int operation) {
     assert(request);
     request->operation = operation;
     if (operation == OP_DISABLE || operation == OP_ENABLE) request->account_id = 77;
-    request->call_generation = engine->call_generation;
+    request->call_generation = engine->current->generation;
     queue_handler(operation, request, engine);
 }
 
@@ -45,38 +45,39 @@ int main(void) {
     LOCK_INIT(&engine.lock);
     engine.audio_mode = 1;
     engine.callback = observed;
-    engine.call_generation = 42;
+    engine.current = engine.selected = &engine.dialogs[0];
+    engine.current->generation = 42;
     /* Opaque sentinels are only inspected by the injected answer function. */
-    engine.call = (struct call *)&engine;
-    engine.call_ua = (struct ua *)&engine;
+    engine.current->call = (struct call *)&engine;
+    engine.current->ua = (struct ua *)&engine;
     engine.ring = mem_zalloc(1, ring_destroyed);
     assert(engine.ring);
     answer_result = EAGAIN;
     execute(&engine, OP_ANSWER);
     assert(answer_failures == 1);
     assert(engine.ring && ring_destructions == 0);
-    assert(!engine.call_answered);
+    assert(!engine.current->answered);
 
     answer_result = 0;
     execute(&engine, OP_ANSWER);
     assert(!engine.ring && ring_destructions == 1);
-    assert(engine.call_answered);
+    assert(engine.current->answered);
 
     /* Another already-queued hangup of the same closed generation is harmless. */
-    engine.call = NULL;
-    engine.call_ua = NULL;
+    engine.current->call = NULL;
+    engine.current->ua = NULL;
     execute(&engine, OP_HANGUP);
     assert(errors == 0);
     /* An outgoing attempt losing the slot race must only fail its own token. */
-    engine.call = (struct call *)&engine;
-    engine.call_ua = (struct ua *)&engine;
+    engine.current->call = (struct call *)&engine;
+    engine.current->ua = (struct ua *)&engine;
     struct request *dial = calloc(1, sizeof(*dial));
     assert(dial);
     dial->operation = OP_DIAL;
     dial->call_generation = 43;
     queue_handler(OP_DIAL, dial, &engine);
     assert(failed_dials == 1 && failed_dial_generation == 43);
-    assert(engine.call && engine.call_generation == 42);
+    assert(engine.current->call && engine.current->generation == 42);
     assert(errors == 0);
     /* An incoming/dialing call winning after Rust validation must reject both
        queued toggles before touching the owned UA or account identity. */
@@ -86,7 +87,7 @@ int main(void) {
     execute(&engine, OP_ENABLE);
     assert(activation_failures == 2);
     assert(engine.accounts[0].id == 77 && engine.accounts[0].ua == (struct ua *)&engine);
-    assert(engine.call && engine.call_generation == 42);
+    assert(engine.current->call && engine.current->generation == 42);
     LOCK_CLOSE(&engine.lock);
     puts("call_actions: answer failure retains ringtone; queued duplicate hangup and losing dial preserve the current call");
     return 0;

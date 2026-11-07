@@ -30,6 +30,14 @@ fn main() {
             .flag("-fblocks")
             .compile("sip_call_notifications");
         println!("cargo:rustc-link-lib=framework=UserNotifications");
+        println!("cargo:rerun-if-changed=native/login_item.m");
+        println!("cargo:rerun-if-changed=native/login_item.h");
+        cc::Build::new()
+            .env("MACOSX_DEPLOYMENT_TARGET", "14.0")
+            .file("native/login_item.m")
+            .flag("-fobjc-arc")
+            .compile("sip_login_item");
+        println!("cargo:rustc-link-lib=framework=ServiceManagement");
     }
     build_telephony();
 }
@@ -87,6 +95,8 @@ fn build_telephony() {
         ("baresipSecurity", "baresip-security.patch"),
         ("reCallControls", "re-call-controls.patch"),
         ("baresipCallControls", "baresip-call-controls.patch"),
+        ("reReliability", "re-reliability.patch"),
+        ("baresipReliability", "baresip-reliability.patch"),
     ] {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../native/patches")

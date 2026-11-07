@@ -25,6 +25,12 @@ mod ffi;
 #[allow(unsafe_code)]
 mod microphone;
 
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod login_item;
+#[cfg(target_os = "macos")]
+pub use login_item::{launched_as_login_item, login_item_enabled, set_login_item_enabled};
+
 /// Query microphone authorization without capturing audio or reading account metadata.
 /// `false` never prompts. `true` may prompt only for an undecided decision and must
 /// follow an explicit user action. Denied/restricted results require OS settings.

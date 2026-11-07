@@ -23,11 +23,11 @@ source contact still exists, and stale identifiers are not assigned to namesakes
 
 Additional main-window commands:
 
-| Command             | Required input     | Result / errors                                                                                                                                                                                                                                                                                                 |
-| ------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `refresh_contacts`  | none               | `ContactsSnapshot`; explicitly reloads OS permission, records and favorites without prompting. Same errors as `get_contacts`.                                                                                                                                                                                   |
-| `open_contacts_app` | none               | `null`; launches the fixed Apple Contacts bundle. `nativeFailure` on launch failure; `engineUnavailable` elsewhere. No arbitrary URL or source mutation.                                                                                                                                                        |
-| `copy_phone_number` | `{number: string}` | `null`; copies a user-selected original number to the system clipboard. 1–1024 UTF-8 bytes, no control characters; `invalidInput` otherwise. `nativeFailure` for clipboard failure, `engineUnavailable` on unsupported platforms. The frontend first tries the WebView clipboard and uses this native fallback. |
+| Command             | Input                   | Result / errors                                                                                                                                                                                                                                                                                                                                            |
+| ------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `refresh_contacts`  | none                    | `ContactsSnapshot`; explicitly reloads OS permission, records and favorites without prompting. Same errors as `get_contacts`.                                                                                                                                                                                                                              |
+| `open_contacts_app` | optional `{id: string}` | `null`; launches the fixed Apple Contacts bundle, targeting the exact source contact when `id` is supplied. Omitted/`null` IDs open the app alone. IDs must contain 1–1024 UTF-8 bytes without control characters (`invalidInput` otherwise). `nativeFailure` on launch failure; `engineUnavailable` elsewhere. No caller-supplied URL or source mutation. |
+| `copy_phone_number` | `{number: string}`      | `null`; copies a user-selected original number to the system clipboard. 1–1024 UTF-8 bytes, no control characters; `invalidInput` otherwise. `nativeFailure` for clipboard failure, `engineUnavailable` on unsupported platforms. The frontend first tries the WebView clipboard and uses this native fallback.                                            |
 
 ## Permission-only settings commands
 
@@ -147,7 +147,12 @@ contact is expanded at a time. The star beside search toggles favorites-only
 filtering; the count is shown beside the heading. Source/privacy information
 remains in Einstellungen → Datenschutz instead of being repeated below the list.
 Inline details expose every original number, per-number copying, the fixed Apple
-Contacts app action and a scoped call-history link. Cmd/Ctrl+F focuses search;
+Contacts app action targeting that contact's native ID and a scoped call-history link.
+The ID is percent-encoded into an `addressbook://` link and passed directly to
+`/usr/bin/open -b com.apple.AddressBook` without a shell. No permission prompt,
+name search or contact modification occurs. Success confirms the OS launch request,
+not that Contacts displayed the card: macOS handles deleted or inaccessible IDs.
+Cmd/Ctrl+F focuses search;
 Escape clears search/collapses details, and ArrowDown from search enters the list.
 History links back to the exact source identifier, clearing filters and revealing
 that contact. Deleted or inaccessible contacts do not open a namesake.

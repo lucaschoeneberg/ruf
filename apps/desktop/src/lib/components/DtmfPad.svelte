@@ -10,6 +10,8 @@
       const target = event.target;
       if (
         disabled ||
+        event.defaultPrevented ||
+        document.querySelector("dialog[open]") ||
         event.repeat ||
         event.metaKey ||
         event.ctrlKey ||

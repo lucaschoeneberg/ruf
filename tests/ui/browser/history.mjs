@@ -860,12 +860,11 @@ export default async function historyRegressions(page) {
         "Ongoing call can be deleted",
       );
       await page
-        .getByRole("button", { name: "Verlauf leeren", exact: true })
+        .getByRole("button", { name: "Verlauf löschen …", exact: true })
         .click();
       await page
-        .getByText(
-          /Gesamten Verlauf löschen\? Laufende Anrufe bleiben erhalten/,
-        )
+        .getByRole("group", { name: "Verlauf löschen bestätigen", exact: true })
+        .getByText(/Alle abgeschlossenen Anrufe aus dem Verlauf/)
         .waitFor();
       await ensure(
         page.evaluate(

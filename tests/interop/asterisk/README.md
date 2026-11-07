@@ -138,6 +138,17 @@ All native tests run serially under the process-global engine lock. The runner
 explicitly enables `native-test-hooks` for test binaries and then separately runs
 all eight controlled `security_tests` (which `--ignored` would omit). The public
 UDP example and final production desktop build use `native`, without test hooks.
+On macOS and Windows, the runner also executes the desktop regression
+`saved_account_accepts_first_incoming_call_after_each_restart`. It restores an
+active saved account through `PhoneSession::load`, authenticates against Asterisk
+and accepts the first incoming call without a preceding outgoing call or manual
+reconnect. It repeats with a fresh desktop session and native engine using the
+same unchanged metadata. Only OS credential access is replaced by synthetic
+in-memory credentials; native registration and calls are real. Account1003 keeps
+server Contact rewriting disabled. This does not launch the installed GUI or
+verify the user's actual system keychain or provider. The headless Linux runner
+reports this desktop test as skipped and retains its adapter-only dependencies.
+
 The full controlled SIP/NAT/blackout suite remains part of final native workspace
 verification. See [call-controls/security verification](../../../docs/verification/2026-11-05-call-controls-security.md)
 for observed results and platform/provider limits.

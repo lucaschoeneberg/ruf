@@ -43,6 +43,7 @@ jobs:
         run: |
           bun run test:macos-contact-timeouts
           bun run test:macos-notification-timeouts
+          bun run test:macos-login-item
       - run: bun run types:generate
       - name: Verify generated contracts are current
         run: git diff --exit-code -- apps/desktop/src/lib/generated

@@ -162,7 +162,7 @@
   <div class="setting-row">
     <div class="setting-description">
       <label for="ringtone-volume">Klingellautstärke</label>
-      <p>Ändert nur Ruf, nicht die System- oder Gesprächslautstärke.</p>
+      <p>Gilt nur für den Klingelton in Ruf, nicht für Gespräche.</p>
     </div>
     <div class="setting-control">
       <input

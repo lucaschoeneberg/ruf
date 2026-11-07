@@ -742,12 +742,14 @@ summary:focus-visible {
 }
 .settings-document #app {
   display: block;
-  height: 100dvh;
+  position: fixed;
+  inset: 0;
+  container: settings-window / inline-size;
 }
 .settings-shell {
   display: grid;
   grid-template-columns: 222px minmax(0, 1fr);
-  height: 100dvh;
+  height: 100%;
   color: var(--text);
   font-size: 13px;
   background: var(--surface);
@@ -926,6 +928,7 @@ summary:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  container: settings-content / inline-size;
 }
 .settings-breadcrumb {
   display: flex;
@@ -1200,6 +1203,71 @@ summary:focus-visible {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+  }
+}
+
+/* Container widths follow both browser zoom and a magnified WebView document. */
+@container settings-window (max-width: 480px) {
+  .settings-shell {
+    grid-template-columns: 136px minmax(0, 1fr);
+  }
+  .settings-sidebar {
+    padding-inline: 8px;
+    overflow-y: auto;
+  }
+  .settings-navigation button {
+    padding-inline: 6px;
+  }
+  .settings-navigation button > svg {
+    display: none;
+  }
+  .settings-navigation button > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .accounts-list {
+    flex-shrink: 0;
+    min-height: 48px;
+    max-height: 144px;
+  }
+}
+@container settings-content (max-width: 400px) {
+  .settings-scroll,
+  .settings-breadcrumb {
+    padding-inline: 12px;
+  }
+  .settings-breadcrumb {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    overflow-wrap: anywhere;
+  }
+  .settings-title,
+  .settings-form-actions,
+  .sound-device-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .setting-row > input,
+  .setting-row > select,
+  .setting-row > button {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .settings-actions,
+  .removal-actions {
+    flex-wrap: wrap;
+  }
+  .settings-scroll button {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .settings-scroll .settings-save-bar {
+    position: static;
   }
 }
 

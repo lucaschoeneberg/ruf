@@ -7,7 +7,7 @@ use std::sync::{
 };
 use tauri::{
     Emitter, Manager,
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItem, HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
@@ -20,6 +20,21 @@ const ANSWER: &str = "answer:";
 const REJECT: &str = "reject:";
 const HANGUP: &str = "hangup:";
 const ACCOUNT: &str = "account:";
+// Payload-free navigation requests; call requests carry the captured opaque call token.
+const NAVIGATION: &[(&str, &str, &str)] = &[
+    ("dialer", "Tastatur", "CmdOrCtrl+1"),
+    ("contacts", "Kontakte", "CmdOrCtrl+2"),
+    ("history", "Verlauf", "CmdOrCtrl+3"),
+    ("number", "Nummer eingeben", "CmdOrCtrl+L"),
+    ("find", "Suchen …", "CmdOrCtrl+F"),
+    ("search", "Ruf durchsuchen …", "CmdOrCtrl+K"),
+];
+const CALL_ACTIONS: &[(&str, &str)] = &[
+    ("mute", "CmdOrCtrl+Shift+M"),
+    ("hold", "CmdOrCtrl+Shift+H"),
+    ("transfer", "CmdOrCtrl+Shift+T"),
+    ("tones", "CmdOrCtrl+Shift+D"),
+];
 
 #[derive(Default)]
 pub(crate) struct ShellState {
@@ -226,6 +241,30 @@ fn finish_quit(app: tauri::AppHandle) {
 }
 
 fn dispatch(app: &tauri::AppHandle, id: &str) {
+    if let Some(action) = id.strip_prefix("phone:") {
+        if action == "find"
+            && let Some(window) = app.get_webview_window("settings")
+            && window.is_focused().unwrap_or(false)
+        {
+            let _ = app.emit_to("settings", "settings-find-requested", ());
+            return;
+        }
+        if (NAVIGATION.iter().any(|(name, _, _)| *name == action) || action == "start")
+            && show_phone(app).is_ok()
+        {
+            let _ = app.emit_to("main", &format!("phone-{action}-requested"), ());
+        }
+        return;
+    }
+    for (action, _) in CALL_ACTIONS {
+        if let Some(token) = id.strip_prefix(&format!("phone-{action}:")) {
+            if show_phone(app).is_ok() {
+                let _ = app.emit_to("main", &format!("phone-{action}-requested"), token);
+            }
+            return;
+        }
+    }
+
     if id == OPEN {
         let _ = show_phone(app);
         return;
@@ -298,14 +337,18 @@ fn account_menu(
     }
     Ok(accounts)
 }
-fn call_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Submenu<tauri::Wry>> {
+fn call_menu(
+    app: &tauri::AppHandle,
+    state: &EngineSnapshot,
+    shortcuts: bool,
+) -> tauri::Result<Submenu<tauri::Wry>> {
     let call = Submenu::new(app, "Gespräch", true)?;
     call.append(&item(
         app,
         &format!("{ANSWER}{}", state.call_id.as_deref().unwrap_or("")),
         "Annehmen",
         shell_policy::can_answer(state.call) && state.call_id.is_some(),
-        None,
+        shortcuts.then_some("CmdOrCtrl+Enter"),
     )?)?;
     call.append(&item(
         app,
@@ -324,8 +367,51 @@ fn call_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Su
             "Auflegen"
         },
         shell_policy::can_hangup(state.call) && state.call_id.is_some(),
-        None,
+        shortcuts.then_some("CmdOrCtrl+."),
     )?)?;
+    call.append(&PredefinedMenuItem::separator(app)?)?;
+    let selected = state
+        .calls
+        .iter()
+        .find(|call| Some(&call.id) == state.call_id.as_ref());
+    let established =
+        selected.is_some_and(|call| matches!(call.state, CallState::Active | CallState::Held));
+    let pending = state
+        .calls
+        .iter()
+        .any(|call| call.hold_pending || call.transfer == phone_core::TransferState::Pending);
+    for (action, key) in CALL_ACTIONS {
+        let (label, enabled) = match *action {
+            "mute" => (
+                if selected.is_some_and(|call| call.muted) {
+                    "Mikrofon einschalten"
+                } else {
+                    "Stummschalten"
+                },
+                established,
+            ),
+            "hold" => (
+                if selected.is_some_and(|call| call.local_held) {
+                    "Fortsetzen"
+                } else {
+                    "Halten"
+                },
+                established && !pending,
+            ),
+            "transfer" => (
+                "Vermitteln / Rückfrage …",
+                established && !pending && state.calls.len() == 1,
+            ),
+            _ => ("Gesprächstastatur ein-/ausblenden", established),
+        };
+        call.append(&item(
+            app,
+            &format!("phone-{action}:{}", state.call_id.as_deref().unwrap_or("")),
+            label,
+            enabled,
+            shortcuts.then_some(*key),
+        )?)?;
+    }
     Ok(call)
 }
 fn status_text(state: &EngineSnapshot) -> String {
@@ -359,7 +445,7 @@ fn tray_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Me
             &item(app, "status", &status_text(state), false, None)?,
             &item(app, OPEN, "Ruf öffnen", true, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &call_menu(app, state)?,
+            &call_menu(app, state, false)?,
             &account_menu(app, state)?,
             &PredefinedMenuItem::separator(app)?,
             &item(app, "settings:accounts", "SIP-Konten …", true, None)?,
@@ -415,14 +501,47 @@ pub(crate) fn app_menu(
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
+    let view = Submenu::new(app, "Ansicht", true)?;
+    for (action, label, key) in NAVIGATION {
+        if *action == "number" || *action == "search" {
+            view.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+        view.append(&item(
+            app,
+            &format!("phone:{action}"),
+            label,
+            *action != "number" || state.call == CallState::Idle,
+            Some(key),
+        )?)?;
+    }
     let windows = Submenu::with_items(
         app,
         "Fenster",
         true,
         &[
-            &item(app, OPEN, "Telefon", true, Some("CmdOrCtrl+1"))?,
+            &item(app, OPEN, "Telefon öffnen", true, None)?,
             &PredefinedMenuItem::minimize(app, None)?,
             &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+    // Tauri registers this ID with NSApplication: macOS supplies the native menu search.
+    let help = Submenu::with_id_and_items(
+        app,
+        HELP_SUBMENU_ID,
+        "Hilfe",
+        true,
+        &[
+            &item(app, "phone:search", "Tastenkombinationen …", true, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &item(app, "phone:start", "Starthilfe", true, None)?,
+            &item(
+                app,
+                "settings:diagnostics",
+                "Diagnose & Hilfe …",
+                true,
+                None,
+            )?,
+            &item(app, "settings:about", "Über Ruf …", true, None)?,
         ],
     )?;
     Menu::with_items(
@@ -430,9 +549,11 @@ pub(crate) fn app_menu(
         &[
             &application,
             &edit,
-            &call_menu(app, state)?,
+            &view,
+            &call_menu(app, state, true)?,
             &account_menu(app, state)?,
             &windows,
+            &help,
         ],
     )
 }

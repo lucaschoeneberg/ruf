@@ -26,7 +26,8 @@ export const setContactFavorite = (id: string, favorite: boolean) =>
 
 export const refreshContacts = () =>
   desktop<ContactsSnapshot>("refresh_contacts");
-export const openContactsApp = () => desktop<void>("open_contacts_app");
+export const openContactsApp = (id: string) =>
+  desktop<void>("open_contacts_app", { id });
 
 /** Copy only after an explicit click; native fallback supports the macOS WebView. */
 export async function copyPhoneNumber(number: string): Promise<void> {

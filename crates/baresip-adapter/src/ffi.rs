@@ -386,6 +386,27 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                     engine.select_dialog(&id);
                     return;
                 }
+                // A remote BYE may end the INVITE usage before the REFER result.
+                // Preserve that last call's outcome without selecting/resurrecting it
+                // or attributing an old result to a replacement conversation.
+                if kind == EV_TRANSFER_RESULT
+                    && !owns_dialog
+                    && engine.call_generation == call_generation
+                    && engine.snapshot.calls.is_empty()
+                {
+                    let state = &mut engine.snapshot;
+                    push_call_event(
+                        &mut state.call_events,
+                        &mut state.call_events_dropped,
+                        id,
+                        if (200..300).contains(&code) {
+                            CallEventKind::TransferSucceeded
+                        } else {
+                            CallEventKind::TransferFailed
+                        },
+                    );
+                    return;
+                }
                 let mut terminal_failure = None;
                 if let Some(call) = engine.snapshot.calls.iter_mut().find(|call| call.id == id) {
                     match kind {
@@ -429,7 +450,7 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                             call.hold_pending = true;
                             call.last_error = Some(PhoneError::new(
                                 ErrorCode::NativeFailure,
-                                "The hold request timed out; SIP session recovery was required.",
+                                "The SIP hold change failed; confirmed session recovery is required.",
                             ));
                         }
                         EV_RECOVERY_FAILED => {
@@ -561,6 +582,7 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 5..=8 => {
                     state.call = match kind {
                         5 => CallState::Calling,
+                        6 if state.call == CallState::EarlyMedia => CallState::EarlyMedia,
                         6 => CallState::Ringing,
                         7 => CallState::Incoming,
                         _ if remote_hold => CallState::Held,

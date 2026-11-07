@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import type {
@@ -22,12 +22,18 @@
   import Icon from "./Icon.svelte";
 
   let {
+    focusSearchRequest = 0,
+    searchQuery = null,
+    focusEntryId = null,
     canDial,
     oncallback,
     oncontact,
     contactScope = null,
     onclearscope = () => {},
   }: {
+    focusSearchRequest?: number;
+    searchQuery?: string | null;
+    focusEntryId?: string | null;
     canDial: boolean;
     oncallback: (id: string, number: string | null) => void;
     oncontact: (contact: ContactReference) => void;
@@ -51,6 +57,16 @@
     dateStyle: "medium",
     timeStyle: "medium",
   });
+  let searchInput = $state<HTMLInputElement>();
+  let appliedSearchFocus = 0;
+  $effect(() => {
+    if (focusSearchRequest > appliedSearchFocus && searchInput) {
+      appliedSearchFocus = focusSearchRequest;
+      if (searchQuery !== null) query = searchQuery;
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
   let desktop = $state(true);
   let mounted = $state(false);
   let query = $state("");
@@ -71,6 +87,35 @@
     retainCount: number;
   } | null = null;
   let requestedSearch = "";
+  let appliedEntryFocus: string | null = null;
+  $effect(() => {
+    const id = focusEntryId;
+    if (!id) {
+      appliedEntryFocus = null;
+      return;
+    }
+    if (
+      id === appliedEntryFocus ||
+      loading ||
+      currentQuery.search !== requestedSearch ||
+      !page?.entries.some((entry) => entry.id === id)
+    )
+      return;
+    untrack(() => {
+      appliedEntryFocus = id;
+      expandedId = id;
+      void tick().then(() => {
+        if (!mounted || focusEntryId !== id) return;
+        const row = [
+          ...document.querySelectorAll<HTMLElement>("[data-history-id]"),
+        ].find((row) => row.dataset.historyId === id);
+        row?.scrollIntoView({ block: "nearest" });
+        row
+          ?.querySelector<HTMLButtonElement>(".history-main")
+          ?.focus({ preventScroll: true });
+      });
+    });
+  });
   const groups = $derived(groupHistory(page?.entries ?? []));
   const currentQuery = $derived<HistoryQuery>({
     search: query.trim(),
@@ -268,7 +313,7 @@
         onclick={() => {
           confirmation = "all";
           actionError = null;
-        }}>Verlauf leeren</button
+        }}>Verlauf löschen …</button
       >
     {/if}
   </div>
@@ -293,6 +338,7 @@
       <Icon name="search" size={15} />
       <span class="sr-only">Verlauf nach Name, Nummer oder Konto suchen</span>
       <input
+        bind:this={searchInput}
         type="search"
         placeholder="Name, Nummer oder Konto"
         bind:value={query}
@@ -314,11 +360,11 @@
       <div
         class="confirmation"
         role="group"
-        aria-label="Verlauf leeren bestätigen"
+        aria-label="Verlauf löschen bestätigen"
       >
         <p>
-          Gesamten Verlauf löschen? Laufende Anrufe bleiben erhalten. Dies lässt
-          sich nicht rückgängig machen.
+          Alle abgeschlossenen Anrufe aus dem Verlauf löschen? Laufende Anrufe
+          bleiben erhalten. Dies lässt sich nicht rückgängig machen.
         </p>
         <div class="actions">
           <button
@@ -401,7 +447,11 @@
             {@const title = historyTitle(entry)}
             {@const unavailable = callbackUnavailable(entry, canDial)}
             {@const duration = historyDuration(entry.durationMs)}
-            <li class="history-entry" class:missed={entry.outcome === "missed"}>
+            <li
+              class="history-entry"
+              data-history-id={entry.id}
+              class:missed={entry.outcome === "missed"}
+            >
               <button
                 class="history-main"
                 type="button"
@@ -536,7 +586,10 @@
                       role="group"
                       aria-label="Anruf löschen bestätigen"
                     >
-                      <p>Diesen Anruf endgültig löschen?</p>
+                      <p>
+                        Diesen Anruf aus dem Verlauf löschen? Dies lässt sich
+                        nicht rückgängig machen.
+                      </p>
                       <div class="actions">
                         <button
                           class="danger-button"

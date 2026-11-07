@@ -26,6 +26,7 @@ export function searchContacts(
   const text = searchable(query.trim());
   const telephone = phoneSearch(text);
   const terms = text.split(/\s+/).filter(Boolean);
+  const queryKey = telephone ? numberPrefix(query, matchGermanNumbers) : null;
   return contacts
     .filter((contact) => {
       if (favoritesOnly && !contact.favorite) return false;
@@ -39,7 +40,6 @@ export function searchContacts(
           numbers.some((number) => number.includes(telephone)) ||
           contact.phones.some((phone) => {
             const key = numberPrefix(phone.number, matchGermanNumbers);
-            const queryKey = numberPrefix(query, matchGermanNumbers);
             return !!key && !!queryKey && key.includes(queryKey);
           })
         );

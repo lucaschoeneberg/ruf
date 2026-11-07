@@ -20,6 +20,9 @@ and [account activation](account-activation.md).
 
 Desktop/Rust controls and per-dialog DTO additions: [call controls and consultation](call-controls.md).
 
+Native menus, action search, shortcuts and window-event payloads:
+[keyboard navigation](keyboard-navigation.md).
+
 ## Windows and permissions
 
 `main` reads app/engine state, opens settings, selects the outgoing account and
@@ -337,9 +340,26 @@ boolean `notificationsGranted`. The enum preserves the actual OS decision:
 `notificationPermission` to choose permission actions. Query failures reject rather
 than inventing a denied/unsupported state. Settings re-read authorization when the
 window regains focus, without prompting or discarding unsaved preference drafts.
-Login-start registration comes from the official OS integration plugin. On macOS it checks
-the LaunchAgent entry; an external OS background-item policy can still disable
-execution, which this API cannot detect. Release installations in `/Applications/Ruf.app`,
+Login-start registration uses the official OS integration plugin in ordinary
+builds. On macOS it checks the LaunchAgent entry; an external OS background-item
+policy can still disable execution, which that plugin cannot detect.
+The macOS-only Cargo feature `app-store` includes `native` and instead uses
+[`SMAppService.mainApp`](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp)
+without initializing the autostart plugin or writing `~/Library/LaunchAgents`.
+The required `autostartEnabled` boolean is true only for the actual native
+`SMAppServiceStatusEnabled` status. Not-registered, approval-required and not-found
+states read as false. Not-found can occur before a fresh app's first registration;
+it permits an initial registration attempt, whose actual result is checked.
+Unknown service status or native query failure rejects with
+`nativeFailure`. Enabling an approval-required item or an operation that macOS
+rejects/does not confirm also returns `nativeFailure`, with safe guidance to check
+System Settings > General > Login Items and no native error details. Ruf does not
+open System Settings automatically or re-register an approval-required item to
+bypass an OS decision. Disabling unregisters even a pending approval-required item;
+successful enable/disable calls require the corresponding observed OS status.
+Neither Store registration nor reads touch legacy LaunchAgents from other builds.
+The IPC shape, required inputs and notification fields are unchanged.
+Release installations in `/Applications/Ruf.app`,
 `~/Applications/Ruf.app`, or the standard Windows per-user/Program Files `Ruf`
 locations can register; debug/temporary bundles cannot register or alter an existing
 installed app's login entry. First successful account registration enables login
@@ -348,11 +368,14 @@ first-registration login-start setup defers while a foreground preference or
 notification authorization operation is pending; the observer continues delivering
 phone state and retries the deferred setup afterward.
 
-Login launches use `--autostart` and the saved `startHidden` preference (default
-true); manual launches show the phone. Explicit `--background` and notification
-activation remain hidden. Existing configured/enabled login entries have their
-arguments refreshed independently of account registration; disabled entries stay
-disabled. This preference does not keep an offline or sleeping system reachable.
+Ordinary login launches use `--autostart`; App Store startup instead recognizes
+the main-thread open-application Apple event's `keyAELaunchedAsLogInItem` property.
+Both use the saved `startHidden` preference (default true); manual launches show
+the phone. Explicit `--background` and notification
+activation remain hidden. Ordinary configured/enabled login entries have their
+arguments refreshed independently of account registration; the Store path keeps
+an already enabled main-app service unchanged. Disabled entries stay disabled.
+This preference does not keep an offline or sleeping system reachable.
 
 The saved schema is version 2; the existing defaulted `desktop` object retains
 `notificationsEnabled` (default true) and `autostartConfigured` (default false).

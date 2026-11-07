@@ -106,6 +106,14 @@ export default async function settingsRegressions(
       failDesktopSave: true,
       failTestNotification: false,
       failOpenNotificationSettings: false,
+      microphonePermission: "notDetermined",
+      failMicrophoneRead: false,
+      failMicrophoneRequest: false,
+      failOpenMicrophoneSettings: false,
+      contactsPermission: "authorized",
+      failContactsRead: false,
+      failContactsRequest: false,
+      failOpenContactsSettings: false,
       failPreferences: scenario === "preferences-failure",
       deviceAttempts: 0,
       holdSnapshot: false,
@@ -206,12 +214,41 @@ export default async function settingsRegressions(
           return state.desktop.notificationPermission;
         }
         if (command === "get_microphone_permission") {
+          if (state.failMicrophoneRead)
+            throw new Error("Synthetic microphone read failure");
           if (state.holdMicrophonePermission)
             return new Promise((resolve) => {
               state.resolveMicrophonePermission = () => resolve("authorized");
             });
-          return "notDetermined";
+          return state.microphonePermission;
         }
+        if (command === "request_microphone_permission") {
+          if (state.failMicrophoneRequest)
+            throw new Error("Synthetic microphone request failure");
+          state.microphonePermission = "authorized";
+          return state.microphonePermission;
+        }
+        if (command === "get_contacts_permission") {
+          if (state.failContactsRead)
+            throw new Error("Synthetic contacts read failure");
+          return state.contactsPermission;
+        }
+        if (command === "request_contacts_permission") {
+          if (state.failContactsRequest)
+            throw new Error("Synthetic contacts request failure");
+          state.contactsPermission = "authorized";
+          return state.contactsPermission;
+        }
+        if (command === "open_contacts_settings") {
+          if (state.failOpenContactsSettings)
+            throw new Error("Synthetic contacts settings open failure");
+          return;
+        }
+        if (
+          command === "open_microphone_settings" &&
+          state.failOpenMicrophoneSettings
+        )
+          throw new Error("Synthetic microphone settings open failure");
         if (command === "start_audio_test") {
           state.snapshot.audioTest = {
             id: "owned-test",
@@ -388,6 +425,256 @@ export default async function settingsRegressions(
       failures.push(`${name}: ${error.message}`);
     }
   };
+  await check(
+    "microphone settings open failure preserves authorization and retry clears the action error",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.microphonePermission = "authorized";
+        window.__settingsTest.failOpenMicrophoneSettings = true;
+      });
+      await page
+        .getByRole("button", { name: "Datenschutz", exact: true })
+        .click();
+      await page
+        .locator(".permission-state")
+        .getByText("Erlaubt", { exact: true })
+        .waitFor();
+      await page
+        .locator(".permission-row")
+        .getByRole("button", {
+          name: "Systemeinstellungen öffnen",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("alert").waitFor();
+      if ((await page.locator(".permission-state").innerText()) !== "Erlaubt")
+        throw Error(
+          "Opening system settings replaced known microphone authorization",
+        );
+      await page
+        .getByRole("alert")
+        .getByText("Die Systemeinstellungen konnten nicht geöffnet werden.", {
+          exact: false,
+        })
+        .waitFor();
+      await page.evaluate(() => {
+        window.__settingsTest.failOpenMicrophoneSettings = false;
+      });
+      await page
+        .locator(".permission-row")
+        .getByRole("button", {
+          name: "Systemeinstellungen öffnen",
+          exact: true,
+        })
+        .click();
+      if (await page.getByRole("alert").count())
+        throw Error("Successful opening retained action error");
+    },
+  );
+  await check(
+    "microphone request error is separate from reading permission and allows retry",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.failMicrophoneRequest = true;
+      });
+      await page
+        .getByRole("button", { name: "Datenschutz", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Mikrofon erlauben", exact: true })
+        .click();
+      await page.getByRole("alert").waitFor();
+      if (
+        (await page.locator(".permission-state").innerText()) !==
+        "Noch nicht angefragt"
+      )
+        throw Error("Request error became a permission read error");
+      await page
+        .getByRole("alert")
+        .getByText("angefordert", { exact: false })
+        .waitFor();
+      await page.evaluate(() => {
+        window.__settingsTest.failMicrophoneRequest = false;
+      });
+      await page
+        .getByRole("button", { name: "Mikrofon erlauben", exact: true })
+        .click();
+      await page
+        .locator(".permission-state")
+        .getByText("Erlaubt", { exact: true })
+        .waitFor();
+      if (await page.getByRole("alert").count())
+        throw Error("Successful request retained action error");
+    },
+  );
+  await check(
+    "failed microphone read clears stale authorization and recovers without prompting",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.microphonePermission = "authorized";
+      });
+      await page
+        .getByRole("button", { name: "Datenschutz", exact: true })
+        .click();
+      await page
+        .locator(".permission-state")
+        .getByText("Erlaubt", { exact: true })
+        .waitFor();
+      await page.evaluate(() => {
+        window.__settingsTest.failMicrophoneRead = true;
+      });
+      await page
+        .locator(".permission-row")
+        .getByRole("button", { name: "Freigabe erneut prüfen", exact: true })
+        .click();
+      await page
+        .locator(".permission-state")
+        .getByText("Prüfung fehlgeschlagen", { exact: true })
+        .waitFor();
+      await page.evaluate(() => {
+        window.__settingsTest.failMicrophoneRead = false;
+      });
+      await page
+        .locator(".permission-row")
+        .getByRole("button", { name: "Freigabe erneut prüfen", exact: true })
+        .click();
+      await page
+        .locator(".permission-state")
+        .getByText("Erlaubt", { exact: true })
+        .waitFor();
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some(
+            (c) => c.command === "request_microphone_permission",
+          ),
+        )
+      )
+        throw Error("A read prompted for microphone permission");
+    },
+  );
+  await check(
+    "failed first contacts read stops loading and recovers without requesting access or reading contacts",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.failContactsRead = true;
+      });
+      await page
+        .getByRole("button", { name: "Datenschutz", exact: true })
+        .click();
+      await page.locator(".contacts-permission-error").waitFor();
+      if (
+        (await page.locator(".permission-status").innerText()) !==
+        "Prüfung fehlgeschlagen"
+      )
+        throw Error("Contacts read failure still announces loading");
+      await page.evaluate(() => {
+        window.__settingsTest.failContactsRead = false;
+      });
+      await page
+        .getByRole("button", { name: "Freigabe erneut prüfen", exact: true })
+        .last()
+        .click();
+      await page
+        .locator(".permission-status")
+        .getByText("Freigegeben", { exact: true })
+        .waitFor();
+      if (await page.getByRole("alert").count())
+        throw Error("Retry retained contacts query error");
+      if (
+        await page.evaluate(() =>
+          window.__settingsTest.commands.some((c) =>
+            [
+              "request_contacts_permission",
+              "get_contacts",
+              "refresh_contacts",
+            ].includes(c.command),
+          ),
+        )
+      )
+        throw Error(
+          "A contacts permission read prompted or enumerated personal data",
+        );
+    },
+  );
+  await check(
+    "contacts settings open failure preserves authorization and failed recheck clears stale permission",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.failOpenContactsSettings = true;
+      });
+      await page
+        .getByRole("button", { name: "Datenschutz", exact: true })
+        .click();
+      await page
+        .locator(".permission-status")
+        .getByText("Freigegeben", { exact: true })
+        .waitFor();
+      await page
+        .getByRole("button", {
+          name: "Systemeinstellungen öffnen",
+          exact: true,
+        })
+        .last()
+        .click();
+      await page.locator(".contacts-permission-error").waitFor();
+      if (
+        (await page.locator(".permission-status").innerText()) !== "Freigegeben"
+      )
+        throw Error("Opening contacts settings changed authorization");
+      await page.evaluate(() => {
+        window.__settingsTest.failOpenContactsSettings = false;
+        window.__settingsTest.failContactsRead = true;
+      });
+      await page
+        .getByRole("button", { name: "Freigabe erneut prüfen", exact: true })
+        .last()
+        .click();
+      if (
+        (await page.locator(".permission-status").innerText()) !==
+        "Prüfung fehlgeschlagen"
+      )
+        throw Error("Failed contacts recheck retained stale authorization");
+    },
+  );
+  await check(
+    "contacts request failure preserves the known state and retry can grant access",
+    "",
+    async () => {
+      await page.evaluate(() => {
+        window.__settingsTest.contactsPermission = "notDetermined";
+        window.__settingsTest.failContactsRequest = true;
+      });
+      await page
+        .getByRole("button", { name: "Datenschutz", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "macOS-Kontakte freigeben", exact: true })
+        .click();
+      await page.locator(".contacts-permission-error").waitFor();
+      if (
+        (await page.locator(".permission-status").innerText()) !==
+        "Noch nicht angefragt"
+      )
+        throw Error("Contacts request error became a permission read error");
+      await page.evaluate(() => {
+        window.__settingsTest.failContactsRequest = false;
+      });
+      await page
+        .getByRole("button", { name: "macOS-Kontakte freigeben", exact: true })
+        .click();
+      await page
+        .locator(".permission-status")
+        .getByText("Freigegeben", { exact: true })
+        .waitFor();
+      if (await page.locator(".contacts-permission-error").count())
+        throw Error("Successful contacts request retained its action error");
+    },
+  );
   await check(
     "test notification failure preserves known authorization and caller draft",
     "notification-permission",
@@ -782,7 +1069,7 @@ export default async function settingsRegressions(
       await page
         .getByRole("button", { name: "Erneut verbinden", exact: true })
         .click();
-      await page.getByText("Wird verbunden …", { exact: true }).waitFor();
+      await page.getByText("Wird angemeldet …", { exact: true }).waitFor();
       const commands = await page.evaluate(() =>
         window.__settingsTest.commands.filter(
           ({ command }) => command === "reconnect_account",

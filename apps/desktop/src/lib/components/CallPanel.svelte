@@ -15,6 +15,9 @@
   import DtmfPad from "./DtmfPad.svelte";
   import { normalizeDialNumber } from "../dialing";
   import Icon from "./Icon.svelte";
+  import { phoneActions, shortcutLabel, type CallAction } from "../shortcuts";
+  const hint = (id: CallAction) =>
+    shortcutLabel(phoneActions.find((action) => action.id === id)!);
   let {
     call,
     calls = [call],
@@ -88,21 +91,16 @@
   const canChange = $derived(!busy && !audioUnknown && !pending);
   const securityLabel = $derived.by(() => {
     const security = call.security;
-    const signaling =
-      security.signalingTransport === "tls"
-        ? security.tlsPeerVerified
-          ? "TLS geprüft"
-          : "TLS nicht bestätigt"
-        : security.signalingTransport?.toUpperCase();
-    const media =
-      security.media === "sdesSrtp"
-        ? "SRTP"
-        : security.media === "unprotected"
-          ? "Audio unverschlüsselt"
-          : "Audioschutz unbekannt";
-    return signaling
-      ? `${signaling} · ${media}`
-      : "Sicherheit noch nicht bestätigt";
+    if (!security.signalingTransport) return "Sicherheit noch nicht bestätigt";
+    let signaling = security.signalingTransport.toUpperCase();
+    if (security.signalingTransport === "tls")
+      signaling = security.tlsPeerVerified
+        ? "TLS geprüft"
+        : "TLS nicht bestätigt";
+    let media = "Audioschutz unbekannt";
+    if (security.media === "sdesSrtp") media = "SRTP";
+    else if (security.media === "unprotected") media = "Audio unverschlüsselt";
+    return `${signaling} · ${media}`;
   });
   let muteRequest = $state<{
     id: string;
@@ -223,6 +221,44 @@
     transferOpen = false;
     void tick().then(() => transferButton?.focus());
   }
+  /** The menu, action search and keyboard reuse the visible controls' guards. */
+  export function availableActions(): Record<CallAction, boolean> {
+    return {
+      answer: call.state === "incoming" && !busy && !audioUnknown,
+      end: call.state !== "idle" && !busy,
+      mute: established(call) && !busy && !audioUnknown && !mutePending,
+      hold: established(call) && canChange,
+      transfer: established(call) && canChange && calls.length === 1,
+      tones: established(call),
+    };
+  }
+  function toggleTones() {
+    tonesOpen = !tonesOpen;
+    if (tonesOpen) transferOpen = false;
+  }
+  export function runAction(action: CallAction) {
+    if (!availableActions()[action]) return;
+    switch (action) {
+      case "answer":
+        onanswer(call.id);
+        break;
+      case "end":
+        onhangup(call.id);
+        break;
+      case "mute":
+        void toggleMute();
+        break;
+      case "hold":
+        onhold(call.id, !call.localHeld);
+        break;
+      case "transfer":
+        openTransfer();
+        break;
+      case "tones":
+        toggleTones();
+        break;
+    }
+  }
   function submitTarget(consult: boolean) {
     if (!canChange || !established(call) || calls.length !== 1) return;
     const normalized = normalizeDialNumber(target);
@@ -269,6 +305,19 @@
                 ? " · Gegenstelle hält das Gespräch"
                 : ""}</span
             >
+            {#if item.id !== call.id && item.transfer === "failed"}<p
+                class="call-error"
+                role="alert"
+              >
+                Vermittlung fehlgeschlagen. Das ursprüngliche Gespräch bleibt
+                bestehen.
+                {#if item.lastError}{errorMessage(item.lastError)}{/if}
+              </p>{:else if item.id !== call.id && item.lastError}<p
+                class="call-error"
+                role="alert"
+              >
+                {errorMessage(item.lastError)}
+              </p>{/if}
           </div>
           {#if item.id !== call.id}<button
               class="secondary-button"
@@ -343,6 +392,7 @@
     {#if call.state === "incoming"}<button
         class="primary-button"
         disabled={busy || audioUnknown}
+        title={`Annehmen (${hint("answer")})`}
         onclick={() => onanswer(call.id)}
         ><Icon name="phone" size={18} />Annehmen</button
       >{/if}
@@ -353,6 +403,7 @@
         disabled={busy || audioUnknown || mutePending}
         aria-pressed={call.muted}
         aria-busy={mutePending}
+        title={`Mikrofon ein-/ausschalten (${hint("mute")})`}
         onclick={toggleMute}
         >{call.muted ? "Mikrofon einschalten" : "Stummschalten"}</button
       >
@@ -361,6 +412,7 @@
         type="button"
         disabled={!canChange}
         aria-pressed={call.localHeld}
+        title={`Halten / Fortsetzen (${hint("hold")})`}
         onclick={() => onhold(call.id, !call.localHeld)}
         >{call.localHeld ? "Fortsetzen" : "Halten"}</button
       >
@@ -370,12 +422,14 @@
           type="button"
           disabled={!canChange}
           aria-expanded={transferOpen}
+          title={`Vermitteln (${hint("transfer")})`}
           onclick={openTransfer}>Vermitteln …</button
         >{/if}
     {/if}
     <button
       class="danger-button"
       disabled={busy}
+      title={`Beenden / Ablehnen (${hint("end")})`}
       onclick={() => onhangup(call.id)}
       ><Icon name="endCall" size={20} />{call.state === "incoming"
         ? "Ablehnen"
@@ -387,10 +441,8 @@
       class="secondary-button tone-toggle"
       type="button"
       aria-expanded={tonesOpen}
-      onclick={() => {
-        tonesOpen = !tonesOpen;
-        if (tonesOpen) transferOpen = false;
-      }}
+      title={`Gesprächstastatur (${hint("tones")})`}
+      onclick={toggleTones}
       ><Icon name="keypad" size={16} />{tonesOpen
         ? "Gesprächstastatur ausblenden"
         : "Gesprächstastatur einblenden"}</button
@@ -435,7 +487,8 @@
         disabled={!canChange}
       />
       <p id="transfer-help">
-        Direkt vermitteln oder zuerst mit dem Ziel sprechen.
+        Direkt vermitteln übergibt das Gespräch ohne Rückfrage. Eine Rückfrage
+        hält dein Gespräch, während du mit dem Ziel sprichst.
       </p>
       {#if targetError}<p id="transfer-error" class="field-error">
           {targetError}
@@ -502,7 +555,7 @@
           onclick={() => submitTarget(true)}>Rückfrage starten</button
         >
         <button class="text-button" type="button" onclick={closeTransfer}
-          >Schließen</button
+          >Vermittlungsziel schließen</button
         >
       </div>
     </form>

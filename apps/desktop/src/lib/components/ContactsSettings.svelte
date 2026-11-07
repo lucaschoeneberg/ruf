@@ -11,7 +11,10 @@
   let { embedded = false }: { embedded?: boolean } = $props();
   let permission = $state<ContactsPermission | null>(null);
   let working = $state(false);
-  let error = $state<string | null>(null);
+  let checking = $state(false);
+  let permissionError = $state<string | null>(null);
+  let actionError = $state<string | null>(null);
+  const error = $derived(permissionError ?? actionError);
   let mounted = false;
   const labels: Record<ContactsPermission, string> = {
     notDetermined: "Noch nicht angefragt",
@@ -24,31 +27,45 @@
   async function refresh(request = false) {
     if (!mounted || working) return;
     working = true;
-    error = null;
+    checking = !request;
+    if (request) actionError = null;
+    else permissionError = null;
     try {
       const result = await (request
         ? requestContactsPermission()
         : getContactsPermission());
-      if (mounted) permission = result;
+      if (mounted) {
+        permission = result;
+        permissionError = null;
+      }
     } catch {
-      if (mounted)
-        error = request
-          ? "Die Kontakte-Freigabe konnte nicht angefordert werden. Starte Ruf neu und versuche es erneut."
-          : "Die Kontakte-Freigabe konnte nicht geprüft werden. Versuche es erneut.";
+      if (mounted) {
+        if (request)
+          actionError =
+            "Die Kontakte-Freigabe konnte nicht angefordert werden. Starte Ruf neu und versuche es erneut.";
+        else {
+          permission = null;
+          permissionError =
+            "Die Kontakte-Freigabe konnte nicht geprüft werden. Versuche es erneut.";
+        }
+      }
     } finally {
-      if (mounted) working = false;
+      if (mounted) {
+        working = false;
+        checking = false;
+      }
     }
   }
 
   async function openPrivacy() {
     if (working) return;
     working = true;
-    error = null;
+    actionError = null;
     try {
       await openContactsSettings();
     } catch {
       if (mounted)
-        error =
+        actionError =
           "Die Systemeinstellungen konnten nicht geöffnet werden. Öffne dort Datenschutz & Sicherheit → Kontakte.";
     } finally {
       if (mounted) working = false;
@@ -90,11 +107,17 @@
       unverändert.
     </p>
     <p class="permission-status" role="status">
-      {permission ? labels[permission] : "Freigabe wird geprüft …"}
+      {checking
+        ? "Freigabe wird geprüft …"
+        : permissionError
+          ? "Prüfung fehlgeschlagen"
+          : permission
+            ? labels[permission]
+            : "Noch nicht geprüft"}
     </p>
     {#if permission === "notDetermined"}<p>
-        Mit „Zugriff anfordern“ öffnest du den macOS-Freigabedialog. Erst danach
-        erscheint Ruf in der Kontakte-Datenschutzliste.
+        Mit „macOS-Kontakte freigeben“ öffnest du den Freigabedialog. Erst
+        danach erscheint Ruf in der Kontakte-Datenschutzliste.
       </p>
     {:else if permission === "denied"}<p>
         macOS fragt nach einer Ablehnung nicht erneut. Erlaube Ruf den Zugriff
@@ -115,7 +138,7 @@
         class="primary-button"
         type="button"
         disabled={working}
-        onclick={() => void refresh(true)}>Zugriff anfordern</button
+        onclick={() => void refresh(true)}>macOS-Kontakte freigeben</button
       >{/if}
     {#if permission && permission !== "unsupported"}<button
         class="secondary-button"

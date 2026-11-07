@@ -98,6 +98,13 @@ pipeline, media worker, IPC fields or dependencies are introduced.
 
 ## Native SIP endpoint refresh
 
+Idle DNS refreshes release temporary macOS resolver state, including its system
+configuration notification registration, on the shared success/error cleanup
+path. This prevents long-running idle engines from exhausting libnotify's
+registration limit and crashing. The existing five-second network polling and
+active-call deferral remain in effect. No command, DTO, validation rule or error
+code changes; a rebuilt native SDK is required by the existing manifest check.
+
 Successful REGISTER refreshes may renew an already validated SIP/UDP endpoint
 even when a peer omits the Via `received` parameter. This compatibility path
 requires a live exact local-socket/registrar-endpoint cache entry, matching
@@ -154,3 +161,43 @@ caller privacy, CANCEL and missing ACK. Test guards serialize native engines.
 remote BYE/NAT and stale actions. `bun run test:sip-diagnostics` checks BYE 200
 and restricted output. Browser tests verify delivery ordering and restored
 caller/duration with synthetic IPC; they do not replace native SIP execution.
+
+## Reliability edge cases
+
+An initial outgoing final 2xx without the required SDP answer is ACKed and closed
+as a native setup failure. It never supplies an established timestamp. A later
+180 without SDP does not erase an already observed early-media state.
+
+For a locally offered initial INVITE, additional successful fork responses are
+ACKed and the unwanted dialogs are closed with the existing authenticated native
+BYE teardown. They never allocate an application call or media stream. Duplicate
+2xx responses replay the complete cached ACK without another BYE. Peer authority,
+Contact and Record-Route processing remain native; cleanup is bounded to 32
+distinct discarded branches during the original ACK cache's 64*T1 lifetime.
+
+Incoming `application/dtmf-relay` INFO requires a single signal from 0–9, star,
+hash or A–D (case insensitive), plus a decimal duration of 1–5000 milliseconds.
+Missing, malformed, multiple-character or out-of-range fields receive 400 without
+a DTMF event. Existing server transactions replay responses to retransmissions;
+one INFO transaction produces one digit. This changes no public IPC fields.
+
+Refer NOTIFY bodies require `message/sipfrag` and a complete SIP response
+Status-Line at the beginning: three digits in the 100–699 range, a space,
+an optional Reason-Phrase, and CRLF. A different content type receives 415;
+malformed, prefixed, truncated or lone-LF status lines receive 400 and cannot
+complete a transfer. Replies use the native server transaction so a retransmitted
+final NOTIFY receives the same 200 even after subscription cleanup, without
+repeating the application outcome.
+
+`bun run test:sip-lifetimes` is a macOS-only native regression check requiring
+the already built SDK and the pinned Rust toolchain. It builds the existing
+adapter test executable and runs three exact transfer-owner lifecycle tests
+under system GuardMalloc, with a 60-second limit per test. Missing platform/SDK,
+build failure, missing test, allocator injection failure or native crash fails
+the command. It uses synthetic loopback SIP and test-tone audio, never OS
+credentials or microphone capture. The same scenarios run portably in ordinary
+native Rust tests; GuardMalloc additionally detects access after owner release.
+
+See [call controls](call-controls.md#protocol-outcomes-and-cleanup) for accepted
+invalid hold answers, rejected SDP rollback, terminal 408/481 and fresh local
+resume watchdog intervals.

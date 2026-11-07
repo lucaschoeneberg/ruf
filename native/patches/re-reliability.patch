@@ -1,0 +1,284 @@
+diff --git a/src/dns/res.c b/src/dns/res.c
+--- a/src/dns/res.c
++++ b/src/dns/res.c
+@@ -74,6 +74,9 @@
+ 
+  out:
+ #ifdef OPENBSD
++#elif defined(DARWIN)
++	/* Closing sockets alone retains the DNS notification registration. */
++	res_ndestroy(&state);
+ #else
+ 	res_nclose(&state);
+ #endif
+diff --git a/src/sip/dialog.c b/src/sip/dialog.c
+index 9b483c6..ab5bdf4 100644
+--- a/src/sip/dialog.c
++++ b/src/sip/dialog.c
+@@ -458,9 +458,11 @@ int sip_dialog_fork(struct sip_dialog **dlgp, struct sip_dialog *odlg,
+ 
+ 	err |= sip_msg_hdr_apply(msg, msg->req, SIP_HDR_RECORD_ROUTE,
+ 				 record_route_handler, &renc) ? ENOMEM : 0;
++	dlg->rpos = dlg->mb->pos;
+ 	err |= mbuf_printf(dlg->mb, "To: %r\r\n",
+ 			   msg->req ? &msg->from.val : &msg->to.val);
+ 
++	dlg->cpos = dlg->mb->pos;
+ 	odlg->mb->pos = odlg->cpos;
+ 	err |= mbuf_write_mem(dlg->mb, mbuf_buf(odlg->mb),
+ 			      mbuf_get_left(odlg->mb));
+diff --git a/src/sipsess/ack.c b/src/sipsess/ack.c
+index b538ded..cf70e48 100644
+--- a/src/sipsess/ack.c
++++ b/src/sipsess/ack.c
+@@ -25,6 +25,9 @@ struct sipsess_ack {
+ 	struct sa dst;
+ 	struct sip_request *req;
+ 	struct sip_dialog *dlg;
++	struct sip_auth *auth;
++	bool allow_forks;
++	unsigned forks;
+ 	struct mbuf *mb;
+ 	char *tls_host;
+ 	void *tls_sock;
+@@ -41,6 +44,7 @@ static void destructor(void *arg)
+ 	tmr_cancel(&ack->tmr);
+ 	mem_deref(ack->req);
+ 	mem_deref(ack->dlg);
++	mem_deref(ack->auth);
+ 	mem_deref(ack->mb);
+ 	mem_deref(ack->tls_host);
+ 	mem_deref(ack->tls_sock);
+@@ -98,7 +102,7 @@ static void resp_handler(int err, const struct sip_msg *msg, void *arg)
+ 
+ int sipsess_ack(struct sipsess_sock *sock, struct sip_dialog *dlg,
+ 		uint32_t cseq, struct sip_auth *auth,
+-		const char *ctype, struct mbuf *desc)
++		const char *ctype, struct mbuf *desc, bool allow_forks)
+ {
+ 	struct sipsess_ack *ack;
+ 	int err;
+@@ -112,6 +116,8 @@ int sipsess_ack(struct sipsess_sock *sock, struct sip_dialog *dlg,
+ 		    &ack->he, ack);
+ 
+ 	ack->dlg  = mem_ref(dlg);
++	ack->auth = mem_ref(auth);
++	ack->allow_forks = allow_forks;
+ 	ack->cseq = cseq;
+ 
+ 	err = sip_drequestf_complete(&ack->req, sock->sip, false, "ACK", dlg, cseq,
+@@ -164,3 +170,36 @@ int sipsess_ack_again(struct sipsess_sock *sock, const struct sip_msg *msg)
+ 
+ 	return sip_send_conn(sock->sip, ack->tls_sock, ack->tp, &ack->dst, ack->tls_host, ack->mb, NULL, NULL);
+ }
++
++
++static bool fork_template(struct le *le, void *arg)
++{
++	struct sipsess_ack *ack = le->data;
++	const struct sip_msg *msg = arg;
++	return ack->allow_forks && ack->cseq == msg->cseq.num &&
++	       sip_dialog_cmp_half(ack->dlg, msg);
++}
++
++/* Reuse dialog/auth/ACK/session ownership; never invent a second transaction stack.
++ * Only locally offered initial INVITEs opt in. Cached ACKs absorb duplicate 2xx.
++ * Cap distinct discarded branches within the existing 64*T1 cache lifetime. */
++int sipsess_ack_fork(struct sipsess_sock *sock, const struct sip_msg *msg)
++{
++	struct sipsess_ack *original;
++	struct sip_dialog *dlg = NULL;
++	int err;
++	if (!sock || !msg || msg->req || !pl_isset(&msg->to.tag)) return EINVAL;
++	original = list_ledata(hash_lookup(sock->ht_ack, hash_joaat_pl(&msg->callid),
++					fork_template, (void *)msg));
++	if (!original) return ENOENT;
++	if (original->forks >= 32) return EOVERFLOW;
++	err = sip_dialog_fork(&dlg, original->dlg, msg);
++	if (err) return err;
++	err = sipsess_ack(sock, dlg, msg->cseq.num, original->auth, NULL, NULL, false);
++	if (!err) {
++		++original->forks;
++		err = sipsess_close_fork(sock, dlg, original->auth);
++	}
++	mem_deref(dlg);
++	return err;
++}
+diff --git a/src/sipsess/connect.c b/src/sipsess/connect.c
+index 69c080f..e912ddf 100644
+--- a/src/sipsess/connect.c
++++ b/src/sipsess/connect.c
+@@ -165,7 +165,15 @@ static void invite_resp_handler(int err, const struct sip_msg *msg, void *arg)
+ 
+ 		sess->hdrs = mem_deref(sess->hdrs);
+ 
+-		err = sip_dialog_established(sess->dlg) ?
++		if (sip_dialog_established(sess->dlg) && !sip_dialog_cmp(sess->dlg, msg)) {
++			struct sip_dialog *confirmed = NULL;
++			err = sip_dialog_fork(&confirmed, sess->dlg, msg);
++			if (!err) {
++				mem_deref(sess->dlg);
++				sess->dlg = confirmed;
++			}
++		}
++		else err = sip_dialog_established(sess->dlg) ?
+ 				sip_dialog_update(sess->dlg, msg) :
+ 				sip_dialog_create(sess->dlg, msg);
+ 
+@@ -181,12 +189,16 @@ static void invite_resp_handler(int err, const struct sip_msg *msg, void *arg)
+ 		}
+ 
+ 		err |= sipsess_ack(sess->sock, sess->dlg, msg->cseq.num,
+-				  sess->auth, sess->ctype, desc);
++				  sess->auth, sess->ctype, desc,
++				  sess->neg_state == SDP_NEG_DONE && !desc);
+ 		if (err)
+ 			goto out;
+ 
+-		if (sess->neg_state == SDP_NEG_NONE && !sdp)
++		if ((sess->neg_state == SDP_NEG_NONE ||
++		     sess->neg_state == SDP_NEG_LOCAL_OFFER) && !sdp) {
++			err = EPROTO;
+ 			goto out;
++		}
+ 
+ 		if (sess->neg_state == SDP_NEG_REMOTE_OFFER
+ 		    && mbuf_get_left(desc))
+diff --git a/src/sipsess/listen.c b/src/sipsess/listen.c
+index 41dcba0..a6286a4 100644
+--- a/src/sipsess/listen.c
++++ b/src/sipsess/listen.c
+@@ -156,7 +156,7 @@ static void ack_handler(struct sipsess_sock *sock, const struct sip_msg *msg)
+ 		err = sess->answerh(msg, sess->arg);
+ 	}
+ 
+-	if (err == SIP_SECURITY_MEDIA && sess->established) {
++	if (err && sess->established) {
+ 		sipsess_fail_deferred(sess, err);
+ 		return;
+ 	}
+@@ -372,7 +372,8 @@ static bool response_handler(const struct sip_msg *msg, void *arg)
+ 	if (msg->scode < 200 || msg->scode > 299)
+ 		return false;
+ 
+-	(void)sipsess_ack_again(sock, msg);
++	if (sipsess_ack_again(sock, msg) == ENOENT)
++		(void)sipsess_ack_fork(sock, msg);
+ 
+ 	return true;
+ }
+diff --git a/src/sipsess/modify.c b/src/sipsess/modify.c
+index e1e2dd3..5a820a7 100644
+--- a/src/sipsess/modify.c
++++ b/src/sipsess/modify.c
+@@ -37,6 +37,11 @@ static void reinvite_resp_handler(int err, const struct sip_msg *msg,
+ 	if (!msg || err || sip_request_loops(&sess->ls, msg->scode))
+ 		goto out;
+ 
++	if (!sess->terminated && (msg->scode == 408 || msg->scode == 481)) {
++		sipsess_terminate(sess, 0, msg);
++		return;
++	}
++
+ 	/* Managed controls reject refusal/glare promptly; no hidden retry. */
+ 	if (sess->modify_result && msg->scode >= 300 &&
+ 	    (sess->modify_cancelled || (msg->scode != 401 && msg->scode != 407))) {
+@@ -53,6 +58,14 @@ static void reinvite_resp_handler(int err, const struct sip_msg *msg,
+ 
+ 		(void)sip_dialog_update(sess->dlg, msg);
+ 
++		if (sess->terminated) {
++			/* The call is gone; complete the transaction without invoking
++			 * its former application hooks or re-establishing media. */
++			(void)sipsess_ack(sess->sock, sess->dlg, msg->cseq.num,
++					  sess->auth, NULL, NULL, false);
++			goto out;
++		}
++
+ 		if (sdp) {
+ 			if (sess->neg_state == SDP_NEG_LOCAL_OFFER) {
+ 				sess->neg_state = SDP_NEG_DONE;
+@@ -65,15 +78,14 @@ static void reinvite_resp_handler(int err, const struct sip_msg *msg,
+ 
+ 			if (err) {
+ 				/* Every final 2xx needs ACK, even when its SDP is invalid. */
+-				if (sess->modify_result || err == SIP_SECURITY_MEDIA)
+-					(void)sipsess_ack(sess->sock, sess->dlg,
+-					 msg->cseq.num, sess->auth, sess->ctype, NULL);
++				(void)sipsess_ack(sess->sock, sess->dlg,
++					 msg->cseq.num, sess->auth, sess->ctype, NULL, false);
+ 				goto out;
+ 			}
+ 		}
+ 
+ 		err = sipsess_ack(sess->sock, sess->dlg, msg->cseq.num,
+-				  sess->auth, sess->ctype, desc);
++				  sess->auth, sess->ctype, desc, false);
+ 		if (err)
+ 			goto out;
+ 
+diff --git a/src/sipsess/sess.c b/src/sipsess/sess.c
+index d740ac0..db253b6 100644
+--- a/src/sipsess/sess.c
++++ b/src/sipsess/sess.c
+@@ -88,11 +88,19 @@ static bool termwait(struct sipsess *sess)
+ 	}
+ 
+ 	if (sess->req) {
+-		sip_request_cancel(sess->req);
+-		if (!sip_request_provrecv(sess->req)) {
++		/* Established re-INVITEs retain their final-response/ACK owner even
++		 * when teardown precedes the first provisional response. */
++		if (sess->established) {
++			sip_request_cancel_wait(sess->req);
++			mem_ref(sess);
++			wait = true;
++		}
++		else if (!sip_request_provrecv(sess->req)) {
++			sip_request_cancel(sess->req);
+ 			sess->req = mem_deref(sess->req);
+ 		}
+ 		else {
++			sip_request_cancel(sess->req);
+ 			mem_ref(sess);
+ 			wait = true;
+ 		}
+@@ -414,3 +422,21 @@ enum sdp_neg_state sipsess_sdp_neg_state(const struct sipsess *sess)
+ }
+ 
+ bool sipsess_peer_terminated(const struct sipsess *sess) { return sess && sess->peerterm; }
++
++
++/* Retire an unwanted confirmed fork through normal BYE/authentication teardown.
++ * No application call or media stream is allocated for the discarded branch. */
++int sipsess_close_fork(struct sipsess_sock *sock, struct sip_dialog *dlg,
++		       struct sip_auth *auth)
++{
++	struct sipsess *sess = NULL;
++	int err = sipsess_alloc(&sess, sock, "", "application/sdp", NULL,
++		NULL, NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
++	if (err) return err;
++	mem_deref(sess->auth);
++	sess->auth = mem_ref(auth);
++	sess->dlg = mem_ref(dlg);
++	sess->established = true;
++	mem_deref(sess);
++	return 0;
++}
+diff --git a/src/sipsess/sipsess.h b/src/sipsess/sipsess.h
+index 68064db..ff28155 100644
+--- a/src/sipsess/sipsess.h
++++ b/src/sipsess/sipsess.h
+@@ -86,8 +86,11 @@ void sipsess_terminate(struct sipsess *sess, int err,
+ 		       const struct sip_msg *msg);
+ int  sipsess_ack(struct sipsess_sock *sock, struct sip_dialog *dlg,
+ 		 uint32_t cseq, struct sip_auth *auth,
+-		 const char *ctype, struct mbuf *desc);
++		 const char *ctype, struct mbuf *desc, bool allow_forks);
+ int  sipsess_ack_again(struct sipsess_sock *sock, const struct sip_msg *msg);
++int  sipsess_ack_fork(struct sipsess_sock *sock, const struct sip_msg *msg);
++int  sipsess_close_fork(struct sipsess_sock *sock, struct sip_dialog *dlg,
++		       struct sip_auth *auth);
+ int  sipsess_prack(struct sipsess *sess, uint32_t cseq, uint32_t rseq,
+ 		   const struct pl *met, struct mbuf *desc);
+ int  sipsess_reply_2xx(struct sipsess *sess, const struct sip_msg *msg,

@@ -20,12 +20,16 @@
   import ContactRow from "./ContactRow.svelte";
 
   let {
+    focusSearchRequest = 0,
+    searchQuery = null,
     canDial,
     callHint,
     oncall,
     onhistory,
     focusId = null,
   }: {
+    focusSearchRequest?: number;
+    searchQuery?: string | null;
     canDial: boolean;
     callHint: string;
     oncall: (destination: string) => void;
@@ -53,6 +57,15 @@
   let desktop = $state(true);
   let panel: HTMLElement;
   let searchInput = $state<HTMLInputElement>();
+  let appliedSearchFocus = 0;
+  $effect(() => {
+    if (focusSearchRequest > appliedSearchFocus && searchInput) {
+      appliedSearchFocus = focusSearchRequest;
+      if (searchQuery !== null) query = searchQuery;
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
   let mounted = false;
   let requestId = 0;
   let appliedFocus: string | null = null;
@@ -145,6 +158,8 @@
   });
 
   function keyboard(event: KeyboardEvent) {
+    if (event.defaultPrevented || document.querySelector("dialog[open]"))
+      return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
       if (!searchInput) return;
       event.preventDefault();
@@ -387,14 +402,18 @@
       <div class="empty-state">
         <h2>
           {query.trim()
-            ? "Keine passenden Kontakte"
+            ? favoritesOnly
+              ? "Keine passenden Favoriten"
+              : "Keine passenden Kontakte"
             : favoritesOnly
               ? "Noch keine Favoriten"
               : "Dein Adressbuch ist leer"}
         </h2>
         <p>
           {query.trim()
-            ? "Versuche einen anderen Namen oder eine Nummer."
+            ? favoritesOnly
+              ? "Ändere die Suche oder zeige alle Kontakte an."
+              : "Versuche einen anderen Namen oder eine Nummer."
             : favoritesOnly
               ? "Markiere einen Kontakt mit dem Stern."
               : "Füge Kontakte in der macOS-App Kontakte hinzu."}

@@ -6,6 +6,7 @@ use phone_core::{
 };
 use std::{
     collections::BTreeSet,
+    io::Read,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     thread,
@@ -13,6 +14,18 @@ use std::{
 };
 
 const WAIT: Duration = Duration::from_secs(15);
+
+#[test]
+#[ignore = "Lab command helper regression; bun run test:asterisk"]
+fn lab_command_drains_large_stdout_and_stderr_before_waiting() {
+    let result = output(Command::new("python3").args([
+        "-c",
+        "import sys;sys.stdout.write('x'*1048576);sys.stderr.write('y'*1048576)",
+    ]));
+    assert!(result.status.success());
+    assert_eq!(result.stdout.len(), 1048576);
+    assert_eq!(result.stderr.len(), 1048576);
+}
 
 #[test]
 #[ignore = "Requires isolated Asterisk; bun run test:asterisk"]
@@ -85,10 +98,28 @@ fn output(command: &mut Command) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    // Drain both pipes while the process is running. Waiting for exit before
+    // reading can deadlock even a healthy Asterisk command on a full pipe.
+    let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
+    let stdout = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
+    let stderr = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
     let deadline = Instant::now() + WAIT;
     loop {
-        if child.try_wait().unwrap().is_some() {
-            return child.wait_with_output().unwrap();
+        if let Some(status) = child.try_wait().unwrap() {
+            return Output {
+                status,
+                stdout: stdout.join().unwrap(),
+                stderr: stderr.join().unwrap(),
+            };
         }
         if Instant::now() >= deadline {
             let _ = child.kill();

@@ -71,3 +71,85 @@ and OS notification appear. This verification did not access personal account
 data, place real-account calls, install/restart Ruf, or prove Windows behavior,
 OS notification delivery, machine-sleep availability or arbitrary-provider NAT
 reachability.
+
+## Desktop restoration recheck — 2026-11-06
+
+The existing native test configures an account directly. Added
+`phone::credential_recovery_tests::saved_account_accepts_first_incoming_call_after_each_restart`
+to cover the desktop's actual `PhoneSession::load` path too. The test writes
+synthetic account metadata once, restores the saved active account, waits for
+native registration and accepts the first incoming call. After remote hangup it
+shuts down and recreates both desktop state and the native engine, then repeats
+against the same unchanged metadata. Neither cycle dials, saves an account or
+requests foreground reconnection. The test requires the restored account's
+selection and registration timestamp, the correct incoming account identity,
+Active after answer and Idle after remote hangup without errors.
+
+Only the credential-store implementation is substituted with an in-memory
+synthetic password. Account 1003 authenticates against the actual isolated
+Asterisk server, with server Contact rewriting disabled. A negative control
+temporarily supplied a wrong synthetic password: Asterisk returned 401
+Unauthorized, the account never registered and the test failed at its bounded
+registration wait. The test file was restored byte-for-byte and the positive
+case rerun successfully. No production behavior change was needed.
+
+`scripts/asterisk-smoke.mjs` now runs this desktop case on macOS and Windows.
+Headless Linux explicitly skips it, preserving the existing adapter-only system
+dependencies. The native adapter's incoming-before-outgoing case still runs on
+Linux. No command, DTO or API contract changed; no API documentation update is
+required. The existing account store, credential-store seam, native engine,
+call-token APIs and Asterisk fixture are reused without new dependencies.
+
+Observed locally on macOS arm64:
+
+- `bun run native:build`: passed.
+- New desktop case: passed both before and through the complete smoke runner.
+- `bun run test:asterisk`: passed 16 adapter lab cases, 13 controlled TLS/security
+  cases and the new desktop case. Fresh echo PCM: 4.04 s, RMS 5811, 440.1 Hz.
+- Native desktop library suite: 87 passed, five explicitly ignored OS/keychain
+  or lab cases; the new ignored lab case was executed separately as above.
+- `cargo test --locked --workspace`: passed in portable mode.
+- Workspace Clippy with `-D warnings`: passed in portable and native modes.
+- `bun run check`, `bun run build`, `bun run check:versions`: passed.
+- `bun run types:generate`: passed; generated TypeScript remained unchanged.
+- `bun run format:check` and `git diff --check`: passed. An initial format check
+  caught a concurrently edited, unrelated UI review script; the final check was
+  clean.
+- `bun run desktop:build --features native --bundles app`: passed and exported
+  native build/SBOM hashes. Rust's debug-strip helper emitted the existing local
+  missing-libLLVM warning; packaging completed successfully.
+
+These results recreate application state and native engines inside a test
+process. They do not restart the installed GUI, read a real account password,
+exercise the actual OS keychain, or establish provider/VPN reachability, incoming
+availability after long idle/sleep, audible ringing, notification presentation
+or Windows runtime behavior. External acceptance after a fresh installed-app
+launch remains necessary for that provider-specific assurance.
+
+## Installed-app acceptance — 2026-11-06
+
+At the user's explicit request, checked `/Applications/Ruf.app` with the actual
+saved account. No Ruf process was running before launch. Started that installed
+application with its unchanged persistent configuration and the existing opt-in
+sanitized diagnostics. No outgoing call, manual reconnect, password extraction
+or account modification was performed. The installed app reports version 0.1.0;
+its executable differs from the latest locally built executable, so this result
+applies specifically to the installed package.
+
+The allowlisted native trace observed the real registrar's authentication
+challenge, successful REGISTER responses and confirmation of the mapped Contact.
+After registration, an incoming INVITE reached the app, which sent 180 Ringing.
+The caller then cancelled; Ruf acknowledged CANCEL, returned 487 for the INVITE
+and closed the call. No outgoing INVITE occurred. The user independently reported
+that the test worked. This confirms incoming ringing immediately after this
+actual cold application launch, without first placing an outgoing call.
+
+No Active event was observed: the call was cancelled before answer, so this run
+does not establish connected speech or microphone/audio quality. Long idle,
+sleep/wake and Windows remain untested. Private local logs remain ignored under
+`native/build`; no account, caller, credential or network-address data is copied
+into this report. The existing adapter diagnostics and installed startup path
+were reused; no production code, API or DTO changed.
+After the check, quit Ruf gracefully and verified a new process from a normal
+LaunchServices launch, ending the temporary diagnostic-enabled process. That
+final normal launch was not followed by another external test call.

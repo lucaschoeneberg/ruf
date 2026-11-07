@@ -229,6 +229,124 @@ fn header<'a>(packet: &'a str, name: &str) -> &'a str {
 }
 
 #[test]
+#[ignore = "Requires the isolated Asterisk lab; bun run test:asterisk runs it"]
+fn saved_account_accepts_first_incoming_call_after_each_restart() {
+    let _guard = NATIVE_RECOVERY_TEST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    // Only OS credential access is substituted. Metadata restoration, native
+    // digest authentication, Contact registration and inbound signaling are real.
+    struct StartupCredentials;
+    impl store::CredentialStore for StartupCredentials {
+        fn read(&self, key: &str, interactive: bool) -> Result<String, PhoneError> {
+            assert_eq!(key, "abcd-1003");
+            assert!(!interactive, "startup must not require foreground recovery");
+            Ok("sip-lab-only-not-a-secret".into())
+        }
+        fn write(&self, _key: &str, _password: &str) -> Result<(), PhoneError> {
+            panic!("startup must not rewrite saved passwords")
+        }
+        fn delete(&self, _key: &str) -> Result<(), PhoneError> {
+            panic!("startup must not delete saved passwords")
+        }
+    }
+    fn wait(state: &PhoneState, predicate: impl Fn(&EngineSnapshot) -> bool) -> EngineSnapshot {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let snapshot = state.with(|session| session.snapshot()).unwrap();
+            if predicate(&snapshot) {
+                return snapshot;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "restored account did not reach the expected native state: {snapshot:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let directory =
+        std::env::temp_dir().join(format!("ruf-startup-incoming-{}", std::process::id()));
+    let store = AccountStore {
+        path: directory.join("accounts.json"),
+    };
+    store
+        .write(&SavedSettings {
+            accounts: vec![SavedAccount {
+                transport: Default::default(),
+                media_security: Default::default(),
+                auth_username: None,
+                outbound_proxy: None,
+                enabled: true,
+                key: "abcd-1003".into(),
+                name: "Synthetic startup".into(),
+                registrar: "127.0.0.1:5070".into(),
+                // This lab endpoint deliberately disables server Contact rewriting.
+                username: "1003".into(),
+            }],
+            selected_key: Some("abcd-1003".into()),
+            audio_mode: AudioMode::TestTone,
+            ..Default::default()
+        })
+        .unwrap();
+    let before = std::fs::read(&store.path).unwrap();
+    let lab = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/interop/asterisk/compose.yml");
+
+    // Recreate desktop state and the native engine, reusing only durable metadata
+    // and credentials. Neither cycle saves/reconnects an account or dials first.
+    for _ in 0..2 {
+        let state = PhoneState::default();
+        state
+            .with(|session| {
+                session.credentials = Arc::new(StartupCredentials);
+                session.load(directory.clone(), directory.clone())
+            })
+            .unwrap();
+        let registered = wait(&state, |s| s.registration == RegistrationState::Registered);
+        assert_eq!(registered.accounts.len(), 1);
+        let account = &registered.accounts[0];
+        assert_eq!(account.username, "1003");
+        assert_eq!(registered.selected_account_id, Some(account.id));
+        assert!(account.registered_at_ms.is_some());
+        assert!(account.last_error.is_none());
+        assert_eq!(registered.call, CallState::Idle);
+
+        assert!(
+            std::process::Command::new("docker")
+                .args(["compose", "-f"])
+                .arg(&lab)
+                .args([
+                    "exec",
+                    "-T",
+                    "asterisk",
+                    "asterisk",
+                    "-rx",
+                    "channel originate PJSIP/1003 application Wait 1",
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let incoming = wait(&state, |s| s.call == CallState::Incoming);
+        assert_eq!(incoming.call_account_id, Some(account.id));
+        let call_id = incoming.call_id.unwrap();
+        state
+            .with(|session| session.engine()?.answer_call(&call_id))
+            .unwrap();
+        wait(&state, |s| s.call == CallState::Active);
+        let ended = wait(&state, |s| s.call == CallState::Idle);
+        assert!(ended.call_account_id.is_none());
+        assert!(ended.last_error.is_none(), "{ended:?}");
+        assert_eq!(ended.registration, RegistrationState::Registered);
+        state.shutdown().unwrap();
+        assert_eq!(std::fs::read(&store.path).unwrap(), before);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn foreground_reconnect_recovers_without_rewriting_metadata_or_credentials() {
     let _guard = NATIVE_RECOVERY_TEST
         .lock()

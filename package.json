@@ -21,6 +21,8 @@
     "format": "bun fmt && cargo fmt --all",
     "format:check": "bun fmt --check && cargo fmt --all -- --check",
     "desktop:build": "bun scripts/build-desktop.mjs",
+    "appstore:prepare": "bun scripts/prepare-app-store.mjs",
+    "appstore:screenshots": "bun scripts/capture-app-store.mjs",
     "native:build": "bun native/build.mjs",
     "dev:native": "bun scripts/build-desktop.mjs --dev --features native",
     "lab:up": "docker compose -f tests/interop/asterisk/compose.yml up -d --wait",
@@ -31,7 +33,9 @@
     "test:macos-notification-timeouts": "bun scripts/check-macos-notification-timeouts.mjs",
     "test:macos-contacts": "bun scripts/check-macos-contacts.mjs",
     "test:macos-contact-timeouts": "bun scripts/check-macos-contact-timeouts.mjs",
+    "test:macos-login-item": "bun scripts/check-macos-login-item.mjs",
     "test:sip-diagnostics": "bun scripts/check-sip-diagnostics.mjs",
+    "test:sip-lifetimes": "bun scripts/check-sip-lifetimes.mjs",
     "test:network-roam": "bun scripts/check-network-roam.mjs",
     "test:ui": "bun test tests/ui",
     "test:ui:flows": "bun scripts/check-ui-flows.mjs"

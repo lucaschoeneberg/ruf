@@ -240,7 +240,7 @@ export default async function contactsPermissions(page, baseUrl) {
     .getByRole("heading", { name: "Datenschutz", exact: true })
     .waitFor({ timeout: 5000 });
   await page
-    .getByRole("button", { name: "Zugriff anfordern", exact: true })
+    .getByRole("button", { name: "macOS-Kontakte freigeben", exact: true })
     .waitFor();
   ensure(
     await page.evaluate(
@@ -257,12 +257,12 @@ export default async function contactsPermissions(page, baseUrl) {
     () => (window.__contactPermissionTest.failRequest = true),
   );
   await page
-    .getByRole("button", { name: "Zugriff anfordern", exact: true })
+    .getByRole("button", { name: "macOS-Kontakte freigeben", exact: true })
     .click();
   await page.locator(".contacts-permission-error").waitFor();
   ensure(
     await page
-      .getByRole("button", { name: "Zugriff anfordern", exact: true })
+      .getByRole("button", { name: "macOS-Kontakte freigeben", exact: true })
       .isEnabled(),
     "A failed request must remain recoverable",
   );
@@ -270,7 +270,7 @@ export default async function contactsPermissions(page, baseUrl) {
     () => (window.__contactPermissionTest.failRequest = false),
   );
   await page
-    .getByRole("button", { name: "Zugriff anfordern", exact: true })
+    .getByRole("button", { name: "macOS-Kontakte freigeben", exact: true })
     .click();
   await page.getByText("Nicht freigegeben", { exact: true }).waitFor();
   await page
@@ -291,7 +291,7 @@ export default async function contactsPermissions(page, baseUrl) {
   await page.getByText("Freigegeben", { exact: true }).waitFor();
   ensure(
     (await page
-      .getByRole("button", { name: "Zugriff anfordern", exact: true })
+      .getByRole("button", { name: "macOS-Kontakte freigeben", exact: true })
       .count()) === 0,
     "Authorized access must not prompt again",
   );
@@ -648,10 +648,11 @@ export default async function contactsPermissions(page, baseUrl) {
   ensure(
     await page.evaluate(() =>
       window.__contactPermissionTest.commands.some(
-        ({ command }) => command === "open_contacts_app",
+        ({ command, args }) =>
+          command === "open_contacts_app" && args.id === "synthetic-single",
       ),
     ),
-    "Source app opens through native command",
+    "Source action opens the selected contact by its native identifier",
   );
   await page
     .getByRole("button", { name: "Details zu Anna Beispiel", exact: true })

@@ -13,21 +13,27 @@ mod shell_policy;
 mod store;
 use tauri::Manager;
 
+#[cfg(all(feature = "app-store", not(target_os = "macos")))]
+compile_error!("The app-store feature is supported only on macOS.");
+
 /// Start the desktop application.
 ///
 /// # Panics
 /// Panics if the operating system cannot initialize the Tauri runtime.
 pub fn run() {
+    #[cfg(not(feature = "app-store"))]
     let autostart = tauri_plugin_autostart::Builder::new().args(["--autostart"]);
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(feature = "app-store")))]
     let autostart = autostart.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if !desktop::start_hidden(app, &args) {
                 let _ = shell::show_phone(app);
             }
-        }))
-        .plugin(autostart.build())
+        }));
+    #[cfg(not(feature = "app-store"))]
+    let builder = builder.plugin(autostart.build());
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .manage(phone::PhoneState::default())
         .manage(contacts::ContactsState::default())

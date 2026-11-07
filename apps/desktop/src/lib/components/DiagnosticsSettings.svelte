@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { phoneActions, shortcutLabel } from "../shortcuts";
   import { onMount } from "svelte";
   import type { DiagnosticsReport } from "../generated/AppInfo";
   import { getDiagnostics, copyDiagnostics } from "../api";
@@ -190,19 +191,59 @@
     </p>
   </div>
 </div>
-<h2 class="settings-group sound-group">Tastatur</h2>
-<div class="setting-row">
-  <div class="setting-description">
-    <h3>Einstellungen und Suche</h3>
-    <p>
-      ⌘/Strg + , öffnet Einstellungen. ⌘/Strg + F fokussiert die Suche. Escape
-      schließt die Suche oder kehrt zu einem ungespeicherten Entwurf zurück.
-      Enter im Nummernfeld startet einen Anruf.
-    </p>
+<h2 id="keyboard-shortcuts" class="settings-group sound-group">
+  Tastenkombinationen
+</h2>
+<p class="shortcut-note">
+  Die Kürzel gelten, solange Ruf im Vordergrund ist. Gesprächsaktionen sind nur
+  im passenden Anrufstatus verfügbar.
+</p>
+<dl class="shortcut-list">
+  {#each phoneActions as action}
+    <div>
+      <dt>{action.label}</dt>
+      <dd><kbd>{shortcutLabel(action)}</kbd></dd>
+    </div>
+  {/each}
+  <div>
+    <dt>Nummer im Nummernfeld anrufen</dt>
+    <dd><kbd>Enter</kbd></dd>
   </div>
-</div>
+  <div>
+    <dt>Suche schließen / Starthilfe verlassen</dt>
+    <dd><kbd>Esc</kbd></dd>
+  </div>
+</dl>
 
 <style>
+  .shortcut-note {
+    color: var(--muted);
+    max-width: 60ch;
+  }
+  .shortcut-list {
+    margin: 12px 0 0;
+  }
+  .shortcut-list > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  dt {
+    color: var(--text-secondary);
+  }
+  dd {
+    flex-shrink: 0;
+    margin: 0;
+  }
+  kbd {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+  }
+
   pre {
     white-space: pre-wrap;
     overflow-wrap: anywhere;

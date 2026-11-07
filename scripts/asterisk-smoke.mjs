@@ -163,3 +163,24 @@ run("cargo", [
   "--",
   "--test-threads=1",
 ]);
+
+// Desktop hosts also cover saved-account restoration. The headless Linux lab
+// intentionally needs no Tauri/WebKit system dependencies.
+if (process.platform === "darwin" || process.platform === "win32") {
+  run("cargo", [
+    "test",
+    "--locked",
+    "-p",
+    "sip-desktop",
+    "--features",
+    "native",
+    "--lib",
+    "phone::credential_recovery_tests::saved_account_accepts_first_incoming_call_after_each_restart",
+    "--",
+    "--exact",
+    "--ignored",
+    "--test-threads=1",
+  ]);
+} else {
+  console.log("Desktop startup regression skipped on the headless Linux host.");
+}

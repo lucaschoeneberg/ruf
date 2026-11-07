@@ -446,7 +446,7 @@ export default async function phoneRegressions(page) {
       if (
         !(await page
           .getByRole("heading", {
-            name: "Dein Telefon ist verbunden",
+            name: "Dein SIP-Konto ist angemeldet",
             exact: true,
           })
           .count())

@@ -33,6 +33,11 @@
     restricted: "Durch Systemrichtlinie eingeschränkt",
     unsupported: "Nicht verfügbar",
   };
+  const statusLabel = $derived.by((): string => {
+    if (checking) return "Freigabe wird geprüft …";
+    if (error) return "Prüfung fehlgeschlagen";
+    return status ? labels[status] : "Noch nicht geprüft";
+  });
 </script>
 
 <div class="setting-row permission-row">
@@ -44,13 +49,7 @@
       role="status"
       aria-live="polite"
     >
-      {checking
-        ? "Freigabe wird geprüft …"
-        : error
-          ? "Prüfung fehlgeschlagen"
-          : status
-            ? labels[status]
-            : "Noch nicht geprüft"}
+      {statusLabel}
     </p>
     {#if error}<p class="field-error" role="alert">{error}</p>{/if}
   </div>

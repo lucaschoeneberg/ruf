@@ -149,26 +149,22 @@
     loading || !info || info.telephony !== "linked" || !snapshot || !callIdle,
   );
   const accountDirty = $derived(
-    baseline !== "" &&
-      baseline !==
-        JSON.stringify({
-          name,
-          registrar: account.registrar,
-          username: account.username,
-          password: account.password,
-          transport: account.transport,
-          mediaSecurity: account.mediaSecurity,
-          authUsername: account.authUsername,
-          outboundProxy: account.outboundProxy,
-        }),
+    baseline !== "" && baseline !== accountDraftKey(),
   );
-  const dirty = $derived(
-    section === "audio"
-      ? soundDirty
-      : ["general", "notifications", "contacts"].includes(section)
-        ? desktopDirty || preferencesDirty
-        : section === "accounts" && accountDirty,
-  );
+  const dirty = $derived.by((): boolean => {
+    switch (section) {
+      case "audio":
+        return soundDirty;
+      case "general":
+      case "notifications":
+      case "contacts":
+        return desktopDirty || preferencesDirty;
+      case "accounts":
+        return accountDirty;
+      default:
+        return false;
+    }
+  });
   const needle = $derived(query.trim().toLocaleLowerCase("de"));
   const sections = settingsSections;
   const searchResults = $derived(searchSettings(query));
@@ -191,6 +187,18 @@
     ),
   );
 
+  function accountDraftKey(): string {
+    return JSON.stringify({
+      name,
+      registrar: account.registrar,
+      username: account.username,
+      password: account.password,
+      transport: account.transport,
+      mediaSecurity: account.mediaSecurity,
+      authUsername: account.authUsername,
+      outboundProxy: account.outboundProxy,
+    });
+  }
   function edit(id: number | null) {
     const saved = accounts.find((a) => a.id === id);
     editedId = saved?.id ?? null;
@@ -205,16 +213,7 @@
       password: "",
       audioMode: snapshot?.audioMode ?? account.audioMode,
     };
-    baseline = JSON.stringify({
-      name,
-      registrar: account.registrar,
-      username: account.username,
-      password: account.password,
-      transport: account.transport,
-      mediaSecurity: account.mediaSecurity,
-      authUsername: account.authUsername,
-      outboundProxy: account.outboundProxy,
-    });
+    baseline = accountDraftKey();
     feedback = "";
   }
   function navigate(
@@ -398,6 +397,13 @@
     const initialSection = sections.find((item) => item.id === requested)?.id;
     if (initialSection) section = initialSection;
     const unlisteners: UnlistenFn[] = [];
+    if (isTauri())
+      void listen("settings-find-requested", () => {
+        if (mounted) document.getElementById("settings-search")?.focus();
+      })
+        .then(retain)
+        .catch(() => {});
+
     function retain(unlisten: UnlistenFn) {
       if (mounted) unlisteners.push(unlisten);
       else unlisten();
@@ -807,10 +813,10 @@
               >{item.enabled === false
                 ? "Deaktiviert"
                 : item.registration === "registered"
-                  ? "Verbunden"
+                  ? "Angemeldet"
                   : item.registration === "failed"
                     ? "Anmeldung fehlgeschlagen"
-                    : "Nicht verbunden"}</span
+                    : "Nicht angemeldet"}</span
             ></button
           >{/each}
         {#if !accounts.length}<p class="accounts-empty">

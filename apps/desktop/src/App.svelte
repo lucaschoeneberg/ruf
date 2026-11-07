@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import {
@@ -11,6 +11,7 @@
     getAppInfo,
     getDesktopSettings,
     getNotificationPermission,
+    getPreferences,
     type SettingsSection,
     getEngineSnapshot,
     hangup,
@@ -22,11 +23,15 @@
     switchCall,
     cancelConsultation,
     completeTransfer,
+    sendDtmf,
   } from "./lib/api";
   import type {
     AppInfo,
     Contact,
     ContactReference,
+    ContactsSnapshot,
+    ContactsPreferences,
+    HistoryEntry,
     EngineSnapshot,
     RegistrationState,
     NotificationPermission,
@@ -40,10 +45,119 @@
   import { callbackHistory } from "./lib/history-api";
   import ContactsPanel from "./lib/components/ContactsPanel.svelte";
   import { hasSeenIntroduction, rememberIntroduction } from "./lib/onboarding";
-
+  import ActionSearch from "./lib/components/ActionSearch.svelte";
+  import {
+    phoneActions,
+    isCallAction,
+    keyboardAction,
+    shortcutLabel,
+    type CallAction,
+    type SearchAction,
+  } from "./lib/shortcuts";
+  import { settingsSections } from "./lib/settings-navigation";
   import { normalizeDialNumber } from "./lib/dialing";
-  import { getPreferences, sendDtmf } from "./lib/api";
-  import type { ContactsSnapshot } from "./lib/generated/AppInfo";
+  let searchOpen = $state(false);
+  let searchFocusRequest = $state(0);
+  let searchQuery = $state<string | null>(null);
+  let historyEntryFocusId = $state<string | null>(null);
+  function openSearchView(next: "contacts" | "history", query: string) {
+    clearHistoryScope();
+    contactFocusId = null;
+    selectView(next);
+    searchQuery = query;
+    ++searchFocusRequest;
+  }
+  function openHistoryResult(entry: HistoryEntry, query: string) {
+    openSearchView("history", query);
+    historyEntryFocusId = entry.id;
+  }
+  let callPanel = $state<{
+    availableActions: () => Record<CallAction, boolean>;
+    runAction: (action: CallAction) => void;
+  }>();
+  const actions = $derived.by((): SearchAction[] => {
+    const available = !callIdle ? callPanel?.availableActions() : undefined;
+    return [
+      ...phoneActions
+        .filter((action) => action.id !== "search")
+        .map((action) => {
+          const disabled =
+            (isCallAction(action.id) && !available?.[action.id]) ||
+            (action.id === "number" && !callIdle);
+          let reason = "";
+          if (disabled)
+            reason = callIdle
+              ? "Kein laufender Anruf"
+              : "Im aktuellen Gesprächsstatus nicht verfügbar";
+          return {
+            ...action,
+            shortcut: shortcutLabel(action),
+            disabled,
+            reason,
+          };
+        }),
+      ...settingsSections
+        .filter((section) => section.id !== "general")
+        .map((section) => ({
+          id: `settings:${section.id}`,
+          label: section.label,
+          terms:
+            section.id === "diagnostics"
+              ? "tastenkombinationen shortcuts kürzel hilfe"
+              : "einstellungen",
+        })),
+      {
+        id: "start",
+        label: "Starthilfe öffnen",
+        terms: "hilfe einrichtung erste schritte",
+      },
+    ];
+  });
+  async function runAction(id: string) {
+    if (id.startsWith("settings:")) {
+      const section = settingsSections.find(
+        (section) => `settings:${section.id}` === id,
+      );
+      if (section) await showSettings(section.id);
+      return;
+    }
+    switch (id) {
+      case "search":
+        searchOpen = true;
+        break;
+      case "settings":
+        await showSettings();
+        break;
+      case "dialer":
+      case "contacts":
+      case "history":
+      case "start":
+        selectView(id);
+        break;
+      case "number":
+        if (!callIdle) return;
+        selectView("dialer");
+        await tick();
+        document
+          .querySelector<HTMLInputElement>(".number-entry input")
+          ?.focus();
+        break;
+      case "find": {
+        if (view === "start" || view === "dialer") selectView("contacts");
+        ++searchFocusRequest;
+        break;
+      }
+      case "answer":
+      case "end":
+      case "mute":
+      case "hold":
+      case "transfer":
+      case "tones":
+        if (!callIdle) callPanel?.runAction(id);
+        break;
+    }
+  }
+
   type View = "dialer" | "contacts" | "history" | "start";
   let view = $state<View>("dialer");
   let contactFocusId = $state<string | null>(null);
@@ -183,7 +297,14 @@
   const accountName = $derived((callAccount ?? selectedAccount)?.name ?? "Ruf");
   let destination = $state("");
   let dialContacts = $state<ContactsSnapshot | null>(null);
-  let matchGermanNumbers = $state(true);
+  let contactsPreferences = $state<ContactsPreferences>({
+    favoritesFirst: true,
+    showOrganization: true,
+    matchGermanNumbers: true,
+  });
+  const matchGermanNumbers = $derived(
+    contactsPreferences.matchGermanNumbers ?? true,
+  );
   let dialContactsRequest = 0;
   async function refreshDialContacts(force = false) {
     if (browser) return;
@@ -214,7 +335,7 @@
     try {
       const next = await getPreferences();
       if (mounted && request === dialContactsRequest)
-        matchGermanNumbers = next.contacts.matchGermanNumbers ?? true;
+        contactsPreferences = next.contacts;
     } catch {
       /* Existing preference/read errors never prevent number dialing. */
     }
@@ -271,60 +392,46 @@
   );
   const registrationLabels: Record<RegistrationState, string> = {
     unconfigured: "Nicht angemeldet",
-    registering: "Wird verbunden …",
+    registering: "Wird angemeldet …",
     registered: "Angemeldet",
     failed: "Anmeldung fehlgeschlagen",
   };
-  const availability = $derived(
-    loading
-      ? "Telefonie wird geladen …"
-      : browser
-        ? "Browser-Vorschau"
-        : info?.telephony === "notLinked"
-          ? "Telefonie nicht eingebunden"
-          : !snapshot
-            ? "Status nicht verfügbar"
-            : selectedAccount?.enabled === false
-              ? "Konto deaktiviert"
-              : registrationLabels[registration],
-  );
+  const availability = $derived.by((): string => {
+    if (loading) return "Telefonie wird geladen …";
+    if (browser) return "Browser-Vorschau";
+    if (info?.telephony === "notLinked") return "Telefonie nicht eingebunden";
+    if (!snapshot) return "Status nicht verfügbar";
+    if (selectedAccount?.enabled === false) return "Konto deaktiviert";
+    return registrationLabels[registration];
+  });
   const tabs = [
     { id: "dialer", label: "Tastatur", icon: "keypad" },
     { id: "contacts", label: "Kontakte", icon: "contacts" },
     { id: "history", label: "Verlauf", icon: "history" },
   ] as const;
 
-  const introRuntime = $derived(
-    browser
-      ? "browser"
-      : info?.telephony === "notLinked"
-        ? "unlinked"
-        : nativeAvailable
-          ? "desktop"
-          : "unavailable",
-  );
-  const setupLabel = $derived(
-    !error && !browser && !snapshot && info?.telephony !== "notLinked"
-      ? "Status erneut laden"
-      : browser || !nativeAvailable
-        ? "Starthilfe öffnen"
-        : selectedAccount?.enabled === false
-          ? "Konto aktivieren"
-          : registration === "failed"
-            ? "Verbindung prüfen"
-            : registration === "registering"
-              ? "Anmeldung läuft · Angaben ansehen"
-              : "SIP-Konto verbinden",
-  );
-  const connectionHint = $derived(
-    audioUnknown
-      ? "Audioquelle unbekannt · App neu starten"
-      : sessionAudio === "testTone"
-        ? "Testton statt Mikrofon · Audio wird aufgezeichnet"
-        : firstCallHint
-          ? "Verbunden. Jetzt eine Nummer wählen."
-          : "0 halten für + · Enter zum Anrufen",
-  );
+  const introRuntime = $derived.by(() => {
+    if (browser) return "browser";
+    if (info?.telephony === "notLinked") return "unlinked";
+    return nativeAvailable ? "desktop" : "unavailable";
+  });
+  const setupLabel = $derived.by((): string => {
+    if (!error && !browser && !snapshot && info?.telephony !== "notLinked")
+      return "Status erneut laden";
+    if (browser || !nativeAvailable) return "Starthilfe öffnen";
+    if (selectedAccount?.enabled === false) return "Konto aktivieren";
+    if (registration === "failed") return "Verbindung prüfen";
+    if (registration === "registering")
+      return "Anmeldung läuft · Angaben ansehen";
+    return "SIP-Konto verbinden";
+  });
+  const connectionHint = $derived.by((): string => {
+    if (audioUnknown) return "Audioquelle unbekannt · App neu starten";
+    if (sessionAudio === "testTone")
+      return "Testton statt Mikrofon · Audio wird aufgezeichnet";
+    if (firstCallHint) return "Angemeldet. Jetzt eine Nummer wählen.";
+    return "0 halten für + · Enter zum Anrufen";
+  });
 
   function markIntroduction() {
     if (introductionSeen) return;
@@ -332,6 +439,8 @@
     if (introductionStorage) rememberIntroduction(introductionStorage);
   }
   function selectView(next: View) {
+    searchQuery = null;
+    historyEntryFocusId = null;
     navigated = true;
     if (view === "start" && next !== "start") markIntroduction();
     view = next;
@@ -451,6 +560,39 @@
       loading = false;
       if (!introductionSeen) view = "start";
     }
+    const actionUnlisteners: UnlistenFn[] = [];
+    if (!browser) {
+      for (const action of phoneActions.filter(
+        (action) =>
+          action.id !== "settings" &&
+          action.id !== "answer" &&
+          action.id !== "end",
+      )) {
+        void listen<string | null>(
+          `phone-${action.id}-requested`,
+          ({ payload }) => {
+            if (!mounted || searchOpen) return;
+            if (isCallAction(action.id) && payload !== currentCall?.id) return;
+            void runAction(action.id);
+          },
+        )
+          .then((unlisten) => {
+            if (mounted) actionUnlisteners.push(unlisten);
+            else unlisten();
+          })
+          .catch(() => {
+            /* Browser keyboard fallbacks remain separate from native accelerators. */
+          });
+      }
+      void listen("phone-start-requested", () => {
+        if (mounted) void runAction("start");
+      })
+        .then((unlisten) => {
+          if (mounted) actionUnlisteners.push(unlisten);
+          else unlisten();
+        })
+        .catch(() => {});
+    }
     let unlistenState: UnlistenFn | undefined;
     let unlistenContacts: UnlistenFn | undefined;
     let contactsReady = false;
@@ -538,6 +680,7 @@
       clearInterval(contactsTimer);
       clearInterval(clock);
       unlistenState?.();
+      actionUnlisteners.forEach((unlisten) => unlisten());
       unlistenContacts?.();
       window.removeEventListener("focus", contactFocus);
       document.removeEventListener(
@@ -624,10 +767,13 @@
     destination = target;
     await placeCall();
   }
-  function onEscape(event: KeyboardEvent) {
-    if (browser && (event.metaKey || event.ctrlKey) && event.key === ",") {
+  function keyboard(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.isComposing || searchOpen) return;
+    const action = keyboardAction(event);
+    // Native accelerators are dispatched once by the menu, including from Settings.
+    if (browser && action) {
       event.preventDefault();
-      void showSettings();
+      void runAction(action);
     }
     if (event.key === "Escape" && view === "start") {
       event.preventDefault();
@@ -636,7 +782,18 @@
   }
 </script>
 
-<svelte:window onkeydown={onEscape} />
+<svelte:window onkeydown={keyboard} />
+
+{#if searchOpen}<ActionSearch
+    {actions}
+    contacts={dialContacts}
+    preferences={contactsPreferences}
+    oncontact={(contact) => showHistoryContact(contact)}
+    onhistory={openHistoryResult}
+    onsearchview={openSearchView}
+    onaction={(id) => void runAction(id)}
+    onclose={() => (searchOpen = false)}
+  />{/if}
 
 <div class="softphone" aria-label="Ruf Softphone">
   <header class="app-header">
@@ -675,6 +832,14 @@
       <button
         class="icon-button"
         type="button"
+        aria-label="Ruf durchsuchen"
+        title={`Ruf durchsuchen (${shortcutLabel(phoneActions.find((action) => action.id === "search")!)})`}
+        onclick={() => (searchOpen = true)}
+        ><Icon name="search" size={16} /></button
+      >
+      <button
+        class="icon-button"
+        type="button"
         aria-label="Starthilfe"
         title="Starthilfe"
         aria-pressed={view === "start"}
@@ -685,7 +850,7 @@
         class="icon-button settings-button"
         type="button"
         aria-label="Einstellungen öffnen"
-        title="Einstellungen (⌘/Ctrl+,)"
+        title={`Einstellungen (${shortcutLabel(phoneActions.find((action) => action.id === "settings")!)})`}
         disabled={openingSettings}
         onclick={() => {
           void showSettings();
@@ -770,6 +935,7 @@
     {#if !callIdle}
       {#if currentCall}{#key conversationKey}
           <CallPanel
+            bind:this={callPanel}
             call={currentCall}
             calls={snapshot?.calls ?? []}
             callerContact={snapshot?.callerContact ?? null}
@@ -855,6 +1021,8 @@
         />{/if}
     {:else if view === "contacts"}
       <ContactsPanel
+        focusSearchRequest={view === "contacts" ? searchFocusRequest : 0}
+        {searchQuery}
         focusId={contactFocusId}
         onhistory={showContactHistory}
         canDial={nativeAvailable &&
@@ -877,6 +1045,9 @@
       />
     {:else}
       <HistoryPanel
+        focusSearchRequest={view === "history" ? searchFocusRequest : 0}
+        {searchQuery}
+        focusEntryId={historyEntryFocusId}
         canDial={nativeAvailable && !audioUnknown && callIdle && !busy}
         oncallback={(id) => void returnCall(id)}
         oncontact={showHistoryContact}
@@ -890,6 +1061,7 @@
     {#each tabs as tab}<button
         type="button"
         class:active={view === tab.id}
+        title={`${tab.label} (${shortcutLabel(phoneActions.find((action) => action.id === tab.id)!)})`}
         aria-current={view === tab.id ? "page" : undefined}
         onclick={() => selectView(tab.id)}
         ><Icon name={tab.icon} size={16} /><span>{tab.label}</span></button

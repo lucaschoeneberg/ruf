@@ -129,6 +129,18 @@ for (const [security, text] of [
     "TLS nicht bestätigt",
   ],
   [
+    { signalingTransport: "tls", tlsPeerVerified: true, media: "unknown" },
+    "TLS geprüft · Audioschutz unbekannt",
+  ],
+  [
+    { signalingTransport: "udp", tlsPeerVerified: false, media: "unprotected" },
+    "UDP · Audio unverschlüsselt",
+  ],
+  [
+    { signalingTransport: "tcp", tlsPeerVerified: false, media: "unknown" },
+    "TCP · Audioschutz unbekannt",
+  ],
+  [
     { signalingTransport: null, tlsPeerVerified: false, media: "unknown" },
     "Sicherheit noch nicht bestätigt",
   ],
@@ -223,4 +235,15 @@ test("single dialog names its owner independently of outgoing selection", () => 
   expect(body.replace(/<[^>]*>/g, "").replace(/\s+/g, " ")).toContain(
     "Gespräch läuft · Büro",
   );
+});
+
+test("attended transfer error is visible while consultation is selected", () => {
+  const original = call({
+    localHeld: true,
+    transfer: "failed",
+    lastError: { code: "sipBusy", message: "Transfer failed", sipStatus: 486 },
+  });
+  const child = call({ id: "child", destination: "5678", consultation: true });
+  const body = panel(child, [original, child]);
+  expect(body).toContain("Vermittlung fehlgeschlagen");
 });

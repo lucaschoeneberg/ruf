@@ -48,8 +48,8 @@
     <div class="setting-description">
       <label for="start-hidden">Bei der Anmeldung im Hintergrund starten</label>
       <p>
-        Das Telefonfenster bleibt beim Anmelden geschlossen. Manuelles Öffnen
-        zeigt es weiterhin an.
+        Gilt für den automatischen Start: Das Telefonfenster bleibt geschlossen.
+        Wenn du Ruf manuell öffnest, wird es angezeigt.
       </p>
     </div>
     <div class="setting-control sound-toggle">

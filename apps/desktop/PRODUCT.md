@@ -89,8 +89,8 @@ Use concise German with direct “du” instructions. “SIP-Konto” names the 
 an attempt or incoming offer; “Gespräch” means an established call. Remote hold
 must say that the other party is holding the call. “Verlauf” stores call details,
 while “Audioaufzeichnung” is reserved for the explicit developer test-tone mode.
-“macOS-Kontakte” names the operating-system app; opening it does not select a
-specific contact. Destructive actions name “Anruf” or “Verlauf”. Keep protocol
-and diagnostic details in supporting text rather than primary action labels.
+“macOS-Kontakte” names the operating-system app; the action in a contact's details
+opens that specific contact by its native identifier. Destructive actions name
+“Anruf” or “Verlauf”. Keep protocol and diagnostic details in supporting text rather than primary action labels.
 
 Dial entry supports formatted telephone numbers and leading plus, with authorized contact suggestions and current per-dialog names. German 0/+49/0049 identity matching is configurable; it never rewrites the dialed number. History resolves names from current contacts after later additions or renames.

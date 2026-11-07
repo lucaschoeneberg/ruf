@@ -295,6 +295,15 @@ and stacked row controls and actions. Native settings cannot shrink to this
 fallback width. Compact call panels sit above contacts or history so the
 current supported call actions remain reachable.
 
+The settings mount fills the viewport with fixed insets so document magnification
+also reduces its available layout height. Named inline-size containers measure
+the settings window and main content independently of viewport media queries.
+At window-container widths up to 480px, the sidebar uses 136px with vertical
+scrolling and text navigation; the direct account block remains below it.
+At content widths up to 400px, rows and actions stack with 12px side insets.
+The save bar then scrolls with the form to keep magnified fields unobstructed.
+Normal native window sizes retain the existing sidebar, columns and sticky save bar.
+
 Text selection, carets and scrollbars share the global palette across phone and
 settings. Use the actual bundled 400/600 font faces; do not introduce intermediate
 weights for the same role. Disabled controls retain their disabled appearance on hover.
@@ -331,6 +340,19 @@ squares. Disabled actions expose actual capability or busy state.
 Shared focus is a 2px blue outline with 3px offset. Color transitions use
 140ms ease and disappear with reduced-motion preferences. Search and number
 entry use focused border treatments instead of a second nested outline.
+
+### Action search and shortcuts
+
+The header magnifier and Cmd/Ctrl+K open the focused “Ruf durchsuchen” dialog for
+actions, settings destinations, contacts and local call history. It uses the
+shared surface, one-pixel outline and 4px corners, fitting 320 × 440px with an independently scrolling result list. Results
+pair German labels with platform-specific shortcuts; unavailable call actions
+remain visible with a reason. Arrow keys select, Enter executes and Escape closes
+and restores focus. After two characters, personal results appear under Kontakte
+and Verlauf with up to eight previews per source. A result opens existing details; “Alle …”
+preserves the query in the full panel. Individual panel searches remain available.
+Native Ansicht, Gespräch and Hilfe menus expose the same actions; macOS Help
+also supplies its system menu search. Plain letters never trigger call controls.
 
 ### Inputs, keypad and navigation
 

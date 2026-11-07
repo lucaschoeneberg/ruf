@@ -216,11 +216,109 @@ export default async function layoutRegressions(page) {
   await zoom.send("Emulation.clearDeviceMetricsOverride");
   await zoom.detach();
   await target.setViewportSize({ width: 740, height: 540 });
+  for (const section of [
+    "general",
+    "accounts",
+    "audio",
+    "notifications",
+    "contacts",
+    "privacy",
+    "diagnostics",
+    "about",
+  ]) {
+    await target.goto(
+      `${origin}/?window=settings&section=${section}&many-accounts`,
+    );
+    await target.locator("h1").waitFor();
+    await target.addStyleTag({ content: "body { zoom: 2; }" });
+    if (section === "accounts")
+      await target.locator(".account-advanced summary").click();
+    const layout = await target.evaluate(() => {
+      const areas = [
+        ...document.querySelectorAll(
+          ".settings-shell,.settings-sidebar,.settings-main,.settings-scroll,.setting-row",
+        ),
+      ];
+      return areas
+        .filter((el) => el.scrollWidth > el.clientWidth + 2)
+        .map((el) => ({
+          area: el.className,
+          width: el.clientWidth,
+          scroll: el.scrollWidth,
+        }));
+    });
+    if (layout.length)
+      throw Error(
+        `${section}: content overflows at 200 percent: ${JSON.stringify(layout)}`,
+      );
+    const fields = target.locator(
+      ".settings-scroll input:visible:not(:disabled), .settings-scroll select:visible:not(:disabled)",
+    );
+    for (const index of [...new Set([0, (await fields.count()) - 1])]) {
+      if (index < 0 || !(await fields.count())) continue;
+      const field = fields.nth(index);
+      await field.focus();
+      await field.scrollIntoViewIfNeeded();
+      if (
+        !(await field.evaluate((el) => {
+          const box = el.getBoundingClientRect();
+          const atCenter = document.elementFromPoint(
+            box.x + box.width / 2,
+            box.y + box.height / 2,
+          );
+          return (
+            box.x >= 0 &&
+            box.right <= innerWidth + 1 &&
+            box.y >= 0 &&
+            box.bottom <= innerHeight + 1 &&
+            (atCenter === el || el.contains(atCenter))
+          );
+        }))
+      )
+        throw Error(
+          `${section}: focused field is covered or outside the enlarged viewport`,
+        );
+    }
+    await target
+      .locator(".settings-scroll")
+      .evaluate((el) => (el.scrollTop = 0));
+    await target.screenshot({
+      path: `output/playwright/settings-${section}-zoom-200.png`,
+    });
+    const sidebar = target.getByRole("complementary", {
+      name: "Einstellungsnavigation",
+    });
+    await sidebar
+      .getByRole("button", { name: "Über Ruf", exact: true })
+      .focus();
+    const navBox = await sidebar
+      .getByRole("button", { name: "Über Ruf", exact: true })
+      .boundingBox();
+    if (!navBox || navBox.y < 0 || navBox.y + navBox.height > 541)
+      throw Error(`${section}: navigation cannot be reached at 200 percent`);
+    if (section === "accounts") {
+      await target.getByLabel("Name", { exact: true }).focus();
+      const input = await target
+        .getByLabel("Name", { exact: true })
+        .boundingBox();
+      if (
+        !input ||
+        input.x < 0 ||
+        input.x + input.width > 741 ||
+        input.y < 0 ||
+        input.y + input.height > 541
+      )
+        throw Error(
+          "Account field cannot be focused within the enlarged viewport",
+        );
+    }
+  }
+  await target.setViewportSize({ width: 740, height: 540 });
   await target.goto(`${origin}/?preview`);
   const preview = await target.locator(".softphone").boundingBox();
   if (preview.width !== 340)
     throw new Error("Browser preview must retain compact 340px shell");
   if (errors.length) throw new Error(errors.join("\n"));
   await target.close();
-  return { passed: true, screenshots: 27 };
+  return { passed: true, screenshots: 35 };
 }

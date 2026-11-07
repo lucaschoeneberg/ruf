@@ -29,7 +29,8 @@ Native support is opt-in through Cargo feature `native`. Portable builds reject
 engine startup and report `notLinked`. Native builds link pinned static baresip,
 libre and OpenSSL plus selected modules. `linked` describes compilation only.
 One engine owns upstream process-global state; it supports up to eight independently
-registered accounts and one concurrent call. Passwords enter through native authentication setters, never account
+registered accounts and at most two related dialogs for a call and its consultation,
+with one audible conversation. Passwords enter through native authentication setters, never account
 URIs or disk config. C code runs account/call operations on its event-loop thread.
 Shutdown flags the loop and joins it before destroying callback ownership.
 
@@ -73,5 +74,8 @@ The application identifier is `org.rufapp.desktop`, with Ruf icon assets. macOS
 bundles include microphone/contact purpose strings and hardened-runtime
 entitlements. Ad-hoc signing is configured; production signing/notarization,
 Windows runtime and hardware permission/device qualification remain separate from
-the headless media test. TLS/SRTP, calendar integration and automatic updates are
-not implemented. See the [release checklist](release-checklist.md).
+the headless media test. UDP/TCP/TLS and required SDES-SRTP with TLS are implemented;
+per-call security reports native observations independently of account policy.
+Calendar integration and automatic updates are not implemented. See the
+[account security contract](api/account-security.md) and
+[release checklist](release-checklist.md).

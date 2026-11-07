@@ -80,12 +80,12 @@
         : existing?.removing
           ? "Wird entfernt …"
           : existing?.registration === "registered"
-            ? "Verbunden"
+            ? "Angemeldet"
             : existing?.registration === "registering"
-              ? "Wird verbunden …"
+              ? "Wird angemeldet …"
               : existing?.registration === "failed"
                 ? "Anmeldung fehlgeschlagen"
-                : "Noch nicht verbunden",
+                : "Noch nicht angemeldet",
   );
 </script>
 
@@ -103,7 +103,7 @@
         ? `${account.username}@${account.registrar}`
         : existing
           ? `${existing.username}@${existing.registrar}`
-          : "Server, Benutzername und Passwort erhältst du von deiner Telefonanlage oder deinem SIP-Anbieter. Weitere Angaben sind optional."}
+          : "SIP-Server, Benutzername und Passwort erhältst du von deiner Telefonanlage oder deinem SIP-Anbieter. Wähle außerdem einen Namen für das Konto."}
     </p>
   </div>
   {#if existing}<span
@@ -132,7 +132,7 @@
     <div class="setting-row">
       <div class="setting-description">
         <label for="name">Name</label>
-        <p id="name-help">So erscheint das Konto in deinem Telefon.</p>
+        <p id="name-help">Erforderlich: 1–64 Zeichen, z. B. Büro.</p>
       </div>
       <div class="setting-control">
         <input
@@ -154,7 +154,7 @@
       <div class="setting-description">
         <label for="registrar">SIP-Server</label>
         <p id="registrar-help">
-          Serveradresse deiner Telefonanlage, optional mit Port.
+          Erforderlich: Serveradresse, optional mit Port. Ohne sip: oder Pfad.
         </p>
       </div>
       <div class="setting-control">
@@ -180,7 +180,8 @@
       <div class="setting-description">
         <label for="username">Benutzername</label>
         <p id="username-help">
-          Deine SIP-Anmeldekennung. Häufig eine Nebenstelle.
+          Erforderlich: SIP-Benutzername aus deinen Zugangsdaten, häufig eine
+          Nebenstelle. Keine E-Mail-Adresse.
         </p>
       </div>
       <div class="setting-control">
@@ -210,7 +211,7 @@
             ? "Gib das Passwort ein und speichere das Konto."
             : existing || removed
               ? "Leer lassen, um das gespeicherte Passwort zu behalten."
-              : "Wird sicher im System-Schlüsselbund gespeichert."}
+              : "Erforderlich. Wird im System-Schlüsselbund gespeichert."}
         </p>
       </div>
       <div class="setting-control">
@@ -295,8 +296,8 @@
         <div class="setting-description">
           <label for="auth-username">Separate Anmeldekennung</label>
           <p id="auth-username-help">
-            Optional für die Authentifizierung. Leer verwendet den
-            SIP-Benutzernamen.
+            Optional, falls dein Anbieter eine eigene Kennung für die Anmeldung
+            vorgibt. Ohne Angabe wird der SIP-Benutzername verwendet.
           </p>
         </div>
         <div class="setting-control">

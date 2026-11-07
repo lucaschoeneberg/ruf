@@ -1348,9 +1348,14 @@ fn controls_hold_without_sdp_answer_rolls_back_and_allows_retry() {
         lab.engine.set_call_held(&id, true).unwrap();
         let offer = lab.receive("hold offer", |p| p.starts_with("INVITE "));
         lab.reply(&offer, "200 OK", "", body);
+        lab.receive("ACK of invalid hold answer", |p| p.starts_with("ACK "));
+        let recovery = lab.receive("compensating resume after invalid answer", |p| {
+            p.starts_with("INVITE ") && header(p, "CSeq:") != header(&offer, "CSeq:")
+        });
+        assert!(lab.engine.snapshot().unwrap().calls[0].hold_pending);
+        lab.reply(&recovery, "200 OK", "", &sdp(29, "sendrecv"));
         lab.wait(|s| !s.calls[0].hold_pending && s.calls[0].last_error.is_some());
         assert!(!lab.engine.snapshot().unwrap().calls[0].local_held);
-        lab.receive("ACK of invalid hold answer", |p| p.starts_with("ACK "));
         lab.engine.set_call_held(&id, true).unwrap();
         let retry = lab.receive("hold retry after missing SDP", |p| {
             p.starts_with("INVITE ") && header(p, "CSeq:") != header(&offer, "CSeq:")
@@ -1771,3 +1776,6 @@ fn controls_refused_hold_player_restart_failure_ends_owned_call() {
     assert_eq!(failure.error.code, ErrorCode::NativeFailure);
     lab.settle();
 }
+
+#[path = "sip_reliability_tests.rs"]
+mod reliability;

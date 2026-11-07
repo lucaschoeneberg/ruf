@@ -1,5 +1,67 @@
 # Local libre SIP NAT extension
 
+## SIP reliability patches
+
+`re-reliability.patch` and `baresip-reliability.patch` apply after the existing
+NAT, transfer policy, control and security patches to the same pinned revisions.
+Their exact contents are required by Cargo's SDK check and the desktop SBOM.
+
+On macOS, the libre patch destroys each temporary resolver state with
+`res_ndestroy`, including shared cleanup after a server-list or allocation
+failure. `res_nclose` only closes sockets and retains the DNS configuration
+notification token. Repeated idle DNS refreshes otherwise exhaust libnotify's
+registration limit and terminate the process with SIGTRAP. Other platforms
+retain their existing resolver cleanup. No public SDK signature changes.
+
+The baresip patch retains only the last accepted remote SDP body in a call-owned
+buffer, released with the call. Decoder failures restore that description;
+rejected incompatible media offers restore both SDP and the native media path.
+Restoration failure ends the dialog through the existing deferred failure API.
+Mandatory SRTP errors never restore cleared crypto state. Remote hold events are
+emitted after accepted media application. DTMF INFO validates one signal and a
+decimal duration of 1–5000 ms, returning stateful 400/200 replies so retransmitted
+requests do not repeat application events. Blind numeric transfer targets use
+the existing URI-user encoder.
+
+The libre patch preserves terminal 408/481 handling for managed re-INVITEs and
+rejects initial successful setup without a required SDP answer, after ACK.
+The private `sipsess_ack` helper adds a required boolean `allow_forks` argument;
+only ACKs completing an initial locally offered INVITE enable it. Missing cached
+ACKs may match that original by Call-ID, local tag, CSeq and existing peer
+authority. `sip_dialog_fork` supplies Contact/Record-Route/TLS state; the normal
+ACK cache and authenticated session BYE teardown retire the unwanted branch.
+Duplicates replay the ACK without repeating BYE. At most 32 distinct unwanted
+branches are retained per original within its existing 64*T1 ACK lifetime.
+`sipsess_ack_fork` and `sipsess_close_fork` are private event-thread helpers:
+arguments are required and borrowed synchronously; they return errno/security
+errors and never expose native handles through Rust IPC. Existing security
+matching and no-downgrade rules remain in force.
+
+Accepted invalid hold answers reuse bounded compensation rather than reporting
+unconfirmed local rollback as recovery. The adapter renews the existing RTP
+watchdog on confirmed local resume and journals global-limit busy rejections
+through the existing sanitized observer boundary. Public commands and DTOs are
+unchanged; their behavioral contract is in `docs/api/call-controls.md` and
+`docs/api/sip-events.md`.
+
+The follow-up corrections also validate common codecs in SDP answers, restoring
+the last accepted description before managed compensation. Invalid answers in
+ACK end established dialogs through deferred failure. Terminated established
+sessions retain pending re-INVITEs through final-response ACK and normal cleanup,
+including late 408/481; no application callback or media is resurrected. REFER
+NOTIFY validates content type and a complete initial Status-Line (empty reason
+permitted), with stateful replies. Subscription-close handlers return immediately
+after invoking a control callback because it may release their call owner.
+
+The adapter retains at most one closed transfer call and its UA until the original
+transfer deadline, using native reference counting and the existing subscription.
+Only the originally paired peer generation receives completion/cleanup. The owner
+is released on result, timeout, stop or superseding idle work; no native handle is
+exported, no media is allocated for it, and no closed application call is retained.
+Confirmed explicit hold intent and deferred return remain per-dialog state.
+`bun run test:sip-lifetimes` exercises owner release with macOS GuardMalloc;
+ordinary native scenario tests cover the same lifecycle on other platforms.
+
 ## Baresip REFER policy
 
 `baresip-refer-policy.patch` applies to the pinned baresip 4.12.0 revision. It

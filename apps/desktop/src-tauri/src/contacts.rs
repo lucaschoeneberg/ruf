@@ -283,17 +283,43 @@ pub(crate) async fn copy_phone_number(number: String) -> Result<(), PhoneError> 
         .map_err(|_| storage_error())?
 }
 
-/// Open the fixed macOS Contacts application, without arbitrary URLs or source edits.
+// Encode the opaque source ID, preserving the native :ABPerson suffix while
+// preventing separators, query strings or fragments from changing the target.
+#[cfg(any(target_os = "macos", test))]
+fn contact_url(id: &str) -> Result<String, PhoneError> {
+    if !valid_id(id) {
+        return Err(PhoneError::new(
+            ErrorCode::InvalidInput,
+            "Contact identifier must be 1–1024 UTF-8 bytes without control characters.",
+        ));
+    }
+    let mut url = String::from("addressbook://");
+    for byte in id.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~:".contains(&byte) {
+            url.push(char::from(byte));
+        } else {
+            url.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    Ok(url)
+}
+
+/// Open Apple Contacts, optionally revealing the exact opaque source contact ID.
+/// IDs must be 1–1024 UTF-8 bytes without controls (`InvalidInput` otherwise).
+/// Omitted IDs retain app-only opening. Launch failure returns `NativeFailure`;
+/// unsupported platforms return `EngineUnavailable`. Never edits source records.
 #[tauri::command]
-pub(crate) async fn open_contacts_app() -> Result<(), PhoneError> {
+pub(crate) async fn open_contacts_app(id: Option<String>) -> Result<(), PhoneError> {
     #[cfg(target_os = "macos")]
     {
-        tauri::async_runtime::spawn_blocking(|| {
-            if std::process::Command::new("/usr/bin/open")
-                .args(["-b", "com.apple.AddressBook"])
-                .status()
-                .is_ok_and(|s| s.success())
-            {
+        let url = id.as_deref().map(contact_url).transpose()?;
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut command = std::process::Command::new("/usr/bin/open");
+            command.args(["-b", "com.apple.AddressBook"]);
+            if let Some(url) = url {
+                command.arg(url);
+            }
+            if command.status().is_ok_and(|s| s.success()) {
                 Ok(())
             } else {
                 Err(PhoneError::new(
@@ -307,6 +333,7 @@ pub(crate) async fn open_contacts_app() -> Result<(), PhoneError> {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = id;
         Err(PhoneError::new(
             ErrorCode::EngineUnavailable,
             "The macOS Contacts application is unavailable on this platform.",
@@ -452,6 +479,25 @@ pub(crate) async fn set_contact_favorite(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_contact_urls_preserve_identity_and_escape_url_syntax() {
+        assert_eq!(
+            contact_url("12345678-1234-1234-1234-123456789ABC:ABPerson").unwrap(),
+            "addressbook://12345678-1234-1234-1234-123456789ABC:ABPerson"
+        );
+        assert_eq!(
+            contact_url("source/ä?query#fragment%20").unwrap(),
+            "addressbook://source%2F%C3%A4%3Fquery%23fragment%2520"
+        );
+    }
+
+    #[test]
+    fn source_contact_urls_reject_invalid_identifiers() {
+        for id in ["", "a\nb", "a\0b", &"a".repeat(1025)] {
+            assert_eq!(contact_url(id).unwrap_err().code, ErrorCode::InvalidInput);
+        }
+    }
 
     #[test]
     fn current_contact_projection_covers_both_directions_rename_and_revocation() {

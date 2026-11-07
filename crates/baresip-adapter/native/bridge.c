@@ -60,8 +60,9 @@ struct native_dialog {
     struct call *call;
     struct ua *ua;
     bool answered, muted, consultation, hold_target, return_held, local_ending;
+    bool hold_explicit, return_pending;
     uint32_t account_id;
-    uint64_t generation, deadline;
+    uint64_t generation, deadline, transfer_peer_generation;
     int pending, recovery;
 };
 struct engine {
@@ -75,6 +76,7 @@ struct engine {
     struct request *pending;
     struct sip_account accounts[8];
     struct native_dialog dialogs[2];
+    struct native_dialog retired_transfer;
     struct native_dialog *current, *selected, *action_target;
     struct tmr control_timer;
     struct tmr dtmf_timer;
@@ -107,6 +109,8 @@ struct engine {
     event_callback callback;
     void *callback_arg;
 };
+
+static void retire_transfer(struct engine *e);
 
 /* The Rust lease permits one native event loop; libre's trace callback uses
  * the upstream UA argument, so keep this thread-owned diagnostic context here. */
@@ -259,7 +263,7 @@ static void emit_account(struct engine *e, int kind, int code, uint32_t account_
 }
 static void emit(struct engine *e, int kind, int code) {
     if (kind == EV_LOCAL_END) e->current->local_ending = true;
-    if (kind == EV_INTERRUPTING) e->stopping = true;
+    if (kind == EV_INTERRUPTING) { e->stopping = true; retire_transfer(e); }
     emit_account(e, kind, code, e->current->account_id);
 }
 static struct sip_account *find_account(struct engine *e, uint32_t id) {
@@ -483,13 +487,10 @@ static void caller_copy(char *out, size_t capacity, const char *value) {
     out[count] = '\0';
 }
 
-static void emit_incoming(struct engine *e, const struct call *call, int kind, uint32_t account_id, uint64_t generation) {
+static void emit_identity(struct engine *e, const char *peer, const char *display_name, bool withheld, int kind, uint32_t account_id, uint64_t generation) {
     char name[129] = {0}, number[81] = {0};
-    const char *peer = call_peeruri(call);
     struct pl text;
     struct uri from;
-    bool withheld = false;
-    (void)custom_hdrs_apply(call_get_custom_hdrs(call), caller_privacy, &withheld);
     pl_set_str(&text, peer);
     if (peer && !uri_decode(&from, &text)) {
         bool sip = !pl_strcasecmp(&from.scheme, "sip") || !pl_strcasecmp(&from.scheme, "sips");
@@ -510,9 +511,35 @@ static void emit_incoming(struct engine *e, const struct call *call, int kind, u
             }
         }
     }
-    caller_copy(name, sizeof(name), withheld ? "Unterdrückte Rufnummer" : call_peername(call));
+    caller_copy(name, sizeof(name), withheld ? "Unterdrückte Rufnummer" : display_name);
     const struct sip_event event = { kind, 0, account_id, generation, name, number, NULL };
     e->callback(&event, e->callback_arg);
+}
+
+static void emit_incoming(struct engine *e, const struct call *call, int kind, uint32_t account_id, uint64_t generation) {
+    bool withheld = false;
+    (void)custom_hdrs_apply(call_get_custom_hdrs(call), caller_privacy, &withheld);
+    emit_identity(e, call_peeruri(call), call_peername(call), withheld, kind, account_id, generation);
+}
+
+static bool privacy_header(const struct sip_hdr *header, const struct sip_msg *message, void *arg) {
+    (void)message;
+    (void)caller_privacy(&header->name, &header->val, arg);
+    return false;
+}
+
+/* The upstream dialog limit rejects before allocating a call. Its stateful
+ * response absorbs retransmissions; reuse the same sanitized busy journal path. */
+static void emit_busy_offer(struct engine *e, const struct sip_msg *message, uint32_t account_id) {
+    char *peer = NULL, *name = NULL;
+    bool withheld = false;
+    (void)sip_msg_hdr_apply(message, true, SIP_HDR_PRIVACY, privacy_header, &withheld);
+    if (!pl_strdup(&peer, &message->from.auri)) {
+        (void)pl_strdup(&name, &message->from.dname);
+        emit_identity(e, peer, name, withheld, EV_BUSY_INCOMING, account_id, sip_engine_reserve_call_generation(e));
+    }
+    mem_deref(name);
+    mem_deref(peer);
 }
 
 /* Only numeric status prefixes produced by baresip are copied; reason/target text never leaves C. */
@@ -550,6 +577,9 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
     struct engine *e = arg;
     struct call *call = bevent_get_call(event);
     struct ua *ua = bevent_get_ua(event);
+    const struct sip_msg *message = bevent_get_msg(event);
+    if (!ua && kind == BEVENT_SIPSESS_FAILED && message && event_status(bevent_get_text(event), ' ') == 486)
+        ua = uag_find_msg(message);
     struct sip_account *account = NULL;
     for (size_t i = 0; i < 8; ++i) if (ua && e->accounts[i].ua == ua) { account = &e->accounts[i]; break; }
     if (!account) return;
@@ -557,6 +587,10 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
     for (size_t i = 0; call && i < 2; ++i)
         if (e->dialogs[i].call == call) e->current = &e->dialogs[i];
     switch (kind) {
+    case BEVENT_SIPSESS_FAILED:
+        if (message && event_status(bevent_get_text(event), ' ') == 486)
+            emit_busy_offer(e, message, account->id);
+        break;
     case BEVENT_REGISTERING: emit_account(e, EV_REGISTERING, 0, account->id); break;
     case BEVENT_REGISTER_OK: emit_account(e, EV_REGISTERED, 0, account->id); break;
     case BEVENT_REGISTER_FAIL: emit_account(e, EV_REG_FAILED, ua_registration_error(ua) ? security_error(account, ua_registration_error(ua)) : event_status(bevent_get_text(event), ' '), account->id); break;
@@ -568,6 +602,7 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
             ua_hangup(ua, call, 486, "Busy Here");
             break;
         }
+        retire_transfer(e);
         if (e->current->call != call) { e->current->generation = sip_engine_reserve_call_generation(e); e->current->answered = false; }
         e->current->call = call; e->current->ua = ua; e->current->account_id = account->id;
         call_set_control_handler(call, control_result, e);
@@ -627,6 +662,13 @@ static void event_handler(enum bevent_ev kind, struct bevent *event, void *arg) 
             bool answer_failed = e->current->answered && call_state(call) == CALL_STATE_INCOMING && !call_scode(call);
             if (call_native_error(call)) emit(e, EV_CALL_ERROR, security_error(account, call_native_error(call)));
             if (e->dtmf_generation == e->current->generation) stop_dtmf(e);
+            /* A remote BYE ends the INVITE usage, not an outstanding REFER.
+             * Keep one bounded native owner; no application dialog stays live. */
+            if (e->current->pending == 2 && !e->current->local_ending && !e->stopping) {
+                e->retired_transfer = *e->current;
+                e->retired_transfer.call = mem_ref(call);
+                e->retired_transfer.ua = mem_ref(ua);
+            }
             stop_ring(e); e->current->call = NULL; e->current->ua = NULL;
             emit(e, answer_failed ? EV_ANSWER_CLOSED : EV_CLOSED, call_scode(call));
             e->current->account_id = 0;
@@ -681,6 +723,7 @@ static void queue_handler(int id, void *data, void *arg) {
     case OP_ENABLE: {
         struct ua *replacement = NULL;
         if (e->current->call) { error = EBUSY; break; }
+        retire_transfer(e);
         if (!account) {
             for (size_t i = 0; i < 8; ++i) if (!e->accounts[i].id) { account = &e->accounts[i]; break; }
         }
@@ -734,6 +777,7 @@ static void queue_handler(int id, void *data, void *arg) {
     }
     case OP_DISABLE:
         if (e->current->call) { error = EBUSY; break; }
+        retire_transfer(e);
         if (account) {
             struct ua *previous = account->ua;
             account->ua = NULL;
@@ -743,6 +787,7 @@ static void queue_handler(int id, void *data, void *arg) {
         break;
     case OP_REMOVE:
         if (e->current->call) { emit_account(e, EV_REMOVE_FAILED, EBUSY, r->account_id); break; }
+        retire_transfer(e);
         if (account) {
             struct ua *previous = account->ua;
             memset(account, 0, sizeof(*account));
@@ -757,6 +802,7 @@ static void queue_handler(int id, void *data, void *arg) {
         const struct sip_event started = { EV_DIAL_STARTED, 0, r->account_id, dial_generation, NULL, destination, NULL };
         e->callback(&started, e->callback_arg);
         if (e->current->call) { error = EBUSY; break; }
+        retire_transfer(e);
         stop_audio_test(e);
         e->current->generation = dial_generation;
         e->current->account_id = r->account_id;
@@ -766,7 +812,9 @@ static void queue_handler(int id, void *data, void *arg) {
             if (error) break;
         }
         if (!account || !account->ua || !ua_isregistered(account->ua)) { error = ENOTCONN; break; }
-        (void)snprintf(uri, sizeof(uri), "sip:%s@%s;transport=%s", r->destination, account->registrar, transport_name(account->transport));
+        struct pl target;
+        pl_set_str(&target, r->destination);
+        (void)re_snprintf(uri, sizeof(uri), "sip:%H@%s;transport=%s", uri_user_escape, &target, account->registrar, transport_name(account->transport));
         error = ua_connect(account->ua, &e->current->call, NULL, uri, VIDMODE_OFF);
         /* ua_connect destroys a partially-created call when setup fails. */
         if (error) { e->current->call = NULL; e->current->ua = NULL; }
@@ -955,6 +1003,7 @@ int sip_engine_run(void *handle) {
         error = re_main(NULL);
     }
     tmr_cancel(&e->control_timer);
+    retire_transfer(e);
     stop_dtmf(e);
     tmr_cancel(&e->shutdown_timer);
     tmr_cancel(&e->network_timer);

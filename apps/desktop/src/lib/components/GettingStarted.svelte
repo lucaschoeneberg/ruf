@@ -31,11 +31,11 @@
           : audioUnknown
             ? "Audioquelle nicht bekannt"
             : ready
-              ? "Dein Telefon ist verbunden"
+              ? "Dein SIP-Konto ist angemeldet"
               : registration === "registering"
-                ? "Verbindung wird hergestellt"
+                ? "Dein SIP-Konto wird angemeldet"
                 : registration === "failed"
-                  ? "Dein Konto ist nicht verbunden"
+                  ? "Dein SIP-Konto ist nicht angemeldet"
                   : hasAccount
                     ? "Dein SIP-Konto ist gespeichert"
                     : "Verbinde dein SIP-Konto"}
@@ -50,9 +50,9 @@
           : audioUnknown
             ? "Die Telefonie läuft bereits. Beende ein laufendes Gespräch und starte die App neu, damit du die Audioquelle vor dem nächsten Anruf sicher wählen kannst."
             : ready
-              ? "Wähle eine Nummer oder Nebenstelle. Mit Anrufen oder der Eingabetaste startest du dein Gespräch."
+              ? "Wähle eine Nummer oder Nebenstelle. Mit Anrufen oder der Eingabetaste startest du einen Anruf."
               : registration === "registering"
-                ? "Die Anmeldung an deiner Telefonanlage läuft. Der Status oben zeigt dir, sobald dein Konto verbunden ist. Deine Angaben kannst du in den Kontoeinstellungen prüfen."
+                ? "Die Anmeldung an deiner Telefonanlage läuft. Der Status oben zeigt dir das Ergebnis. Deine Angaben kannst du in den Kontoeinstellungen prüfen."
                 : registration === "failed"
                   ? "Die Anmeldung ist fehlgeschlagen. Prüfe die Verbindung und deine Zugangsdaten in den Kontoeinstellungen."
                   : hasAccount

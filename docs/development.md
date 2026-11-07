@@ -177,8 +177,9 @@ settings does not reset the engine. Per-window capabilities keep account writes
 in settings and call controls in the phone.
 
 Up to eight accounts register independently; the phone header selects the next
-outgoing account. Incoming calls retain their own account ID. One concurrent call
-is supported. Save/delete/switch are blocked during a call and the native event
+outgoing account. Incoming calls retain their own account ID. A call and one
+consultation can occupy at most two related dialogs, with one audible conversation.
+Saving/deleting accounts and switching the outgoing account are blocked during a call; the native event
 loop rechecks mutations for incoming-call races. Saves wait for application of
 the queued native configuration, then poll for registration success.
 
@@ -249,7 +250,12 @@ suppress UI; repair failed accounts interactively in settings.
 
 Run `bun run test:network-roam` after building the native SDK. The standalone
 C tests cover late interfaces, removal, active-call deferral, debounce, retries
-and enumeration failures. `cargo test --locked -p baresip-adapter --features native`
+and enumeration failures. On macOS, the runner also performs 65,536 real native
+DNS configuration refreshes against the installed SDK, exceeding libnotify's
+registration limit if resolver state leaks. It requires configured DNS servers,
+sends no DNS queries and reads no SIP accounts. A signal, timeout, empty server
+list or lookup failure fails the test.
+`cargo test --locked -p baresip-adapter --features native`
 also runs an isolated synthetic UDP registrar/NAT relay, with a real missing-ACK
 timeout (about 32 seconds). No VPN or host network changes are needed.
 

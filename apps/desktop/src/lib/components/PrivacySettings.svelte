@@ -10,44 +10,62 @@
   import ContactsSettings from "./ContactsSettings.svelte";
   import PermissionStatus from "./PermissionStatus.svelte";
   let status = $state<MicrophonePermission | null>(null),
-    error = $state<string | null>(null);
+    permissionError = $state<string | null>(null),
+    actionError = $state<string | null>(null);
   let checking = $state(false),
     requesting = $state(false),
     mounted = false,
     revision = 0;
-  async function check(request = false) {
-    if (!mounted || checking) return;
+  async function check() {
+    if (!mounted || checking || requesting) return;
     const current = ++revision;
     checking = true;
-    requesting = request;
-    error = null;
+    permissionError = null;
     try {
       const result = isTauri()
-        ? await (request
-            ? requestMicrophonePermission()
-            : getMicrophonePermission())
+        ? await getMicrophonePermission()
         : "unsupported";
       if (mounted && current === revision) status = result;
     } catch {
       if (mounted && current === revision) {
         status = null;
-        error =
+        permissionError =
           "Die Mikrofonfreigabe konnte nicht geprüft werden. Versuche es erneut.";
       }
     } finally {
       if (mounted && current === revision) {
         checking = false;
+      }
+    }
+  }
+  async function request() {
+    if (!mounted || checking || requesting || status !== "notDetermined")
+      return;
+    requesting = true;
+    actionError = null;
+    let requestFailed = false;
+    try {
+      await requestMicrophonePermission();
+    } catch {
+      requestFailed = true;
+    } finally {
+      if (mounted) {
         requesting = false;
+        await check();
+        if (requestFailed && !permissionError)
+          actionError =
+            "Die Mikrofonfreigabe konnte nicht angefordert werden. Prüfe die Freigabe erneut oder öffne die Systemeinstellungen.";
       }
     }
   }
   async function open() {
+    actionError = null;
     try {
       await openMicrophoneSettings();
     } catch {
       if (mounted)
-        error =
-          "Öffne Systemeinstellungen → Datenschutz → Mikrofon und erlaube Ruf den Zugriff.";
+        actionError =
+          "Die Systemeinstellungen konnten nicht geöffnet werden. Öffne dort den Bereich Datenschutz & Sicherheit → Mikrofon manuell.";
     }
   }
   onMount(() => {
@@ -79,12 +97,15 @@
   {status}
   {checking}
   working={requesting}
-  {error}
+  error={permissionError}
   requestLabel="Mikrofon erlauben"
   oncheck={() => void check()}
-  onrequest={() => void check(true)}
+  onrequest={() => void request()}
   onopen={isTauri() ? () => void open() : undefined}
 />
+{#if actionError}<p class="settings-feedback error" role="alert">
+    {actionError}
+  </p>{/if}
 <p class="settings-footnote">
   Das Öffnen dieser Seite startet keine Mikrofonaufnahme. Zugriff wird nur bei
   einem Gespräch oder einem ausdrücklich gestarteten Mikrofontest verwendet.

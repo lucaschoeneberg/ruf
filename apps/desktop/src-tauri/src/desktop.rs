@@ -3,6 +3,7 @@ use crate::{phone::PhoneSession, store};
 use phone_core::{DesktopSettings, ErrorCode, NotificationPermission, PhoneError};
 use std::path::Path;
 use tauri::Manager;
+#[cfg(not(feature = "app-store"))]
 use tauri_plugin_autostart::ManagerExt;
 
 static PREFERENCES_UPDATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -26,6 +27,16 @@ pub(crate) fn with_session<T>(
 /// background/notification activation stays hidden; manual open stays visible.
 /// A failed metadata read conservatively keeps an automatic login launch hidden.
 pub(crate) fn start_hidden(app: &tauri::AppHandle, args: &[String]) -> bool {
+    #[cfg(all(target_os = "macos", feature = "app-store"))]
+    let login_args = if baresip_adapter::launched_as_login_item() {
+        let mut args = args.to_vec();
+        args.push("--autostart".to_owned());
+        Some(args)
+    } else {
+        None
+    };
+    #[cfg(all(target_os = "macos", feature = "app-store"))]
+    let args = login_args.as_deref().unwrap_or(args);
     start_hidden_with(args, || {
         let path = store::data_directory(app)?.join("accounts.json");
         store::AccountStore { path }
@@ -96,8 +107,7 @@ pub(crate) fn settings(app: &tauri::AppHandle) -> Result<DesktopSettings, PhoneE
     let notification_permission = crate::call_notifications::permission(false)?;
     crate::call_notifications::authorization_observed(app, notification_permission);
     Ok(DesktopSettings {
-        autostart_enabled: available
-            && app.autolaunch().is_enabled().map_err(|_| desktop_error())?,
+        autostart_enabled: available && autostart_enabled(app)?,
         autostart_available: available,
         notifications_enabled: preferences.notifications_enabled,
         notification_permission,
@@ -125,7 +135,7 @@ pub(crate) fn save_settings(
     let mut preferences = with_session(app, |session| Ok(session.desktop_preferences()))?;
     // Saving the app preference never requests OS authorization. The dedicated
     // notification-permission command owns that explicit foreground action.
-    let previous = available && app.autolaunch().is_enabled().map_err(|_| desktop_error())?;
+    let previous = available && autostart_enabled(app)?;
     if available {
         set_autostart(app, autostart)?;
         preferences.autostart_configured = true;
@@ -141,12 +151,32 @@ pub(crate) fn save_settings(
 }
 
 fn set_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), PhoneError> {
-    if enabled {
-        app.autolaunch().enable()
-    } else {
-        app.autolaunch().disable()
+    #[cfg(all(target_os = "macos", feature = "app-store"))]
+    {
+        let _ = app;
+        baresip_adapter::set_login_item_enabled(enabled)
     }
-    .map_err(|_| desktop_error())
+    #[cfg(not(feature = "app-store"))]
+    {
+        if enabled {
+            app.autolaunch().enable()
+        } else {
+            app.autolaunch().disable()
+        }
+        .map_err(|_| desktop_error())
+    }
+}
+
+fn autostart_enabled(app: &tauri::AppHandle) -> Result<bool, PhoneError> {
+    #[cfg(all(target_os = "macos", feature = "app-store"))]
+    {
+        let _ = app;
+        baresip_adapter::login_item_enabled()
+    }
+    #[cfg(not(feature = "app-store"))]
+    {
+        app.autolaunch().is_enabled().map_err(|_| desktop_error())
+    }
 }
 
 fn try_preferences_update(
@@ -183,7 +213,7 @@ pub(crate) fn refresh_configured_login_entry(app: &tauri::AppHandle) -> Result<(
         .autostart_configured;
         refresh_configured_login_entry_with(
             configured,
-            || app.autolaunch().is_enabled().map_err(|_| desktop_error()),
+            || autostart_enabled(app),
             || set_autostart(app, true),
         )
     })
@@ -206,7 +236,7 @@ fn configure_login(app: &tauri::AppHandle) -> Result<(), PhoneError> {
         return Ok(());
     }
     let mut preferences = with_session(app, |session| Ok(session.desktop_preferences()))?;
-    let previous = app.autolaunch().is_enabled().map_err(|_| desktop_error())?;
+    let previous = autostart_enabled(app)?;
     if preferences.autostart_configured {
         return refresh_enabled_login_entry(previous, || set_autostart(app, true));
     }

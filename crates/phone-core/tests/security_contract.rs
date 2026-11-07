@@ -34,6 +34,78 @@ fn security_policy_and_optional_fields_reject_downgrade_and_injection() {
 }
 
 #[test]
+fn registrar_and_proxy_share_host_port_boundaries() {
+    let maximum_host = [
+        "a".repeat(63),
+        "b".repeat(63),
+        "c".repeat(63),
+        "d".repeat(61),
+    ]
+    .join(".");
+    let too_long_label = format!("{}.example", "a".repeat(64));
+    let too_long_address = format!("{maximum_host}:65535");
+    for (server, valid) in [
+        ("localhost", true),
+        ("127.0.0.1:1", true),
+        ("proxy.example:65535", true),
+        (maximum_host.as_str(), true),
+        ("", false),
+        ("proxy..example", false),
+        ("-proxy.example", false),
+        ("proxy-.example", false),
+        ("proxy.example:", false),
+        ("proxy.example:0", false),
+        ("proxy.example:65536", false),
+        ("proxy.example:+5061", false),
+        ("proxy.example:5061:5062", false),
+        ("sip:proxy.example", false),
+        ("proxy.example;transport=tls", false),
+        (too_long_label.as_str(), false),
+        (too_long_address.as_str(), false),
+    ] {
+        for field in ["registrar", "outboundProxy"] {
+            let mut data = input();
+            data[field] = server.into();
+            let account: AccountConfig = serde_json::from_value(data).unwrap();
+            assert_eq!(account.validate().is_ok(), valid, "{field}: {server:?}");
+        }
+    }
+}
+
+#[test]
+fn account_validation_preserves_first_error_and_password_boundaries() {
+    let mut account: AccountConfig = serde_json::from_value(input()).unwrap();
+    account.password.clear();
+    account.outbound_proxy = Some("proxy.example:0".into());
+    assert!(
+        account
+            .validate()
+            .unwrap_err()
+            .message
+            .starts_with("Invalid account fields")
+    );
+    account.auth_username = Some("invalid;user".into());
+    assert!(
+        account
+            .validate()
+            .unwrap_err()
+            .message
+            .starts_with("Authentication username")
+    );
+    account.auth_username = None;
+    account.outbound_proxy = Some("proxy.example:5061".into());
+    for (password, valid) in [
+        (String::new(), false),
+        ("x".repeat(1024), true),
+        ("x".repeat(1025), false),
+        ("null\0byte".into(), false),
+    ] {
+        account.password = password;
+        assert_eq!(account.validate().is_ok(), valid);
+    }
+}
+
+#[test]
 fn legacy_json_defaults_and_unknown_observation_are_safe() {
     let account: AccountConfig = serde_json::from_value(
         serde_json::json!({"registrar":"localhost","username":"alice","password":"synthetic"}),

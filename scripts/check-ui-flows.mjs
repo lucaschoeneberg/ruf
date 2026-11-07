@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installDialogFixtures } from "../tests/ui/browser/dialog-fixtures.mjs";
 import callControls from "../tests/ui/browser/call-controls.mjs";
+import shortcuts from "../tests/ui/browser/shortcuts.mjs";
+import globalSearch from "../tests/ui/browser/global-search.mjs";
 import dialerIdentity from "../tests/ui/browser/dialer-identity.mjs";
 import phone from "../tests/ui/browser/phone.mjs";
 import settings from "../tests/ui/browser/settings.mjs";
@@ -135,6 +137,8 @@ try {
     ["history", history],
     ["phone", phone],
     ["call-controls", callControls],
+    ["shortcuts", shortcuts],
+    ["global-search", globalSearch],
     ["dialer-identity", dialerIdentity],
     ["settings", settings],
     ["layout", layout],

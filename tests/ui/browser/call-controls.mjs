@@ -108,6 +108,15 @@ export default async function callControls(page, baseUrl, capture = false) {
               payload: structuredClone(state),
             });
       },
+      request(action, payload = null) {
+        for (const [key, listener] of listeners)
+          if (listener.event === `phone-${action}-requested`)
+            callbacks.get(listener.handler)?.({
+              id: key,
+              event: listener.event,
+              payload,
+            });
+      },
       contactsChanged() {
         for (const [key, listener] of listeners)
           if (listener.event === "contacts-changed")
@@ -162,6 +171,13 @@ export default async function callControls(page, baseUrl, capture = false) {
           state.revision++;
           return structuredClone(state);
         }
+        if (command === "get_history")
+          return {
+            entries: [],
+            total: 0,
+            hasMore: false,
+            recordingError: null,
+          };
         if (command === "get_preferences")
           return {
             startHidden: true,
@@ -283,6 +299,93 @@ export default async function callControls(page, baseUrl, capture = false) {
   await target.setViewportSize({ width: 340, height: 500 });
   await target.goto(baseUrl);
   await target.getByRole("heading", { name: "9002", exact: true }).waitFor();
+  await target.evaluate(() => window.__controls.request("mute", "old-call"));
+  assert(
+    !(await command("set_call_muted")),
+    "Stale menu token cannot mute the current call",
+  );
+  await target.evaluate(() => window.__controls.request("transfer", "parent"));
+  await target.getByLabel("Zielnummer", { exact: true }).waitFor();
+  assert(
+    await target
+      .getByLabel("Zielnummer", { exact: true })
+      .evaluate((el) => el === document.activeElement),
+    "Transfer shortcut focuses destination",
+  );
+  await target
+    .getByRole("button", { name: "Vermittlungsziel schließen", exact: true })
+    .click();
+  await emit({ holdPending: true });
+  await target.evaluate(() => window.__controls.request("hold", "parent"));
+  assert(
+    !(await command("set_call_held")),
+    "Menu respects native hold recovery",
+  );
+  await emit({ holdPending: false });
+  await target.evaluate(() => {
+    window.__controls.contactsPermission = "authorized";
+    window.__controls.request("find");
+  });
+  await target.locator(".contact-search input").waitFor();
+  await target.waitForFunction(
+    () =>
+      document.querySelector(".contact-search input") ===
+      document.activeElement,
+  );
+  await target.evaluate(() => {
+    window.__controls.request("dialer");
+    window.__controls.contactsPermission = "notDetermined";
+    window.__controls.contactsChanged();
+  });
+  // Search and shortcuts must share the visible controls' native-state guards.
+  const searchButton = target.getByRole("button", {
+    name: "Ruf durchsuchen",
+    exact: true,
+  });
+  await searchButton.click();
+  const search = target.getByRole("dialog", {
+    name: "Ruf durchsuchen",
+  });
+  if (capture)
+    await target.screenshot({ path: "output/playwright/actions-340.png" });
+  await target.setViewportSize({ width: 320, height: 440 });
+  assert(
+    !(await target.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    )),
+    "Compact search has no horizontal overflow",
+  );
+  await search.getByRole("combobox").fill("xyz-unbekannt");
+  await search.getByText(/Keine passenden Treffer/).waitFor();
+  await search.getByRole("combobox").press("ArrowDown");
+  await search.getByRole("combobox").press("Enter");
+  assert(await search.isVisible(), "No-match Enter keeps search open");
+  await search.getByRole("combobox").fill("mikrofon");
+  await search.getByRole("combobox").press("Enter");
+  assert(
+    (await command("set_call_muted")).args.callId === "parent",
+    "Search uses selected call token",
+  );
+  await target
+    .getByText("Stummschaltung wird bestätigt …", { exact: true })
+    .waitFor();
+  await searchButton.click();
+  await search.getByRole("combobox").fill("mikrofon");
+  assert(
+    (await search.getByRole("option").first().getAttribute("aria-disabled")) ===
+      "true",
+    "Search honors pending mute",
+  );
+  await search.getByRole("combobox").press("Escape");
+  assert(
+    await searchButton.evaluate((el) => el === document.activeElement),
+    "Escape restores focus",
+  );
+  await emit({ muted: true });
+  await emit({ muted: false });
+  await target.evaluate(() => {
+    window.__controls.commands = [];
+  });
   assert(
     await target
       .getByText("Sicherheit noch nicht bestätigt", { exact: true })

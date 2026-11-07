@@ -54,6 +54,14 @@ const baresipSecurityPatch = readFileSync(
   join(root, "native/patches/baresip-security.patch"),
   "utf8",
 );
+const reReliabilityPatch = readFileSync(
+  join(root, "native/patches/re-reliability.patch"),
+  "utf8",
+);
+const baresipReliabilityPatch = readFileSync(
+  join(root, "native/patches/baresip-reliability.patch"),
+  "utf8",
+);
 const stageFile = (source, destination) => {
   if (resolve(source) === resolve(destination)) return;
   rmSync(destination, { force: true });
@@ -111,6 +119,11 @@ run(
   patchedRe,
 );
 const patchedBaresip = join(build, "baresip-patched");
+run(
+  "git",
+  ["apply", join(root, "native/patches/re-reliability.patch")],
+  patchedRe,
+);
 rmSync(patchedBaresip, { recursive: true, force: true });
 cpSync(join(sources, "baresip"), patchedBaresip, {
   recursive: true,
@@ -132,6 +145,11 @@ run(
   patchedBaresip,
 );
 let openssl = process.env.OPENSSL_ROOT_DIR;
+run(
+  "git",
+  ["apply", join(root, "native/patches/baresip-reliability.patch")],
+  patchedBaresip,
+);
 if (!openssl && process.platform === "darwin")
   openssl = output("brew", ["--prefix", "openssl@3"]);
 if (windows && !openssl) {
@@ -305,6 +323,8 @@ writeFileSync(
         baresipCallControls: baresipControlsPatch,
         reSecurity: reSecurityPatch,
         baresipSecurity: baresipSecurityPatch,
+        reReliability: reReliabilityPatch,
+        baresipReliability: baresipReliabilityPatch,
       },
       modules,
       openssl: { prefix: openssl ?? "system", version: resolved.version },

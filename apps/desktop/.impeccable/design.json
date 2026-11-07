@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-04T23:20:18.341616+00:00",
+  "generatedAt": "2026-11-06T08:46:02.019070+00:00",
   "title": "Design System: Ruf Desktop",
   "extensions": {
     "colorMeta": {
@@ -379,6 +379,10 @@
       "key-letters": {
         "displayName": "Key Letters",
         "purpose": "Telephone letter annotations."
+      },
+      "call-timer-compact": {
+        "displayName": "Compact Call Timer",
+        "purpose": "Compact call duration with tabular numerals."
       }
     },
     "shadows": [],
@@ -481,7 +485,7 @@
       "name": "Settings navigation",
       "kind": "nav",
       "description": "Quiet selected section on the shared near-black panel.",
-      "html": "<nav class=\"ds-settings-nav\" aria-label=\"Bereiche\"><button aria-current=\"page\">SIP-Konten<span>2</span></button><button>Ton</button><button>Über SIP</button></nav>",
+      "html": "<nav class=\"ds-settings-nav\" aria-label=\"Bereiche\"><button aria-current=\"page\">SIP-Konten<span>2</span></button><button>Ton</button><button>Über Ruf</button></nav>",
       "css": ".ds-settings-nav{display:grid;gap:0;background:var(--surface-panel);padding:10px}.ds-settings-nav button{font-family:\"SIP UI\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;line-height:1.4;cursor:pointer;transition:background-color 140ms ease,color 140ms ease,border-color 140ms ease;display:flex;align-items:center;gap:8px;min-height:28px;padding:4px 8px;border:0;border-radius:var(--radius);background:transparent;color:var(--text-secondary);text-align:left;font-size:14px}.ds-settings-nav button:hover{background:var(--surface-hover)}.ds-settings-nav button[aria-current]{background:var(--surface-hover);color:var(--text)}.ds-settings-nav span{margin-left:auto;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.ds-settings-nav button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}@media(prefers-reduced-motion:reduce){[class^=\"ds-\"]{transition:none!important;animation:none!important}}",
       "refersTo": "settings-navigation-selected"
     },
@@ -527,7 +531,7 @@
     "donts": [
       "Don't introduce a separate settings palette or font stack.",
       "Don't populate contacts or history before their data exists.",
-      "Don't add unsupported call controls such as mute, hold or transfer.",
+      "Don't show confirmed call security or control outcomes from configured preferences or queue acceptance.",
       "Don't replace native window controls or expand the utility into a dashboard."
     ]
   }

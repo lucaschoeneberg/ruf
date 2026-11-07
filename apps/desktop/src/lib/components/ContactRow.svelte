@@ -45,10 +45,10 @@
   async function openSource() {
     actionError = null;
     try {
-      await openContactsApp();
+      await openContactsApp(contact.id);
     } catch {
       actionError =
-        "Kontakte konnte nicht geöffnet werden. Öffne die macOS-App Kontakte manuell.";
+        "Der Kontakt konnte nicht geöffnet werden. Öffne die macOS-App Kontakte manuell.";
     }
   }
 </script>

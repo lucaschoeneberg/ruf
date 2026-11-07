@@ -1,0 +1,299 @@
+diff --git a/src/call.c b/src/call.c
+index e09bcb9..0aa7043 100644
+--- a/src/call.c
++++ b/src/call.c
+@@ -24,6 +24,8 @@
+ 
+ /** SIP Call Control object */
+ struct call {
++	struct mbuf *accepted_sdp;
++	bool accepted_sdp_offer;
+ 	call_control_h *controlh;
+ 	void *control_arg;
+ 	bool control_hold_pending, control_hold_previous, control_hold_expired;
+@@ -355,6 +357,7 @@ static void call_destructor(void *arg)
+ 	tmr_cancel(&call->tmr_answ);
+ 	tmr_cancel(&call->tmr_reinv);
+ 
++	mem_deref(call->accepted_sdp);
+ 	mem_deref(call->tls_verified_host);
+ 	mem_deref(call->sess);
+ 	mem_deref(call->id);
+@@ -1482,7 +1485,8 @@ static void control_hold_result(int err, uint16_t status, void *arg)
+ {
+ 	struct call *call = arg;
+ 	if (!call->control_hold_pending) return;
+-	bool expired = call->control_hold_expired;
++	bool accepted_invalid = err && status >= 200 && status < 300;
++	bool expired = call->control_hold_expired || accepted_invalid;
+ 	call->control_hold_pending = false;
+ 	call->control_hold_expired = false;
+ 	sipsess_set_modify_result_handler(call->sess, NULL);
+@@ -1498,8 +1502,8 @@ static void control_hold_result(int err, uint16_t status, void *arg)
+ 		}
+ 	}
+ 	if (call->controlh)
+-		call->controlh(call, expired && !err && status >= 200 && status < 300 ? 4 : 1,
+-		 err ? 0 : status, call->control_arg);
++		call->controlh(call, expired && status >= 200 && status < 300 ? 4 : 1,
++		 accepted_invalid ? 1 : err ? 0 : status, call->control_arg);
+ }
+ 
+ void call_set_control_handler(struct call *call, call_control_h *handler, void *arg)
+@@ -2006,6 +2010,33 @@ static void observe_tls(struct call *call, const struct sip_msg *msg)
+     mem_deref(call->tls_verified_host); call->tls_verified_host = copy;
+ }
+ 
++/* Decode into the existing session, retaining the last accepted wire description.
++ * Decoder failure must not leave partially replaced remote formats/directions. */
++static int decode_remote_sdp(struct call *call, struct mbuf *body, bool offer)
++{
++	struct mbuf *copy = mbuf_alloc(mbuf_get_left(body));
++	int err;
++	if (!copy) return ENOMEM;
++	err = mbuf_write_mem(copy, mbuf_buf(body), mbuf_get_left(body));
++	if (err) { mem_deref(copy); return err; }
++	copy->pos = 0;
++	err = sdp_decode(call->sdp, body, offer);
++	if (err) {
++		if (call->accepted_sdp && sdp_decode(call->sdp,
++		    call->accepted_sdp, call->accepted_sdp_offer))
++			sipsess_fail_deferred(call->sess, EPROTO);
++		mem_deref(copy);
++		return err;
++	}
++	mem_deref(call->accepted_sdp);
++	call->accepted_sdp = copy;
++	call->accepted_sdp_offer = offer;
++	return 0;
++}
++
++static bool have_common_audio_codecs(const struct call *call);
++static bool have_common_video_codecs(const struct call *call);
++
+ static int sipsess_offer_handler(struct mbuf **descp,
+ 				 const struct sip_msg *msg, void *arg)
+ {
+@@ -2024,23 +2055,34 @@ static int sipsess_offer_handler(struct mbuf **descp,
+ 		const enum sdp_dir old_rdir = sdp_media_rdir(m);
+ 		call->got_offer = true;
+ 
+-		/* Decode SDP Offer */
+-		err = sdp_decode(call->sdp, msg->mb, true);
++		/* Parsing and offer acceptance must preserve the prior session on error. */
++		struct mbuf *previous = mem_ref(call->accepted_sdp);
++		bool previous_offer = call->accepted_sdp_offer;
++		err = decode_remote_sdp(call, msg->mb, true);
+ 		if (err) {
+ 			warning("call: reinvite: could not decode SDP offer:"
+ 				" %m\n", err);
++			mem_deref(previous);
+ 			return err;
+ 		}
+ 
+-		if (detect_hold_resume(&hold_ev, call, old_rdir, true))
+-			bevent_call_emit(hold_ev, call, "");
+-
++		/* Media security validation takes precedence over codec rejection. */
+ 		err = update_media(call);
++		if (!err && !have_common_audio_codecs(call) && !have_common_video_codecs(call))
++			err = ENOTSUP;
+ 		if (err) {
+-			warning("call: reinvite - update media failed/rejected"
+-				" (%m)\n", err);
++			/* Mandatory crypto failures remain fatal, never restore a cleared key. */
++			if (err != SIP_SECURITY_MEDIA && previous) {
++				int restore = decode_remote_sdp(call, previous, previous_offer);
++				if (!restore) restore = call_update_media(call);
++				if (restore) sipsess_fail_deferred(call->sess, restore);
++			}
++			mem_deref(previous);
+ 			return err;
+ 		}
++		mem_deref(previous);
++		if (detect_hold_resume(&hold_ev, call, old_rdir, true))
++			bevent_call_emit(hold_ev, call, "");
+ 	}
+ 
+ 	ardir = sdp_media_rdir(stream_sdpmedia(audio_strm(call_audio(call))));
+@@ -2087,24 +2129,34 @@ static int sipsess_answer_handler(const struct sip_msg *msg, void *arg)
+ 	if (msg_ctype_cmp(&msg->ctyp, "multipart", "mixed"))
+ 		(void)sdp_decode_multipart(&msg->ctyp.params, msg->mb);
+ 
+-	err = sdp_decode(call->sdp, msg->mb, false);
++	struct mbuf *previous = mem_ref(call->accepted_sdp);
++	bool previous_offer = call->accepted_sdp_offer;
++	err = decode_remote_sdp(call, msg->mb, false);
+ 	if (err) {
+ 		warning("call: could not decode SDP answer: %m\n", err);
++		mem_deref(previous);
+ 		return err;
+ 	}
+ 
+-	if (detect_hold_resume(&hold_ev, call, old_rdir, false))
+-		bevent_call_emit(hold_ev, call, "");
+-
+ 	/* note: before update_media */
+ 	if (call->config_avt.bundle) {
+ 		bundle_sdp_decode(call->sdp, &call->streaml);
+ 	}
+ 
++	/* Keep mandatory crypto validation ahead of recoverable codec rejection. */
+ 	err = update_media(call);
+-	if (err)
+-		return err;
++	if (!err && !have_common_audio_codecs(call) && !have_common_video_codecs(call))
++		err = ENOTSUP;
++	if (err && err != SIP_SECURITY_MEDIA && previous) {
++		int restore = decode_remote_sdp(call, previous, previous_offer);
++		if (!restore) restore = call_update_media(call);
++		if (restore) sipsess_fail_deferred(call->sess, restore);
++	}
++	mem_deref(previous);
++	if (err) return err;
+ 
++	if (detect_hold_resume(&hold_ev, call, old_rdir, false))
++		bevent_call_emit(hold_ev, call, "");
+ 	return 0;
+ }
+ 
+@@ -2237,18 +2289,27 @@ static void sipsess_info_handler(struct sip *sip, const struct sip_msg *msg,
+ 
+ 	if (msg_ctype_cmp(&msg->ctyp, "application", "dtmf-relay")) {
+ 
+-		struct pl body, sig, dur;
++		struct pl body, sig = PL_INIT, dur = PL_INIT;
+ 		int err;
+ 
+ 		pl_set_mbuf(&body, msg->mb);
+ 
+ 		err  = re_regex(body.p, body.l,
+-		       "Signal=[ ]*[0-9*#a-d]+", NULL, &sig);
++		       "Signal=[ ]*[^\r\n]+", NULL, &sig);
+ 		err |= re_regex(body.p, body.l,
+-		       "Duration=[ ]*[0-9]+", NULL, &dur);
+-
+-		if (err || !pl_isset(&sig) || sig.l == 0) {
+-			(void)sip_reply(sip, msg, 400, "Bad Request");
++		       "Duration=[ ]*[^\r\n]+", NULL, &dur);
++
++		while (sig.l && sig.p[sig.l - 1] == ' ') --sig.l;
++		while (dur.l && dur.p[dur.l - 1] == ' ') --dur.l;
++		bool valid_duration = dur.l > 0 && dur.l <= 4;
++		for (size_t i = 0; i < dur.l; ++i)
++			if (dur.p[i] < '0' || dur.p[i] > '9') valid_duration = false;
++		enum { DTMF_MAX_DURATION_MS = 5000 };
++		if (err || sig.l != 1 ||
++		    !sig.p[0] || !strchr("0123456789*#ABCD", toupper((unsigned char)sig.p[0])) ||
++		    !valid_duration || pl_u32(&dur) == 0 ||
++		    pl_u32(&dur) > DTMF_MAX_DURATION_MS) {
++			(void)sip_treply(NULL, sip, msg, 400, "Bad Request");
+ 		}
+ 		else {
+ 			char s = toupper(sig.p[0]);
+@@ -2257,7 +2318,7 @@ static void sipsess_info_handler(struct sip *sip, const struct sip_msg *msg,
+ 			info("call: received SIP INFO DTMF: '%c' "
+ 			     "(duration=%r)\n", s, &dur);
+ 
+-			(void)sip_reply(sip, msg, 200, "OK");
++			(void)sip_treply(NULL, sip, msg, 200, "OK");
+ 
+ 			if (call->dtmfh) {
+ 				tmr_start(&call->tmr_dtmf, duration,
+@@ -2267,10 +2328,10 @@ static void sipsess_info_handler(struct sip *sip, const struct sip_msg *msg,
+ 		}
+ 	}
+ 	else if (call_emit_sip_info(call, msg) || !mbuf_get_left(msg->mb)) {
+-		(void)sip_reply(sip, msg, 200, "OK");
++		(void)sip_treply(NULL, sip, msg, 200, "OK");
+ 	}
+ 	else {
+-		(void)sip_reply(sip, msg, 488, "Not Acceptable Here");
++		(void)sip_treply(NULL, sip, msg, 488, "Not Acceptable Here");
+ 	}
+ }
+ 
+@@ -2533,7 +2594,7 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
+ 
+ 	if (call->got_offer) {
+ 
+-		err = sdp_decode(call->sdp, msg->mb, true);
++		err = decode_remote_sdp(call, msg->mb, true);
+ 		if (err)
+ 			return err;
+ 
+@@ -2700,21 +2761,22 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
+ 	 */
+ 	if (msg_ctype_cmp(&msg->ctyp, "application", "sdp")
+ 	    && mbuf_get_left(msg->mb)
+-	    && !sdp_decode(call->sdp, msg->mb, false)) {
++	    && !decode_remote_sdp(call, msg->mb, false)) {
+ 		media = true;
+ 	}
+ 	else if (msg_ctype_cmp(&msg->ctyp, "multipart", "mixed") &&
+ 		 !sdp_decode_multipart(&msg->ctyp.params, msg->mb) &&
+-		 !sdp_decode(call->sdp, msg->mb, false)) {
++		 !decode_remote_sdp(call, msg->mb, false)) {
+ 		media = true;
+ 	}
+ 	else
+-		media = false;
++		media = call->state == CALL_STATE_EARLY && call->accepted_sdp &&
++			!mbuf_get_left(msg->mb);
+ 
+ 	switch (msg->scode) {
+ 
+ 	case 180:
+-		set_state(call, CALL_STATE_RINGING);
++		set_state(call, media ? CALL_STATE_EARLY : CALL_STATE_RINGING);
+ 		break;
+ 
+ 	case 183:
+@@ -3054,13 +3116,20 @@ static void sipsub_notify_handler(struct sip *sip, const struct sip_msg *msg,
+ 	struct pl scode, reason;
+ 	uint32_t sc;
+ 
++	if (!msg_ctype_cmp(&msg->ctyp, "message", "sipfrag")) {
++		(void)sip_treply(NULL, sip, msg, 415, "Unsupported Media Type");
++		return;
++	}
++
+ 	if (re_regex((char *)mbuf_buf(msg->mb), mbuf_get_left(msg->mb),
+-		     "SIP/2.0 [0-9]+ [^\r\n]+", &scode, &reason)) {
+-		(void)sip_reply(sip, msg, 400, "Bad sipfrag");
++		     "SIP/2.0 [0-9]+ [^\r\n]*\r\n", &scode, &reason) ||
++	    scode.p != (const char *)mbuf_buf(msg->mb) + 8 || scode.l != 3 ||
++	    scode.p[0] < '1' || scode.p[0] > '6') {
++		(void)sip_treply(NULL, sip, msg, 400, "Bad sipfrag");
+ 		return;
+ 	}
+ 
+-	(void)sip_reply(sip, msg, 200, "OK");
++	(void)sip_treply(NULL, sip, msg, 200, "OK");
+ 
+ 	sc = pl_u32(&scode);
+ 	if (call->controlh) {
+@@ -3096,6 +3165,8 @@ static void sipsub_close_handler(int err, const struct sip_msg *msg,
+ 	if (call->controlh && call->control_transfer && (err || (msg && msg->scode >= 300))) {
+ 		call->control_transfer = false;
+ 		call->controlh(call, 3, msg ? msg->scode : 0, call->control_arg);
++		/* The callback can release the last retained call reference. */
++		return;
+ 	}
+ 	if (call->controlh) return;
+ 	if (err) {
+@@ -3154,7 +3225,13 @@ int call_transfer(struct call *call, const char *uri)
+ 	if (!call || !uri)
+ 		return EINVAL;
+ 
+-	err = normalize_uri(&nuri, uri, &call->acc->luri);
++	struct pl target;
++	pl_set_str(&target, uri);
++	char *escaped = NULL;
++	err = re_sdprintf(&escaped, "%H", uri_user_escape, &target);
++	if (err) return err;
++	err = normalize_uri(&nuri, escaped, &call->acc->luri);
++	mem_deref(escaped);
+ 	if (err)
+ 		return err;
+ 

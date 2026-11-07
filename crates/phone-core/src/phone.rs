@@ -579,8 +579,40 @@ pub struct EngineSnapshot {
     pub audio_test_error: Option<PhoneError>,
 }
 
+fn valid_sip_server(value: &str) -> bool {
+    let mut parts = value.split(':');
+    let host = parts.next().unwrap_or_default();
+    let port = parts.next();
+    !host.is_empty()
+        && host.len() <= 253
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        })
+        && value.len() <= 255
+        && parts.next().is_none()
+        && port.is_none_or(|port| {
+            port.bytes().all(|byte| byte.is_ascii_digit())
+                && port.parse::<u16>().is_ok_and(|number| number > 0)
+        })
+}
+
+fn valid_sip_username(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_.+-".contains(&c))
+}
+
 impl AccountConfig {
-    /// Validate the deliberately restricted first-milestone account syntax.
+    /// Validate restricted account syntax, using the same host/port rules for
+    /// registrar and outbound proxy without copying credentials.
     pub fn validate(&self) -> Result<(), PhoneError> {
         let invalid = || {
             PhoneError::new(
@@ -588,36 +620,7 @@ impl AccountConfig {
                 "Invalid account fields: use a DNS/IPv4 registrar, optional port, and a simple SIP username.",
             )
         };
-        let mut parts = self.registrar.split(':');
-        let host = parts.next().unwrap_or_default();
-        let port = parts.next();
-        let valid_host = !host.is_empty()
-            && host.len() <= 253
-            && host.split('.').all(|label| {
-                !label.is_empty()
-                    && label.len() <= 63
-                    && !label.starts_with('-')
-                    && !label.ends_with('-')
-                    && label
-                        .bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || c == b'-')
-            });
-        if !valid_host
-            || self.registrar.len() > 255
-            || parts.next().is_some()
-            || port.is_some_and(|p| {
-                !p.bytes().all(|b| b.is_ascii_digit()) || p.parse::<u16>().map_or(true, |n| n == 0)
-            })
-        {
-            return Err(invalid());
-        }
-        if self.username.is_empty()
-            || self.username.len() > 80
-            || !self
-                .username
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b"_.+-".contains(&c))
-        {
+        if !valid_sip_server(&self.registrar) || !valid_sip_username(&self.username) {
             return Err(invalid());
         }
         if self.media_security == MediaSecurityPolicy::Required
@@ -629,25 +632,17 @@ impl AccountConfig {
             ));
         }
         if let Some(auth) = &self.auth_username
-            && (auth.is_empty()
-                || auth.len() > 80
-                || !auth
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || b"_.+-".contains(&c)))
+            && !valid_sip_username(auth)
         {
             return Err(PhoneError::new(
                 ErrorCode::InvalidInput,
                 "Authentication username must contain 1–80 simple SIP username bytes.",
             ));
         }
-        if let Some(proxy) = &self.outbound_proxy {
-            let check = Self {
-                registrar: proxy.clone(),
-                outbound_proxy: None,
-                auth_username: None,
-                ..self.clone()
-            };
-            check.validate()?;
+        if let Some(proxy) = &self.outbound_proxy
+            && !valid_sip_server(proxy)
+        {
+            return Err(invalid());
         }
         if self.password.is_empty() || self.password.len() > 1024 || self.password.contains('\0') {
             return Err(PhoneError::new(

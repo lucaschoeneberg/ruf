@@ -155,9 +155,9 @@
     <p>
       G.711 mit SIP über UDP, TCP oder geprüftes TLS; erforderliches SRTP
       benötigt TLS. UDP/TCP und normales RTP sind unverschlüsselt. Eine
-      Rückfrage erlaubt zwei zugehörige Dialoge mit einem hörbaren Gespräch.
-      Nutze diese Vorschau im isolierten Testnetz; Anbieter- und Plattformtests
-      bleiben erforderlich.
+      Rückfrage erlaubt dir, zwischen beiden Gesprächen zu wechseln. Dabei ist
+      nur ein Gespräch hörbar. Nutze diese Vorschau im isolierten Testnetz;
+      Anbieter- und Plattformtests bleiben erforderlich.
     </p>
   </div>
 </div>

@@ -39,9 +39,17 @@ bounds in [diagnostics](diagnostics.md); persisted fields/retention in
 [preferences](preferences.md); acknowledged account activation in
 [account activation](account-activation.md).
 
-Ruf-owned login entries now use `--autostart`. Initial and single-instance login
-launches read only local `startHidden` metadata; failure conservatively keeps the
+Ordinary Ruf-owned login entries use `--autostart`. The macOS `app-store` build
+uses `SMAppService.mainApp` and recognizes the system login-item Apple event
+during initial main-thread setup instead of supplying command-line arguments.
+Only native Enabled is reported as `autostartEnabled: true`; requiresApproval
+remains false and an enable attempt returns `nativeFailure` until the user changes
+the OS decision. The Store path never writes LaunchAgents, silently opens System
+Settings or re-registers an approval-required item. See [desktop API](README.md).
+Initial and single-instance login launches read only local `startHidden`
+metadata; failure conservatively keeps the
 phone hidden. Manual opens show it. Explicit `--background` and notification
-activation remain hidden. Existing configured enabled login entries are refreshed
-to current arguments; configured disabled entries remain disabled. Startup
+activation remain hidden. Ordinary configured enabled login entries are refreshed
+to current arguments; an enabled Store main-app service is unchanged. Configured
+disabled entries remain disabled. Startup
 presentation never requests permission or credentials.

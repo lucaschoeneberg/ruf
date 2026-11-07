@@ -413,7 +413,9 @@ fn established_rekey_failure(mode: &str) {
                 .unwrap();
             format!("RX_TRANSACTION|ACK|{wire_id}|{sequence} ACK")
         }
-        "rekey-offer" => format!("RX_TRANSACTION|SIP/2.0 488|{wire_id}|999 INVITE"),
+        "rekey-offer" | "rekey-codec" | "rekey-proto" => {
+            format!("RX_TRANSACTION|SIP/2.0 488|{wire_id}|999 INVITE")
+        }
         _ => format!("REKEY_ACK_SENT|{wire_id}|999 ACK"),
     };
     assert!(
@@ -447,4 +449,14 @@ fn established_remote_rekey_offer_failure_is_terminal_and_owned() {
 #[test]
 fn established_remote_rekey_ack_failure_is_terminal_and_owned() {
     established_rekey_failure("rekey-ack");
+}
+
+#[test]
+fn invalid_crypto_with_incompatible_codec_remains_fatal() {
+    established_rekey_failure("rekey-codec");
+}
+
+#[test]
+fn unsupported_media_transport_remains_fatal() {
+    established_rekey_failure("rekey-proto");
 }

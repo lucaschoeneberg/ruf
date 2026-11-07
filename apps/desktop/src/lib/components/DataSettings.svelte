@@ -87,8 +87,8 @@
     <div class="setting-description">
       <label for="history-recording">Verlauf speichern</label>
       <p>
-        Änderungen gelten für künftige Anrufe. Bereits gespeicherte Einträge
-        bleiben erhalten.
+        Speichert Nummer, Zeitpunkt und Dauer künftiger Anrufe, kein Audio.
+        Bereits gespeicherte Einträge bleiben erhalten.
       </p>
     </div>
     <input
@@ -158,7 +158,7 @@
   Kontakte noch Konten.
 </p>
 {#if confirmClear}<div class="settings-feedback">
-    <p>Alle abgeschlossenen Einträge unwiderruflich löschen?</p>
+    <p>Alle abgeschlossenen Anrufe aus dem Verlauf unwiderruflich löschen?</p>
     <div class="settings-actions">
       <button
         type="button"

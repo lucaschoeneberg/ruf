@@ -111,7 +111,11 @@ synchronously in native lifecycle order. The desktop observer only queues them;
 it never performs database or UI work under the engine mutex. Observation IDs
 are process-unique across engine recreation and independent of persistent history
 IDs. Busy additional incoming offers have their own lifecycle without replacing
-the occupied call's snapshot. Account facts use the effective native identity
+the occupied call's snapshot. This includes a third incoming INVITE rejected
+before native call allocation while an original and consultation occupy both
+dialogs. The existing server transaction absorbs retransmissions; the rejected
+offer records one independent busy lifecycle, with the same caller privacy and
+UTF-8 bounds. Account facts use the effective native identity
 until a queued replacement is acknowledged. Native operation errno values are
 separate from SIP response codes. Local reject/cancel intent is recorded only
 when the native generation-guarded action was accepted. Observer panics are
