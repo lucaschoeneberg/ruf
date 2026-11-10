@@ -229,7 +229,10 @@ export default async function localizationRegressions(
             listeners.delete(Number(args.id));
             return;
           }
-          return window.__rufLocaleFixture.invoke(command, args);
+          const result = await window.__rufLocaleFixture.invoke(command, args);
+          return command === "get_engine_snapshot"
+            ? window.__rufTestSyncDialogs(result as FixtureSnapshot)
+            : result;
         },
       };
       window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
@@ -352,6 +355,18 @@ export default async function localizationRegressions(
       window.__rufLocaleFixture.rememberedPeer =
         document.querySelector(".call-peer");
     });
+    // Exercise a poll explicitly: fast local runs must not hide inconsistent
+    // fixture reads between the active-call event and a language save.
+    const pollCall = () =>
+      main.evaluate(async () => {
+        const value = (await window.__TAURI_INTERNALS__.invoke(
+          "get_engine_snapshot",
+          {},
+        )) as FixtureSnapshot;
+        window.__rufLocaleFixture.emit("phone-state-changed", value);
+        return value.calls?.some((call) => call.id === value.callId) ?? false;
+      });
+    assert(await pollCall(), "Polling lost the active call fixture");
     await settings.getByLabel("Sprache", { exact: true }).selectOption("en");
     holdSave = true;
     saveStarted = false;
@@ -371,6 +386,7 @@ export default async function localizationRegressions(
       ),
     );
     await settings.getByText("Settings saved.", { exact: true }).waitFor();
+    assert(await pollCall(), "Polling lost the active call after localization");
     assert(
       (await draft.inputValue()) === "Entwurf <unverändert>",
       "Locale event reset an account draft",
