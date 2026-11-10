@@ -1690,35 +1690,79 @@ fn stream_tone_until(
     mut ready: impl FnMut() -> bool,
 ) -> bool {
     let deadline = Instant::now() + TIMEOUT;
-    let mut next = Instant::now();
-    let mut packets = 0;
-    while Instant::now() < deadline {
-        let sent = Instant::now();
-        let mut packet = vec![0x80, 0];
-        packet.extend_from_slice(&sequence.to_be_bytes());
-        packet.extend_from_slice(&(u32::from(*sequence) * 160).to_be_bytes());
-        packet.extend_from_slice(&1234_u32.to_be_bytes());
-        packet.extend((0..160).map(|i| {
-            if i % (half_period * 2) < half_period {
-                0x9c
-            } else {
-                0x1c
+    let stopped = std::sync::atomic::AtomicBool::new(false);
+    thread::scope(|scope| {
+        let stopped = &stopped;
+        let sender = scope.spawn(move || {
+            let mut next = Instant::now();
+            while Instant::now() < deadline && !stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                let sent = Instant::now();
+                let mut packet = vec![0x80, 0];
+                packet.extend_from_slice(&sequence.to_be_bytes());
+                packet.extend_from_slice(&(u32::from(*sequence) * 160).to_be_bytes());
+                packet.extend_from_slice(&1234_u32.to_be_bytes());
+                packet.extend((0..160).map(|i| {
+                    if i % (half_period * 2) < half_period {
+                        0x9c
+                    } else {
+                        0x1c
+                    }
+                }));
+                rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
+                *sequence = sequence.wrapping_add(1);
+                next += Duration::from_millis(20);
+                // A delayed runner must not inject a catch-up burst.
+                if next <= sent {
+                    next = sent + Duration::from_millis(20);
+                }
+                thread::sleep(next.saturating_duration_since(Instant::now()));
             }
-        }));
-        rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
-        *sequence = sequence.wrapping_add(1);
-        packets += 1;
-        if packets % 10 == 0 && ready() {
-            return true;
+        });
+        // File I/O and PCM analysis must never delay the RTP sender.
+        let found = loop {
+            if ready() {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            thread::sleep(Duration::from_millis(50));
+        };
+        stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+        sender.join().expect("test RTP sender failed");
+        found
+    })
+}
+
+#[test]
+fn pcm_stream_keeps_sending_while_pcm_is_checked() {
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    receiver.set_read_timeout(Some(TIMEOUT)).unwrap();
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let mut sequence = 0;
+    assert!(stream_tone_until(
+        &sender,
+        receiver.local_addr().unwrap().port(),
+        &mut sequence,
+        8,
+        || {
+            let mut packet = [0; 172];
+            receiver.set_nonblocking(true).unwrap();
+            loop {
+                match receiver.recv(&mut packet) {
+                    Ok(_) => {}
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                    Err(error) => panic!("could not drain test RTP: {error}"),
+                }
+            }
+            receiver.set_nonblocking(false).unwrap();
+            // These packets must be sent while this check is still running.
+            for _ in 0..3 {
+                assert_eq!(receiver.recv(&mut packet).unwrap(), packet.len());
+            }
+            true
         }
-        next += Duration::from_millis(20);
-        // A delayed runner must not inject a catch-up burst into the jitter buffer.
-        if next <= sent {
-            next = sent + Duration::from_millis(20);
-        }
-        thread::sleep(next.saturating_duration_since(Instant::now()));
-    }
-    ready()
+    ));
 }
 
 fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {

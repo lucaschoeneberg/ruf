@@ -34,6 +34,17 @@ permission checks run against the finished bundle before uploading the DMG.
 DMG-only packaging removes its temporary app and cannot support those checks.
 Desktop jobs allow 60 minutes: the first complete cold Windows run took almost
 45 minutes, including native SDK compilation, tests, packaging and cache upload.
+This is a cold-build budget. The installed native SDK is cached separately with
+an exact compiler/image/input key and saved immediately after qualification.
+Cache hits reuse the existing manifest/archive checks and rerun its two NAT
+regressions; application compilation and tests remain unconditional. Rust
+dependency caches are also saved after failed non-PR runs so a later test failure
+does not force the same dependency compilation again.
+
+Native test execution builds once and runs the existing NAT, SIP-event and
+remaining tests in separate processes through `bun run test:native`. Linux uses
+`--adapter`. All partitions must pass; workspace integration/doc tests remain in
+the remaining partition, and the Asterisk job still runs its opt-in scenarios.
 
 Native workspace tests use the job's temporary directory. On failure, the
 desktop jobs retain only the three explicitly named early-media/refused-hold

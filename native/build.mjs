@@ -263,6 +263,12 @@ run(
   windows ? ["test_sip_nat_registration"] : ["-r", "test_sip_nat_registration"],
   patchedRe,
 );
+// Keep the same SDK regression executable available after a CI cache restore.
+mkdirSync(join(prefix, "test"), { recursive: true });
+stageFile(
+  join(reBuild, "test", windows ? "Release/retest.exe" : "retest"),
+  join(prefix, "test", windows ? "retest.exe" : "retest"),
+);
 
 const modules = ["g711", "auconv", "auresamp", "ausine", "aufile", "srtp"];
 if (process.platform === "darwin") modules.push("coreaudio");

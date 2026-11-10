@@ -63,6 +63,15 @@ For native changes, also run workspace Clippy/tests with
 `bun run desktop:build --features native`. Test-tone mode needs no audio
 hardware; microphone/speaker and Windows runtime require separate platform tests.
 
+`bun run test:native` builds the native workspace tests once, then runs NAT,
+SIP-event and remaining workspace tests in three separate processes. The native
+engine stays a singleton within each process; the full test selection, integration
+tests, doc tests and opt-in policy remain unchanged. Each process retains its
+exit status and logs, and any failure fails the command. On a headless Linux
+host, `bun run test:native --adapter` selects only `baresip-adapter`, matching the
+interop job without requiring Tauri system libraries. The separate Asterisk
+command still runs the opt-in SIP/audio/security scenarios.
+
 macOS bundles require both `NSMicrophoneUsageDescription` in `Info.plist` and
 the `com.apple.security.device.audio-input` hardened-runtime entitlement in
 `Entitlements.plist`. Tauri applies the entitlement when signing the bundle.

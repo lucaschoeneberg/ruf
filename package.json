@@ -28,6 +28,7 @@
     "lab:up": "docker compose -f tests/interop/asterisk/compose.yml up -d --wait",
     "lab:down": "docker compose -f tests/interop/asterisk/compose.yml down",
     "test:asterisk": "bun scripts/asterisk-smoke.mjs",
+    "test:native": "bun scripts/check-native-workspace.mjs",
     "test:macos-audio": "bun scripts/check-macos-audio.mjs",
     "test:macos-call-notifications": "bun scripts/check-macos-call-notifications.mjs",
     "test:macos-notification-timeouts": "bun scripts/check-macos-notification-timeouts.mjs",
