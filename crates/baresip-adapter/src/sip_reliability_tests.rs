@@ -519,10 +519,8 @@ fn hold_481_does_not_keep_nonexistent_dialog() {
     let hold = lab.receive("hold", |p| p.starts_with("INVITE "));
     lab.reply(&hold, "481 Call/Transaction Does Not Exist", "", "");
     lab.settle();
-    assert!(
-        lab.engine.snapshot().unwrap().calls.is_empty(),
-        "481 means the peer no longer owns this dialog"
-    );
+    // Native teardown joins audio workers; settling the peer is not a barrier.
+    lab.wait(|s| s.calls.is_empty());
 }
 #[test]
 fn missing_sdp_accepted_hold_requires_reconciliation() {
