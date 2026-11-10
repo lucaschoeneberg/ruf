@@ -55,9 +55,13 @@ pub(crate) enum NativeMessage {
     GettingStarted,
     Diagnostics,
     SettingsTitle,
+    #[cfg(target_os = "macos")]
     Services,
+    #[cfg(target_os = "macos")]
     Hide,
+    #[cfg(target_os = "macos")]
     HideOthers,
+    #[cfg(target_os = "macos")]
     ShowAll,
     Undo,
     Redo,
@@ -126,9 +130,13 @@ impl NativeMessage {
             Self::GettingStarted => "native.gettingStarted",
             Self::Diagnostics => "native.diagnostics",
             Self::SettingsTitle => "native.settingsTitle",
+            #[cfg(target_os = "macos")]
             Self::Services => "native.services",
+            #[cfg(target_os = "macos")]
             Self::Hide => "native.hide",
+            #[cfg(target_os = "macos")]
             Self::HideOthers => "native.hideOthers",
+            #[cfg(target_os = "macos")]
             Self::ShowAll => "native.showAll",
             Self::Undo => "native.undo",
             Self::Redo => "native.redo",
@@ -442,9 +450,13 @@ mod tests {
                 NativeMessage::GettingStarted,
                 NativeMessage::Diagnostics,
                 NativeMessage::SettingsTitle,
+                #[cfg(target_os = "macos")]
                 NativeMessage::Services,
+                #[cfg(target_os = "macos")]
                 NativeMessage::Hide,
+                #[cfg(target_os = "macos")]
                 NativeMessage::HideOthers,
+                #[cfg(target_os = "macos")]
                 NativeMessage::ShowAll,
                 NativeMessage::Undo,
                 NativeMessage::Redo,
