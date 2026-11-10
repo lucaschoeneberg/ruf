@@ -93,7 +93,7 @@ Unauthorized, the account never registered and the test failed at its bounded
 registration wait. The test file was restored byte-for-byte and the positive
 case rerun successfully. No production behavior change was needed.
 
-`scripts/asterisk-smoke.mjs` now runs this desktop case on macOS and Windows.
+`scripts/asterisk-smoke.ts` now runs this desktop case on macOS and Windows.
 Headless Linux explicitly skips it, preserving the existing adapter-only system
 dependencies. The native adapter's incoming-before-outgoing case still runs on
 Linux. No command, DTO or API contract changed; no API documentation update is

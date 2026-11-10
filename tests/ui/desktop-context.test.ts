@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { desktopContext } from "../../scripts/desktop-context.mjs";
+import { desktopContext } from "../../scripts/desktop-context.ts";
 
 test("desktop context follows explicit target and both native feature flag spellings", () => {
   const windows = "x86_64-pc-windows-msvc";

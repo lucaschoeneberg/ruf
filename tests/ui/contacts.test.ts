@@ -5,7 +5,7 @@ import {
   searchContacts,
 } from "../../apps/desktop/src/lib/contacts";
 
-const contacts: Contact[] = [
+const contacts: [Contact, Contact, Contact] = [
   {
     id: "c",
     source: "macos",
@@ -145,5 +145,5 @@ test("contact display preferences can use alphabetical order without changing fa
       (contact) => contact.id,
     ),
   ).toEqual(["c"]);
-  expect(rows[0].favorite).toBe(true);
+  expect(rows[0]?.favorite).toBe(true);
 });

@@ -177,7 +177,7 @@ for (const [code, text] of [
   ["certificateRejected", "Zertifikat"],
   ["transportFailure", "Transport"],
   ["mediaSecurityRequired", "SRTP"],
-])
+] as const)
   test(`${code} has actionable safe explanation`, () => {
     const message = errorMessage({ code, message: "remote secret" });
     expect(message).toContain(text);

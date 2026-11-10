@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ensureVcpkgBaseline } from "../../native/vcpkg.mjs";
+import { ensureVcpkgBaseline } from "../../native/vcpkg.ts";
 
 test("vcpkg fetches a missing pinned baseline without changing its checkout", () => {
   const root = mkdtempSync(join(tmpdir(), "ruf-vcpkg-"));

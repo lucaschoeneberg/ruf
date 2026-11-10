@@ -89,7 +89,7 @@ action. Phone numbers use the existing normalization. Contact display
 preferences are respected.
 
 In addition to the previous change list,
-`tests/ui/browser/global-search.mjs` was added; changes were made to
+`tests/ui/browser/global-search.ts` was added; changes were made to
 `ActionSearch`, `App`, `ContactsPanel`, `HistoryPanel`, `shortcuts.ts`, the menu
 label in `shell.rs`, the browser runner, its existing shortcut/call-control
 checks, `DESIGN.md`, and the API documentation linked above.

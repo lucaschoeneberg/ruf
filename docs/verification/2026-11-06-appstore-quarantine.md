@@ -7,7 +7,7 @@ prove successful Apple processing.
 
 ## Change
 
-`scripts/prepare-app-store.mjs` cleans the staged profile and app before signing,
+`scripts/prepare-app-store.ts` cleans the staged profile and app before signing,
 without modifying the downloaded source profile or following symlinks outside
 the staged tree. It checks the final app, installer and fully expanded installer
 for quarantine attributes. The existing readiness report records these checks.

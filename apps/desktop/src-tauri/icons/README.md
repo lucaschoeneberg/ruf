@@ -7,7 +7,7 @@ Geometry, colors and transparent outer margins remain unchanged.
 From the repository root, regenerate with the pinned Bun and existing Tauri CLI:
 
 ```sh
-bun apps/desktop/src-tauri/icons/generate.mjs
+bun apps/desktop/src-tauri/icons/generate.ts
 ```
 
 The generator renders directly from SVG and writes desktop PNGs at 16, 32, 48,

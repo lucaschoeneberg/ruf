@@ -118,7 +118,7 @@ for an isolated engine, never changes OS stores and has no desktop IPC command.
 These constructors leave the production resolver algorithm unchanged. Invalid
 DNS endpoints return `invalidInput`; no production DNS or trust override is added.
 Production builds do not enable this feature. Test keys/build output remain ignored.
-Run `bun scripts/check-native-security.mjs` after the SDK build for packet gates,
+Run `bun scripts/check-native-security.ts` after the SDK build for packet gates,
 invalid keys/rekey, TLS dialog/CSeq and transaction checks, and
 `cargo test --locked -p baresip-adapter --features native-test-hooks security_tests`
 for real TLS/SIP fixtures. `--upstream-red` on the C harness verifies the pinned
@@ -126,7 +126,7 @@ unpatched source fails the five original policy checks; the additional authority
 predicate has a separate pre-fix real-wire regression. The Python fixture requires
 Python 3 and the OpenSSL CLI, generates one-day roots/keys under ignored
 `native/build`, and runs private loopback TLS/DNS endpoints without OS changes.
-`bun scripts/check-native-trust.mjs` checks the exact Linux verifier branch rejects
+`bun scripts/check-native-trust.ts` checks the exact Linux verifier branch rejects
 environment-injected CAs; running that C branch on macOS does not establish Linux
 runtime or OS store integration. Native Windows runtime,
 Linux distro trust and older macOS runtime require separate observed verification.

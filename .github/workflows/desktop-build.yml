@@ -36,16 +36,16 @@ jobs:
         run: rustup target add ${{ matrix.target }}
       - name: Fingerprint the native compiler toolchain
         id: native-toolchain
-        run: bun native/cache-key.mjs
+        run: bun native/cache-key.ts
       - name: Restore the exact native SDK
         id: native-sdk
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: native/install/${{ matrix.target }}
-          key: native-sdk-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ steps.native-toolchain.outputs.fingerprint }}-${{ hashFiles('native/*.mjs', 'native/sources.json', 'native/vcpkg.json', 'native/patches/**', 'native/openssl-probe/**', 'scripts/check-native-sdk.mjs', '.github/workflows/desktop-build.yml', '.bun-version', 'rust-toolchain.toml') }}
+          key: native-sdk-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ steps.native-toolchain.outputs.fingerprint }}-${{ hashFiles('native/*.ts', 'native/sources.json', 'native/vcpkg.json', 'native/patches/**', 'native/openssl-probe/**', 'scripts/check-native-sdk.ts', '.github/workflows/desktop-build.yml', '.bun-version', 'rust-toolchain.toml') }}
       - name: Validate the restored SDK and rerun its NAT regressions
         if: steps.native-sdk.outputs.cache-hit == 'true'
-        run: bun scripts/check-native-sdk.mjs ${{ matrix.target }}
+        run: bun scripts/check-native-sdk.ts ${{ matrix.target }}
       - name: Build OpenSSL for the macOS deployment target
         if: runner.os == 'macOS' && steps.native-sdk.outputs.cache-hit != 'true'
         shell: bash

@@ -40,6 +40,7 @@ function renderCall({
   };
 }) {
   const call: CallSnapshot = {
+    contact: null,
     id: "test-call",
     accountId: 1,
     state: props.state,
@@ -162,6 +163,10 @@ function accountRecovery(
         username: "alice",
         password: "",
         audioMode: "system",
+        transport: "udp",
+        mediaSecurity: "disabled",
+        authUsername: null,
+        outboundProxy: null,
       },
       name: "Büro",
       existing: {

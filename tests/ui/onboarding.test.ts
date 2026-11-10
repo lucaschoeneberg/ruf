@@ -13,6 +13,10 @@ const account = (): AccountConfig => ({
   username: "alice",
   password: "  secret;with@punctuation  ",
   audioMode: "system",
+  transport: "udp",
+  mediaSecurity: "disabled",
+  authUsername: null,
+  outboundProxy: null,
 });
 
 describe("SIP account onboarding", () => {
@@ -114,7 +118,8 @@ describe("SIP account onboarding", () => {
 });
 
 test("editing a saved account may keep an empty password, creation may not", () => {
-  const input = {
+  const input: AccountConfig = {
+    ...account(),
     registrar: "pbx.test",
     username: "1000",
     password: "",
