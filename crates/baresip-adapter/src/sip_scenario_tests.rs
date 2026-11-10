@@ -127,8 +127,7 @@ fn original_bye_before_success_notify_must_retain_transfer_outcome() {
     lab.wait(|s| s.calls.len() == 1);
     lab.notify_transfer_result(&dialog, &refer, 3, 200);
     lab.settle();
-    let state = lab.engine.snapshot().unwrap();
-    assert!(state.calls.is_empty());
+    let state = lab.wait(|s| s.calls.is_empty());
     assert_eq!(
         state
             .call_events
