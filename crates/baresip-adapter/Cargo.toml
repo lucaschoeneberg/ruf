@@ -16,6 +16,9 @@ native-test-hooks = ["native"]
 [dependencies]
 phone-core.workspace = true
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc.workspace = true
+
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-core = "0.62.2"
 windows = { version = "0.62.2", features = [

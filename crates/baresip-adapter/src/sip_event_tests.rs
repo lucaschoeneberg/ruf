@@ -1682,6 +1682,55 @@ fn recorded_500_hz_pcm(path: &std::path::Path, baseline: usize) -> bool {
     contains_500_hz_pcm(&samples)
 }
 
+#[cfg(not(target_os = "macos"))]
+fn wait_for_next_rtp_frame(next: Instant) {
+    thread::sleep(next.saturating_duration_since(Instant::now()));
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn wait_for_next_rtp_frame(next: Instant) {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    let delay = next.saturating_duration_since(Instant::now());
+    if delay.is_zero() {
+        return;
+    }
+    // Background macOS runners can coalesce a 20 ms sleep to 120 ms. A
+    // critical timer keeps this synthetic RTP source paced like real audio.
+    // SAFETY: kqueue has no arguments and returns a fresh owned descriptor.
+    let descriptor = unsafe { libc::kqueue() };
+    assert!(descriptor >= 0, "could not create the RTP timer queue");
+    // SAFETY: kqueue returned a valid descriptor that has no other owner.
+    let queue = unsafe { OwnedFd::from_raw_fd(descriptor) };
+    let change = libc::kevent {
+        ident: 1,
+        filter: libc::EVFILT_TIMER,
+        flags: libc::EV_ADD | libc::EV_ONESHOT,
+        fflags: libc::NOTE_NSECONDS | libc::NOTE_CRITICAL,
+        data: delay
+            .as_nanos()
+            .try_into()
+            .expect("RTP timer duration fits"),
+        udata: std::ptr::null_mut(),
+    };
+    let mut event = change;
+    // SAFETY: both event pointers reference live, correctly sized values;
+    // the queue stays owned until the synchronous wait has finished.
+    let received = unsafe {
+        libc::kevent(
+            queue.as_raw_fd(),
+            &change,
+            1,
+            &mut event,
+            1,
+            std::ptr::null(),
+        )
+    };
+    assert_eq!(received, 1, "could not wait for the RTP timer");
+    assert_eq!(event.flags & libc::EV_ERROR, 0, "RTP timer was rejected");
+}
+
 fn stream_tone_until(
     rtp: &UdpSocket,
     port: u16,
@@ -1715,7 +1764,7 @@ fn stream_tone_until(
                 if next <= sent {
                     next = sent + Duration::from_millis(20);
                 }
-                thread::sleep(next.saturating_duration_since(Instant::now()));
+                wait_for_next_rtp_frame(next);
             }
         });
         // File I/O and PCM analysis must never delay the RTP sender.

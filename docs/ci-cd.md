@@ -51,6 +51,11 @@ desktop jobs retain only the three explicitly named early-media/refused-hold
 WAV recordings for seven days. These fixtures contain generated test tones;
 the recordings help distinguish sender scheduling from native media failures.
 
+On macOS, the synthetic RTP sender uses a critical kernel timer for its 20 ms
+packet cadence. Background scheduling can coalesce ordinary sleeps to about
+120 ms and starve the test stream. This timer belongs to the test fixture;
+the production audio pipeline and the full-second PCM assertions are unchanged.
+
 The shared setup installs the pinned Bun version from `.bun-version` and runs
 `bun install --frozen-lockfile`. It explicitly installs the Rust toolchain from
 `rust-toolchain.toml`, without relying on Rustup's deprecated auto-installation.

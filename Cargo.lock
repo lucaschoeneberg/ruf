@@ -254,6 +254,7 @@ name = "baresip-adapter"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "libc",
  "phone-core",
  "serde_json",
  "windows",
