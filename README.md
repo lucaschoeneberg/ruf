@@ -6,7 +6,7 @@
 
 **A compact SIP softphone for macOS and Windows.**
 
-[![CI](https://github.com/lucaschoeneberg/ruf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lucaschoeneberg/ruf/actions/workflows/ci.yml)
+[![CI](https://github.com/mardu-systems/ruf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mardu-systems/ruf/actions/workflows/ci.yml)
 [![Version: 0.1.0 Preview](https://img.shields.io/badge/Version-0.1.0%20Preview-3b82f6)](docs/releases/0.1.0.md)
 [![Target platforms: macOS and Windows](https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows-64748b)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
