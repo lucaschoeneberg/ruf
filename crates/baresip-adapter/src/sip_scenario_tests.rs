@@ -37,9 +37,8 @@ fn unsupported_codec_initial_answer_must_not_become_active() {
     lab.reply(&invite, "200 OK", "", &bad);
     lab.receive("ACK", |p| p.starts_with("ACK "));
     lab.settle();
-    let state = lab.engine.snapshot().unwrap();
+    let state = lab.wait(|s| s.calls.is_empty());
     assert_eq!(state.call, CallState::Idle);
-    assert!(state.calls.is_empty());
     assert_eq!(
         state.last_call_failure.unwrap().error.code,
         ErrorCode::NativeFailure
@@ -185,8 +184,7 @@ fn malformed_offerless_reinvite_ack_must_not_be_silently_accepted() {
         "this is not SDP\r\n",
     );
     lab.settle();
-    let state = lab.engine.snapshot().unwrap();
-    assert!(state.calls.is_empty());
+    let state = lab.wait(|s| s.calls.is_empty());
     assert_eq!(
         state.last_call_failure.unwrap().error.code,
         ErrorCode::NativeFailure

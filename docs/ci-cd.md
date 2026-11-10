@@ -55,10 +55,11 @@ On macOS, the synthetic RTP sender uses a critical kernel timer for its 20 ms
 packet cadence. Background scheduling can coalesce ordinary sleeps to about
 120 ms and starve the test stream. This timer belongs to the test fixture;
 the production audio pipeline and the full-second PCM assertions are unchanged.
-The 481 hold and BYE-before-transfer-result regressions use the lab's bounded
-state wait for completed dialog teardown. Servicing the peer for a fixed interval
-does not guarantee that native audio workers have finished closing on a
-background runner.
+The 481 hold, completed-transfer and invalid-SDP/codec regressions use the lab's
+bounded state wait for completed dialog teardown. Servicing the peer for a fixed
+interval does not guarantee that native audio workers have finished closing on a
+background runner. Error classification and transfer-event assertions are checked
+against the resulting terminal snapshot.
 
 The shared setup installs the pinned Bun version from `.bun-version` and runs
 `bun install --frozen-lockfile`. It explicitly installs the Rust toolchain from
