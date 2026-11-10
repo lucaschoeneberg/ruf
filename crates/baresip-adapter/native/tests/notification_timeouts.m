@@ -20,8 +20,11 @@
 @property(nonatomic) BOOL lateDelivery;
 @property(nonatomic) BOOL acknowledgeDelivery;
 @property(atomic, copy) NSString *visibleToken;
-@property(nonatomic, strong) dispatch_semaphore_t lateCompleted;
+@property(nonatomic, copy) dispatch_block_t pendingSettings;
+@property(nonatomic, copy) dispatch_block_t pendingDelivery;
 @property(nonatomic) int removed;
+- (void)finishSettings;
+- (void)finishDelivery;
 @end
 @implementation StalledCenter
 - (void)getNotificationSettingsWithCompletionHandler:(void (^)(UNNotificationSettings *))completion {
@@ -29,10 +32,7 @@
     TestSettings *settings = [[TestSettings alloc] init];
     settings.status = self.denied ? UNAuthorizationStatusDenied : UNAuthorizationStatusAuthorized;
     if (self.lateSettings) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC),
-            dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-                completion((UNNotificationSettings *)(id)settings);
-            });
+        self.pendingSettings = ^{ completion((UNNotificationSettings *)(id)settings); };
         return;
     }
     completion((UNNotificationSettings *)(id)settings);
@@ -47,16 +47,27 @@
     if (self.failDelivery) {
         completion([NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
     } else if (self.lateDelivery) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_MSEC),
-            dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-                self.visibleToken = request.identifier;
-                completion(nil);
-                dispatch_semaphore_signal(self.lateCompleted);
-            });
+        __weak StalledCenter *weakSelf = self;
+        self.pendingDelivery = ^{
+            weakSelf.visibleToken = request.identifier;
+            completion(nil);
+        };
     } else if (self.acknowledgeDelivery) {
         self.visibleToken = request.identifier;
         completion(nil);
     } /* Otherwise simulate a daemon that never acknowledges. */
+}
+- (void)finishSettings {
+    dispatch_block_t completion = self.pendingSettings;
+    self.pendingSettings = nil;
+    if (!completion) exit(29);
+    completion();
+}
+- (void)finishDelivery {
+    dispatch_block_t completion = self.pendingDelivery;
+    self.pendingDelivery = nil;
+    if (!completion) exit(30);
+    completion();
 }
 - (void)removePendingNotificationRequestsWithIdentifiers:(NSArray<NSString *> *)tokens {
     (void)tokens;
@@ -89,7 +100,6 @@ static void record_action(int action, const char *token) {
 int main(void) {
     @autoreleasepool {
         StalledCenter *fake = [[StalledCenter alloc] init];
-        fake.lateCompleted = dispatch_semaphore_create(0);
         center = (UNUserNotificationCenter *)(id)fake;
         state_lock = [[NSObject alloc] init];
         delivery_queue = dispatch_queue_create("test.notification-timeouts", DISPATCH_QUEUE_SERIAL);
@@ -101,6 +111,9 @@ int main(void) {
             fake.stallSettings = NO;
             fake.lateSettings = YES;
             if (!sip_call_notifications_permission(0, &permission) || permission != 3) exit(2);
+            /* Release only after timeout, regardless of worker scheduling. */
+            [fake finishSettings];
+            if (permission != 3) exit(31);
             fake.lateSettings = NO;
             if (sip_call_notifications_permission(0, &permission) || permission != 2) exit(3);
             if (!sip_call_notifications_show("test-token", "Test", "Synthetic call")) exit(4);
@@ -108,14 +121,14 @@ int main(void) {
             fake.lateDelivery = YES;
             if (!sip_call_notifications_show("late-token", "Test", "Synthetic call")) exit(6);
             if (sip_call_notifications_dismiss("late-token")) exit(7);
-            if (dispatch_semaphore_wait(fake.lateCompleted, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC))) exit(13);
+            [fake finishDelivery];
             dispatch_sync(delivery_queue, ^{});
             if (fake.visibleToken) exit(8);
             if (!sip_call_notifications_show("retry-token", "Test", "Synthetic call")) exit(9);
             fake.lateDelivery = NO;
             fake.acknowledgeDelivery = YES;
             if (sip_call_notifications_show("retry-token", "Test", "Synthetic call")) exit(10);
-            if (dispatch_semaphore_wait(fake.lateCompleted, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC))) exit(14);
+            [fake finishDelivery];
             dispatch_sync(delivery_queue, ^{});
             if (![fake.visibleToken isEqualToString:@"retry-token"]) exit(11);
             if (sip_call_notifications_dismiss("retry-token")) exit(12);
@@ -159,7 +172,7 @@ int main(void) {
             if (!sip_test_notification_show()) exit(19);
             fake.lateDelivery = YES;
             if (!sip_test_notification_show()) exit(20);
-            if (dispatch_semaphore_wait(fake.lateCompleted, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC))) exit(21);
+            [fake finishDelivery];
             dispatch_sync(delivery_queue, ^{});
             if (![active_token isEqualToString:@"live-call"] || fake.removed != removed) exit(22);
             fake.lateDelivery = NO;
@@ -173,7 +186,7 @@ int main(void) {
             fake.failDelivery = YES;
             if (!sip_test_notification_show() || fake.permissionRequests) exit(28);
             /* Late settings callbacks must be safe after their caller timed out. */
-            [NSThread sleepForTimeInterval:0.1];
+            [fake finishSettings];
             dispatch_semaphore_signal(finished);
         });
         dispatch_semaphore_wait(finished, DISPATCH_TIME_FOREVER);

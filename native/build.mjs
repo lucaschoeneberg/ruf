@@ -248,7 +248,8 @@ run("cmake", [
   "--config",
   "Release",
   "--target",
-  "retest",
+  // EXCLUDE_FROM_ALL omits this subproject from Visual Studio's solution lookup.
+  windows ? "test/retest" : "retest",
   "--parallel",
   "4",
 ]);

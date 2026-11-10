@@ -6,18 +6,16 @@
 @interface TestContactStore : NSObject
 @property(nonatomic) BOOL late;
 @property(nonatomic) BOOL immediate;
-@property(nonatomic, strong) dispatch_semaphore_t lateCompleted;
+@property(nonatomic, copy) dispatch_block_t pendingAuthorization;
 @end
 @implementation TestContactStore
 - (void)requestAccessForEntityType:(CNEntityType)entity completionHandler:(void (^)(BOOL, NSError *))completion {
     (void)entity;
     if (self.immediate) completion(NO, nil);
     else if (self.late) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_MSEC),
-            dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-                completion(NO, [NSError errorWithDomain:@"Synthetic" code:1 userInfo:nil]);
-                dispatch_semaphore_signal(self.lateCompleted);
-            });
+        self.pendingAuthorization = ^{
+            completion(NO, [NSError errorWithDomain:@"Synthetic" code:1 userInfo:nil]);
+        };
     }
 }
 @end
@@ -25,14 +23,17 @@
 int main(void) {
     @autoreleasepool {
         TestContactStore *store = [[TestContactStore alloc] init];
-        store.lateCompleted = dispatch_semaphore_create(0);
         NSError *error = nil;
         if (!request_authorization((CNContactStore *)(id)store, &error) || error) return 1;
         store.late = YES;
         if (!request_authorization((CNContactStore *)(id)store, &error) || error) return 2;
         store.immediate = YES;
         if (request_authorization((CNContactStore *)(id)store, &error) || error) return 3;
-        if (dispatch_semaphore_wait(store.lateCompleted, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC))) return 4;
+        dispatch_block_t completion = store.pendingAuthorization;
+        store.pendingAuthorization = nil;
+        if (!completion) return 4;
+        completion();
+        if (error) return 5;
         puts("MACOS_CONTACT_TIMEOUTS_OK: stalled authorization, late callback, denial result, subsequent request");
     }
     return 0;

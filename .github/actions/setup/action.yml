@@ -8,7 +8,9 @@ runs:
         bun-version-file: .bun-version
     - name: Install the repository's Rust toolchain
       shell: bash
-      run: rustup show
+      run: |
+        rustup toolchain install --no-self-update
+        rustup show
     - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
       with:
         save-if: ${{ github.event_name != 'pull_request' }}

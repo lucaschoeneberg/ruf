@@ -34,7 +34,9 @@ permission checks run against the finished bundle before uploading the DMG.
 DMG-only packaging removes its temporary app and cannot support those checks.
 
 The shared setup installs the pinned Bun version from `.bun-version` and runs
-`bun install --frozen-lockfile`; frontend tools, native build orchestration and
+`bun install --frozen-lockfile`. It explicitly installs the Rust toolchain from
+`rust-toolchain.toml`, without relying on Rustup's deprecated auto-installation.
+Frontend tools, native build orchestration and
 formatting run through Bun. Dependabot monitors the `bun` ecosystem/text lockfile.
 
 All remote actions are pinned to commits, with Dependabot enabled for updates.
