@@ -1,6 +1,6 @@
 # Git and CI/CD
 
-The 0.1.0 preview is hosted in the private
+The 0.1.0 preview is hosted in the public
 [lucaschoeneberg/ruf repository](https://github.com/lucaschoeneberg/ruf).
 The initial release-preparation snapshot was pushed to `main` on 10 November 2026.
 Setup does not push, tag or publish a release.
