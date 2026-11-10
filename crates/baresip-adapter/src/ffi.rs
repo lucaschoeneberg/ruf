@@ -476,6 +476,9 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                             call.transfer = if (200..300).contains(&code) {
                                 phone_core::TransferState::Succeeded
                             } else {
+                                // A snapshot may be read before the following
+                                // legacy failure event; publish its error now.
+                                call.last_error = Some(transfer_error(code));
                                 phone_core::TransferState::Failed
                             };
                         }
@@ -742,17 +745,7 @@ extern "C" fn callback(event: *const NativeEvent, arg: *mut c_void) {
                 EV_DTMF_END => record_call_event(state, CallEventKind::DtmfEnd),
                 EV_TRANSFER_FAILED => {
                     record_call_event(state, CallEventKind::TransferFailed);
-                    state.last_error = Some(
-                        u16::try_from(code)
-                            .ok()
-                            .and_then(PhoneError::from_sip_status)
-                            .unwrap_or_else(|| {
-                                PhoneError::new(
-                                    ErrorCode::NativeFailure,
-                                    "Call transfer failed without a SIP response.",
-                                )
-                            }),
-                    );
+                    state.last_error = Some(transfer_error(code));
                 }
                 EV_REDIRECT => {
                     if let Ok(status @ 300..=399) = u16::try_from(code) {
@@ -1130,6 +1123,18 @@ fn cstring(input: &str) -> Result<CString, PhoneError> {
     CString::new(input)
         .map_err(|_| PhoneError::new(ErrorCode::InvalidInput, "NUL bytes are not allowed."))
 }
+fn transfer_error(code: i32) -> PhoneError {
+    u16::try_from(code)
+        .ok()
+        .and_then(PhoneError::from_sip_status)
+        .unwrap_or_else(|| {
+            PhoneError::new(
+                ErrorCode::NativeFailure,
+                "Call transfer failed without a SIP response.",
+            )
+        })
+}
+
 fn native_error(code: i32) -> PhoneError {
     let security = match code {
         SECURITY_CERTIFICATE => Some((
@@ -1489,6 +1494,56 @@ mod observation_tests {
             state.snapshot.call_events.last().unwrap().event,
             CallEventKind::TransferFailed
         ));
+    }
+
+    #[test]
+    fn failed_transfer_result_includes_its_error_before_the_legacy_event() {
+        for status in [0, 403, 488, 500, 603] {
+            for background in [false, true] {
+                let mut h = Harness::new();
+                h.event(5, 0, 10, "", "");
+                h.event(8, 0, 10, "", "");
+                if background {
+                    h.event(23, 0, 20, "", "200");
+                    h.event(5, 0, 20, "", "");
+                    h.event(8, 0, 20, "", "");
+                    h.event(EV_SELECTED, 0, 20, "", "");
+                }
+                h.event(EV_TRANSFER_PENDING, 0, 10, "", "");
+                h.event(EV_TRANSFER_RESULT, status, 10, "", "");
+                {
+                    let state = h.context.snapshot.lock().unwrap();
+                    let call = state.snapshot.calls.iter().find(|c| c.id == "10").unwrap();
+                    assert_eq!(call.transfer, phone_core::TransferState::Failed);
+                    let error = call
+                        .last_error
+                        .as_ref()
+                        .expect("failure must include its error");
+                    assert_eq!(error.sip_status, (status != 0).then_some(status as u16));
+                    if status == 0 {
+                        assert_eq!(error.code, ErrorCode::NativeFailure);
+                    }
+                    if background {
+                        assert_eq!(state.snapshot.call_id.as_deref(), Some("20"));
+                        assert!(state.snapshot.last_error.is_none());
+                    } else {
+                        let selected_error = state.snapshot.last_error.as_ref().unwrap();
+                        assert_eq!(selected_error.code, error.code);
+                        assert_eq!(selected_error.sip_status, error.sip_status);
+                    }
+                }
+                h.event(EV_TRANSFER_FAILED, status, 10, "", "");
+                let state = h.context.snapshot.lock().unwrap();
+                let call = state.snapshot.calls.iter().find(|c| c.id == "10").unwrap();
+                assert_eq!(
+                    call.events
+                        .iter()
+                        .filter(|e| matches!(e.event, CallEventKind::TransferFailed))
+                        .count(),
+                    1
+                );
+            }
+        }
     }
 
     #[test]

@@ -1766,9 +1766,26 @@ fn controls_refused_hold_player_restart_failure_ends_owned_call() {
     let account = state.calls[0].account_id;
     lab.engine.set_call_held(&id, true).unwrap();
     let offer = lab.receive("hold offer", |p| p.starts_with("INVITE "));
-    // The hold stopped aufile. A directory at its file path deterministically
-    // fails the real native player reopen, without touching hardware/permissions.
-    std::fs::remove_file(&path).unwrap();
+    // The INVITE is sent before stopping aufile and joining its writer thread.
+    // Wait for Windows to release the file before blocking the real player reopen
+    // with a directory, without touching hardware or permissions.
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    let until = Instant::now() + TIMEOUT;
+    loop {
+        match std::fs::remove_file(&path) {
+            Ok(()) => break,
+            Err(error)
+                if cfg!(windows) && error.raw_os_error() == Some(ERROR_SHARING_VIOLATION) =>
+            {
+                assert!(
+                    Instant::now() < until,
+                    "native player did not release its recording: {error}"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("could not replace native player recording: {error}"),
+        }
+    }
     std::fs::create_dir(&path).unwrap();
     lab.reply(&offer, "488 Not Acceptable Here", "", "");
     let until = Instant::now() + TIMEOUT;

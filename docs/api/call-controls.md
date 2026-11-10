@@ -193,6 +193,11 @@ legacy `callEvents` retains `transferSucceeded` even if both close between polls
 This forwarding does not mean that each dialog sent its own REFER. Actual final SIP failures
 retain their numeric `sipStatus` and existing classification; local deadlines and
 native failures use `nativeFailure` with null `sipStatus`.
+When a live dialog first transitions to `transfer: failed`, the same snapshot
+already includes the associated structured `lastError`; it does not require a
+later event or poll to obtain the failure reason. A later accepted action may
+clear that error. Background transfer failures remain owned by that dialog and
+do not overwrite the selected conversation's error.
 
 The conversation list renders transfer/control failures for their owning dialog
 even when the consultation is selected. Numeric dial, consultation and blind
