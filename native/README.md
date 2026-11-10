@@ -38,6 +38,8 @@ for headless interoperability tests. Cross compilation is not implemented.
   Set `VCPKG_INSTALLATION_ROOT` to vcpkg's checkout. GitHub's Windows runner
   supplies it. The manifest uses a pinned baseline and `x64-windows-static-md`
   OpenSSL, matching the dynamic MSVC CRT used by Rust.
+  The SDK fetches the exact manifest baseline into that checkout if an older
+  runner image lacks it; it does not switch the checkout or advance the pin.
 - Linux: CMake, GCC/Clang, pkg-config and OpenSSL development/static libraries
   (`sudo apt-get install cmake libssl-dev pkg-config` on Ubuntu).
 

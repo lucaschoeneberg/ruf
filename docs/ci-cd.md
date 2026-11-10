@@ -1,8 +1,9 @@
 # Git and CI/CD
 
-The repository contains the 0.1.0 preview. No remote is assumed and no push is
-performed by setup. Connect the actual repository before pushing or opening a
-pull request; release preparation itself does not tag or publish anything.
+The 0.1.0 preview is hosted in the private
+[lucaschoeneberg/ruf repository](https://github.com/lucaschoeneberg/ruf).
+The initial release-preparation snapshot was pushed to `main` on 10 November 2026.
+Setup does not push, tag or publish a release.
 
 ## Workflows
 

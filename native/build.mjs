@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureVcpkgBaseline } from "./vcpkg.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const pins = JSON.parse(
@@ -159,6 +160,10 @@ if (windows && !openssl) {
       "Set VCPKG_INSTALLATION_ROOT or OPENSSL_ROOT_DIR for a static-MD OpenSSL installation.",
     );
   const installed = join(build, "vcpkg");
+  const manifest = JSON.parse(
+    readFileSync(join(root, "native/vcpkg.json"), "utf8"),
+  );
+  ensureVcpkgBaseline(vcpkg, manifest["builtin-baseline"]);
   run(join(vcpkg, "vcpkg.exe"), [
     "install",
     `--x-manifest-root=${join(root, "native")}`,
