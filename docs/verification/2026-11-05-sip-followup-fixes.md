@@ -102,7 +102,7 @@ on other platforms without claiming those platforms were executed here.
 | `crates/baresip-adapter/src/ffi.rs`                                                | Closed blind-call result without resurrecting or contaminating a new dialog      |
 | `native/patches/re-reliability.patch`, `native/patches/baresip-reliability.patch`  | SDP validation, late ACK/teardown and NOTIFY validation/replay                   |
 | `crates/baresip-adapter/src/sip_scenario_tests.rs`, `src/sip_reliability_tests.rs` | Permanent scenario module using the existing Lab                                 |
-| `scripts/check-sip-lifetimes.mjs`, `package.json`                                  | Repeatable macOS native lifetime diagnostic, without new dependencies            |
+| `scripts/check-sip-lifetimes.ts`, `package.json`                                   | Repeatable macOS native lifetime diagnostic, without new dependencies            |
 | `docs/api/call-controls.md`, `docs/api/sip-events.md`, `native/patches/README.md`  | Behavioral outcomes, errors, required wire validation and ownership contracts    |
 | This report                                                                        | Scope, execution and observed verification                                       |
 

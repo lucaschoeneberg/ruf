@@ -42,7 +42,7 @@ it is not a multi-day desktop soak test or a guarantee against unrelated crashes
 - `native/patches/re-reliability.patch`: macOS resolver destruction.
 - `crates/baresip-adapter/native/tests/dns_refresh.c`: real resolver stress test.
 - `crates/baresip-adapter/native/tests/CMakeLists.txt`: macOS fixture target.
-- `scripts/check-network-roam.mjs`: run the fixture against the installed SDK.
+- `scripts/check-network-roam.ts`: run the fixture against the installed SDK.
 - `native/patches/README.md`, `docs/api/sip-events.md`, `docs/development.md`:
   cleanup behavior, compatibility and repeatable verification instructions.
 - This report: observed evidence and remaining limits.

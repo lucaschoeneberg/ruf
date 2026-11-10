@@ -84,7 +84,7 @@ for (const [query, section, target] of [
   ["Aufbewahrung", "contacts", "history-retention"],
   ["Passwort", "accounts", "password"],
   ["Bei der Anmeldung im Hintergrund starten", "general", "start-hidden"],
-]) {
+] as const) {
   test(`visible setting ${query} finds its own control`, () => {
     expect(
       searchSettings(query).some(

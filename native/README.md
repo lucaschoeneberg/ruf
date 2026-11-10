@@ -37,7 +37,7 @@ recipe. There is no fallback to a partially matching key. The cache is saved
 after the SDK build and its NAT tests succeed, before application checks, so a
 later application failure does not discard the qualified SDK.
 
-On a cache hit, `bun scripts/check-native-sdk.mjs <Rust target>` reuses the native
+On a cache hit, `bun scripts/check-native-sdk.ts <Rust target>` reuses the native
 SBOM generator to validate target, source pins, patch texts and required archives,
 then reruns `test_sip_nat` and `test_sip_nat_registration`. A stale or incomplete
 restored SDK fails validation. Strict C harnesses, Rust bridge compilation, native

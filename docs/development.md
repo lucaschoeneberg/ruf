@@ -5,6 +5,20 @@ The exact Bun version is also pinned in `package.json`; install with `bun instal
 Commit `bun.lock` and the root `Cargo.lock`. Cargo defaults to the two
 portable crates; use `--workspace` to include Tauri.
 
+Workspace scripts in `scripts/`, `native/` and the icon generator use TypeScript
+and run directly with Bun. `bun run check` checks both the desktop app and
+the scripts/tests; `bun run check:tooling` runs only the strict tooling check
+from `tsconfig.tooling.json`. Running a script or `bun test` alone does not run
+that check. Bun and Playwright types are development dependencies; the browser
+CLI remains pinned separately to `@playwright/cli@0.1.23`, with matching
+`playwright-core` types. See [tooling command contracts](api/tooling.md).
+
+Use `Bun.file`, `Bun.write`, `Bun.CryptoHasher` and `Bun.spawn` where they fit
+the operation. `node:path`, `node:os`, directory operations and existing
+subprocess calls with specific timeout/stdio behavior remain supported Bun
+APIs. Browser regression functions are serialized into the Playwright CLI;
+keep their runtime bodies independent of module imports and closures.
+
 On macOS install Xcode/Command Line Tools. On Windows install MSVC C++ Build Tools,
 the Windows SDK and WebView2 as described in the
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).

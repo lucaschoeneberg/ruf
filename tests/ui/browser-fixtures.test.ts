@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
-import { installDialogFixtures } from "./browser/dialog-fixtures.mjs";
+import { installDialogFixtures } from "./browser/dialog-fixtures.ts";
 import type { EngineSnapshot } from "../../apps/desktop/src/lib/generated/AppInfo";
 
 // Exercise the same closure-free serialized installer the CLI registers in the browser.
@@ -34,7 +34,7 @@ test("serialized fixture installer projects owner, identity and safe unobserved 
     ],
   };
   const result = sync(snapshot);
-  expect(result).toBe(snapshot);
+  expect(result === snapshot).toBe(true);
   expect(result.calls).toEqual([
     {
       contact: null,

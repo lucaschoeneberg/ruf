@@ -4,6 +4,12 @@ import {
   loadChangelog,
 } from "../../apps/desktop/src/lib/changelog";
 
+function mockFetch(
+  handler: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>,
+): typeof fetch {
+  return Object.assign(handler, { preconnect: fetch.preconnect });
+}
+
 test("consumer changelog keeps version headings and user-facing changes", () => {
   expect(
     parseChangelog(
@@ -21,13 +27,13 @@ test("consumer changelog keeps version headings and user-facing changes", () => 
 test("remote changelog accepts only public GitHub raw URLs and omits credentials", async () => {
   let requested = "";
   let options: RequestInit | undefined;
-  const fetcher: typeof fetch = async (input, init) => {
+  const fetcher = mockFetch(async (input, init) => {
     requested = String(input);
     options = init;
     return new Response(
       "# Änderungen\n\n## 0.2.0\n\n- Kontakte schneller finden.\n",
     );
-  };
+  });
   await expect(
     loadChangelog(
       "https://example.com/CHANGELOG.md",
@@ -53,14 +59,14 @@ test("failed and malformed GitHub responses do not become release notes", async 
     loadChangelog(
       url,
       signal,
-      async () => new Response("Not found", { status: 404 }),
+      mockFetch(async () => new Response("Not found", { status: 404 })),
     ),
   ).rejects.toThrow();
   await expect(
     loadChangelog(
       url,
       signal,
-      async () => new Response("<html>Sign in</html>"),
+      mockFetch(async () => new Response("<html>Sign in</html>")),
     ),
   ).rejects.toThrow();
 });

@@ -32,7 +32,7 @@ Linux/arm64 Docker lab. This records local execution, not hosted CI or Windows r
   release clean removed it. Both final package logs contain no LLVM stripping or
   newer-macOS linkage warning. The toolchain itself was not modified.
 
-Changed implementation/configuration: [SDK builder](../../native/build.mjs),
+Changed implementation/configuration: [SDK builder](../../native/build.ts),
 [OpenSSL probe](../../native/openssl-probe/CMakeLists.txt),
 [desktop workflow](../../.github/workflows/desktop-build.yml),
 [OpenSSL regressions](../../tests/ui/native-openssl.test.ts) and the test-only

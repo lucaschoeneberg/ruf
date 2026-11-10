@@ -14,7 +14,7 @@ import {
   assertNoQuarantineAttributes,
   cleanAppStoreBundle,
   validateProvisioningProfile,
-} from "../../scripts/prepare-app-store.mjs";
+} from "../../scripts/prepare-app-store.ts";
 
 const profile = () => ({
   Platform: ["OSX"],
@@ -28,7 +28,7 @@ const profile = () => ({
   DeveloperCertificates: ["A".repeat(40)],
 });
 const now = new Date("2026-11-06T00:00:00Z");
-const validate = (value: ReturnType<typeof profile>) =>
+const validate = (value: Parameters<typeof validateProvisioningProfile>[0]) =>
   validateProvisioningProfile(value, "org.rufapp.desktop", "A".repeat(40), now);
 
 test("store signing accepts only the exact app and included certificate", () => {

@@ -34,7 +34,7 @@ add_subdirectory("${resolve("native/openssl-probe")}" probe)
       for (const [name, version] of [
         ["first", "3.0.0"],
         ["replacement", "3.1.0"],
-      ]) {
+      ] as const) {
         const root = join(directory, name);
         mkdirSync(join(root, "include/openssl"), { recursive: true });
         mkdirSync(join(root, "lib"));
