@@ -1,6 +1,40 @@
 //! Native regressions for the SIP reliability audit.
 use super::*;
 
+fn contains_500_hz_pcm(samples: &[i16]) -> bool {
+    // A stalled runner can leave a silent tail. Require a complete one-second
+    // tone window in newly recorded PCM, keeping the existing RMS/frequency bounds.
+    samples.windows(8000).step_by(160).any(|window| {
+        let rms = (window.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>() / window.len() as f64)
+            .sqrt();
+        let hz = window.windows(2).filter(|p| p[0] < 0 && p[1] >= 0).count() as f64;
+        rms > 500.0 && (480.0..520.0).contains(&hz)
+    })
+}
+
+#[test]
+fn early_media_tone_detection_uses_fresh_windows() {
+    let tone: Vec<i16> = (0..16000)
+        .map(|i| if i % 16 < 8 { 9852 } else { -9852 })
+        .collect();
+    let mut interrupted = tone.clone();
+    interrupted[14880..].fill(0);
+    assert!(contains_500_hz_pcm(&interrupted));
+    assert!(!contains_500_hz_pcm(&vec![0; 16000]));
+    let wrong_tone: Vec<i16> = (0..16000)
+        .map(|i| if i % 20 < 10 { 9852 } else { -9852 })
+        .collect();
+    assert!(!contains_500_hz_pcm(&wrong_tone));
+    let quiet_tone: Vec<i16> = (0..16000)
+        .map(|i| if i % 16 < 8 { 20 } else { -20 })
+        .collect();
+    assert!(!contains_500_hz_pcm(&quiet_tone));
+    let mut buffered = vec![0; 16000];
+    buffered[..400].copy_from_slice(&tone[..400]);
+    assert!(!contains_500_hz_pcm(&buffered));
+    assert!(!contains_500_hz_pcm(&tone[..7999]));
+}
+
 #[test]
 fn early_media_pcm_continues_after_sdp_less_ringing() {
     let _guard = crate::NATIVE_TEST_LOCK
@@ -26,44 +60,49 @@ fn early_media_pcm_continues_after_sdp_less_ringing() {
     lab.reply(&invite, "183 Session Progress", "", &body);
     lab.wait(|s| s.call == CallState::EarlyMedia);
     let mut sequence = 0_u16;
-    let mut send_audio = || {
+    let mut send_audio = |half_period: usize| {
         let mut next = Instant::now();
         for _ in 0..120 {
             let mut packet = vec![0x80, 0];
             packet.extend_from_slice(&sequence.to_be_bytes());
             packet.extend_from_slice(&(u32::from(sequence) * 160).to_be_bytes());
             packet.extend_from_slice(&1234_u32.to_be_bytes());
-            packet.extend((0..160).map(|i| if i % 16 < 8 { 0x9c } else { 0x1c }));
+            packet.extend((0..160).map(|i| {
+                if i % (half_period * 2) < half_period {
+                    0x9c
+                } else {
+                    0x1c
+                }
+            }));
             rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
             sequence = sequence.wrapping_add(1);
             next += Duration::from_millis(20);
             thread::sleep(next.saturating_duration_since(Instant::now()));
         }
     };
-    send_audio();
+    // The pre-ringing 400Hz tone cannot satisfy the post-ringing 500Hz check.
+    send_audio(10);
     let baseline = std::fs::metadata(&recording).unwrap().len() as usize;
     assert!(baseline > 16000);
     lab.reply(&invite, "180 Ringing", "", "");
     lab.settle();
-    send_audio();
+    send_audio(8);
     let bytes = std::fs::read(&recording).unwrap();
     assert!(
         bytes.len() >= baseline + 16000,
         "no fresh PCM after 183 -> 180: before={baseline}, after={}",
         bytes.len()
     );
-    let samples: Vec<i16> = bytes[bytes.len() - 16000..]
+    let samples: Vec<i16> = bytes[baseline..]
         .as_chunks::<2>()
         .0
         .iter()
         .map(|b| i16::from_le_bytes(*b))
         .collect();
-    let rms =
-        (samples.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>() / samples.len() as f64).sqrt();
-    let hz = samples.windows(2).filter(|p| p[0] < 0 && p[1] >= 0).count() as f64;
     assert!(
-        rms > 500.0 && (480.0..520.0).contains(&hz),
-        "fresh 500Hz PCM required: rms={rms}, hz={hz}"
+        contains_500_hz_pcm(&samples),
+        "one second of fresh 500Hz PCM required after 180, captured {} samples",
+        samples.len()
     );
     assert_eq!(lab.engine.snapshot().unwrap().call, CallState::EarlyMedia);
 }

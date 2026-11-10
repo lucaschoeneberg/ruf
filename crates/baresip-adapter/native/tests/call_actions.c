@@ -1,8 +1,10 @@
 /* Exercise the production queue handler without opening an OS audio device.
  * Only the external ua_answer result is injected; ringtone ownership uses libre. */
+/* Keep assertions enabled in Release, before baresip's warning macro is defined. */
+#undef NDEBUG
+#include <assert.h>
 #define ua_answer test_ua_answer
 #include "../bridge.c"
-#include <assert.h>
 
 static int answer_result;
 static unsigned ring_destructions, answer_failures, errors, failed_dials;

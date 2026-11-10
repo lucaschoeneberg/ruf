@@ -340,7 +340,8 @@ static void test_read(struct auframe *frame, void *arg) {
     struct engine *e = arg;
     if (frame->fmt != AUFMT_S16LE) { re_atomic_rlx_set(&e->test_error, ENOTSUP); return; }
     unsigned peak = sip_audio_peak_s16(frame->sampv, frame->sampc);
-    unsigned previous = re_atomic_rlx(&e->test_peak);
+    /* MSVC's generic atomic load returns uint64_t even for unsigned storage. */
+    unsigned previous = (unsigned)re_atomic_rlx(&e->test_peak);
     while (previous < peak && !re_atomic_compare_exchange_weak(&e->test_peak, &previous, peak, re_memory_order_relaxed, re_memory_order_relaxed)) {}
 }
 static void test_source_error(int error, const char *text, void *arg) {
@@ -350,7 +351,7 @@ static void test_source_error(int error, const char *text, void *arg) {
 }
 static void test_tick(void *arg) {
     struct engine *e = arg;
-    int error = re_atomic_exchange(&e->test_error, 0, re_memory_order_relaxed);
+    int error = (int)re_atomic_exchange(&e->test_error, 0, re_memory_order_relaxed);
     if (error) { emit_test(e, EV_TEST_FAILED, error, e->test_id); stop_audio_test(e); return; }
     if (tmr_jiffies() >= e->test_deadline) { stop_audio_test(e); return; }
     if (e->test_kind == 0) emit_test(e, EV_TEST_LEVEL, (int)re_atomic_exchange(&e->test_peak, 0, re_memory_order_relaxed), e->test_id);

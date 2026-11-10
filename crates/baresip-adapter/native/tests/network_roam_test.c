@@ -1,6 +1,8 @@
 /* Standalone state-machine tests with real SDK address types/functions.
  * Only OS enumeration, baresip network storage, DNS and SIP effects are faked.
  * Compile this file and network_roam.c against the installed libre SDK. */
+/* Assertions are the test oracle, including in Release builds. */
+#undef NDEBUG
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
