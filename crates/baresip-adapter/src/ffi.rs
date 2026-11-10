@@ -1821,6 +1821,58 @@ mod observation_tests {
     }
 
     #[test]
+    fn transfer_success_projection_follows_closure_order_and_late_notify() {
+        for (first, last) in [(10, 20), (20, 10)] {
+            for status in [None, Some(500), Some(200)] {
+                let mut h = Harness::new();
+                h.event(7, 0, 10, "Original", "100");
+                h.event(8, 0, 10, "", "");
+                h.event(23, 0, 20, "", "200");
+                h.event(5, 0, 20, "", "");
+                h.event(8, 0, 20, "", "");
+                h.event(EV_SELECTED, 0, 20, "", "");
+                if let Some(status) = status {
+                    h.event(EV_TRANSFER_RESULT, status, 10, "", "");
+                    h.event(EV_TRANSFER_RESULT, status, 20, "", "");
+                }
+                h.event(9, 0, first, "", "");
+                h.event(9, 0, last, "", "");
+                let state = h.context.snapshot.lock().unwrap();
+                assert!(state.snapshot.calls.is_empty());
+                assert_eq!(state.snapshot.call, CallState::Idle);
+                let success: Vec<_> = state
+                    .snapshot
+                    .call_events
+                    .iter()
+                    .filter(|event| matches!(event.event, CallEventKind::TransferSucceeded))
+                    .collect();
+                if status == Some(200) {
+                    assert_eq!(success.len(), 1);
+                    assert_eq!(success[0].call_id, last.to_string());
+                } else {
+                    assert!(success.is_empty());
+                }
+            }
+        }
+
+        let mut h = Harness::new();
+        h.event(7, 0, 10, "Original", "100");
+        h.event(8, 0, 10, "", "");
+        h.event(9, 0, 10, "", "");
+        {
+            let state = h.context.snapshot.lock().unwrap();
+            assert!(state.snapshot.calls.is_empty());
+            assert!(state.snapshot.call_events.is_empty());
+        }
+        h.event(EV_TRANSFER_RESULT, 200, 10, "", "");
+        let state = h.context.snapshot.lock().unwrap();
+        assert!(state.snapshot.calls.is_empty());
+        assert!(state.snapshot.call_events.iter().any(|event| {
+            event.call_id == "10" && matches!(event.event, CallEventKind::TransferSucceeded)
+        }));
+    }
+
+    #[test]
     fn busy_offer_preserves_active_snapshot_token_and_identity() {
         let mut h = Harness::new();
         h.event(7, 0, 10, "First", "100");

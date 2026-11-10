@@ -1,10 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
   createSoftwareBill,
   addNative,
   validateSoftwareBill,
 } from "../../apps/desktop/build/software-bill";
+
+// Cargo metadata may download another platform's dependencies on a cold cache.
+setDefaultTimeout(120_000);
 
 const portable = {
   target: "aarch64-apple-darwin",

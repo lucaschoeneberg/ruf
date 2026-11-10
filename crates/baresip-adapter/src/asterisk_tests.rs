@@ -555,7 +555,12 @@ fn asterisk_blind_transfer_final_notify_and_remote_audio_survive() {
         lab.bridged(&c);
     }
     lab.engine.transfer_call(&id, "602").unwrap();
-    let s = wait(&lab.engine, |s| s.calls.is_empty());
+    let s = wait(&lab.engine, |s| {
+        s.calls.is_empty()
+            && s.call_events
+                .iter()
+                .any(|e| e.call_id == id && matches!(e.event, CallEventKind::TransferSucceeded))
+    });
     assert!(
         s.call_events
             .iter()
@@ -592,12 +597,21 @@ fn asterisk_attended_transfer_switches_and_connects_remote_peers() {
         assert_eq!(s.calls.iter().filter(|c| !c.local_held).count(), 1);
     }
     lab.engine.complete_transfer(&child).unwrap();
-    let s = wait(&lab.engine, |s| s.calls.is_empty());
-    // Terminal legacy projection retains the last selected dialog's FIFO.
+    // Asterisk may close a leg before final NOTIFY arrives. Wait for native
+    // success as well as closure; the terminal projection retains the last
+    // closing leg's FIFO, which can belong to either member of this transfer.
+    let s = wait(&lab.engine, |s| {
+        s.calls.is_empty()
+            && s.call_events.iter().any(|e| {
+                (e.call_id == original || e.call_id == child)
+                    && matches!(e.event, CallEventKind::TransferSucceeded)
+            })
+    });
     assert!(
         s.call_events
             .iter()
-            .any(|e| e.call_id == child && matches!(e.event, CallEventKind::TransferSucceeded))
+            .any(|e| (e.call_id == original || e.call_id == child)
+                && matches!(e.event, CallEventKind::TransferSucceeded))
     );
     println!("FINAL_NOTIFY_OK attended child={child}");
     for id in [&original, &child] {

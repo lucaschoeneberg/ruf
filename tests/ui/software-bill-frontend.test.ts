@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,9 @@ import {
   validateSoftwareBill,
 } from "../../apps/desktop/build/software-bill";
 import { addFrontend } from "../../apps/desktop/build/software-bill-frontend";
+
+// Cargo metadata may download another platform's dependencies on a cold cache.
+setDefaultTimeout(120_000);
 
 test("rendered frontend graph records resolved package imports and excludes unused build tools", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ruf-sbom-"));

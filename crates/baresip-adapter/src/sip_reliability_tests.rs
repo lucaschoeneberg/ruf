@@ -1,17 +1,6 @@
 //! Native regressions for the SIP reliability audit.
 use super::*;
 
-fn contains_500_hz_pcm(samples: &[i16]) -> bool {
-    // A stalled runner can leave a silent tail. Require a complete one-second
-    // tone window in newly recorded PCM, keeping the existing RMS/frequency bounds.
-    samples.windows(8000).step_by(160).any(|window| {
-        let rms = (window.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>() / window.len() as f64)
-            .sqrt();
-        let hz = window.windows(2).filter(|p| p[0] < 0 && p[1] >= 0).count() as f64;
-        rms > 500.0 && (480.0..520.0).contains(&hz)
-    })
-}
-
 #[test]
 fn early_media_tone_detection_uses_fresh_windows() {
     let tone: Vec<i16> = (0..16000)

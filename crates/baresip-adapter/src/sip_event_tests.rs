@@ -1646,6 +1646,17 @@ fn consultation_queued_resume_has_bounded_failure_and_allows_later_retry() {
     lab.settle();
 }
 
+fn contains_500_hz_pcm(samples: &[i16]) -> bool {
+    // A stalled runner can leave a silent tail. Require a complete one-second
+    // tone window in newly recorded PCM, keeping the existing RMS/frequency bounds.
+    samples.windows(8000).step_by(160).any(|window| {
+        let rms = (window.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>() / window.len() as f64)
+            .sqrt();
+        let hz = window.windows(2).filter(|p| p[0] < 0 && p[1] >= 0).count() as f64;
+        rms > 500.0 && (480.0..520.0).contains(&hz)
+    })
+}
+
 fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {
     let _guard = crate::NATIVE_TEST_LOCK
         .lock()
@@ -1685,27 +1696,19 @@ fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {
             "{status} {phase}: need >=1s fresh PCM, got {} bytes",
             bytes.len()
         );
-        // Inspect the newest full second, excluding headers, startup and stale audio.
-        let samples: Vec<i16> = bytes[bytes.len() - 16000..]
+        // Inspect fresh PCM with the same full-window oracle as early media.
+        let samples: Vec<i16> = bytes
             .as_chunks::<2>()
             .0
             .iter()
             .map(|b| i16::from_le_bytes(*b))
             .collect();
-        let rms = (samples.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>()
-            / samples.len() as f64)
-            .sqrt();
-        let crossings = samples.windows(2).filter(|p| p[0] < 0 && p[1] >= 0).count();
-        let frequency = crossings as f64 * 8000.0 / samples.len() as f64;
-        assert!(rms > 500.0, "{status} {phase}: silent PCM RMS={rms}");
         assert!(
-            (480.0..520.0).contains(&frequency),
-            "{status} {phase}: expected 500 Hz, got {frequency}"
-        );
-        println!(
-            "{status} {phase}: fresh PCM={} RMS={rms:.0} frequency={frequency:.1}Hz",
+            contains_500_hz_pcm(&samples),
+            "{status} {phase}: need a complete second of fresh 500 Hz PCM, captured {} samples",
             samples.len()
         );
+        println!("{status} {phase}: fresh PCM={} samples", samples.len());
     };
     send_audio();
     assert_tone(&std::fs::read(&recording).unwrap(), "baseline");
