@@ -180,6 +180,16 @@ impl Lab {
         }
     }
 
+    fn reply_to_resume(&self, dialog: &str) {
+        let resume = self.receive("original resume", |packet| {
+            packet.starts_with("INVITE ")
+                && header(packet, "Call-ID:") == header(dialog, "Call-ID:")
+                && header(packet, "CSeq:") != header(dialog, "CSeq:")
+        });
+        assert!(resume.contains("a=sendrecv"));
+        self.reply(&resume, "200 OK", "", &sdp(31, "sendrecv"));
+    }
+
     fn wait(&self, predicate: impl Fn(&EngineSnapshot) -> bool) -> EngineSnapshot {
         let until = Instant::now() + TIMEOUT;
         loop {
@@ -990,7 +1000,7 @@ fn controls_consultation_is_two_dialogs_and_cancel_returns_to_original() {
         ErrorCode::InvalidState
     );
     lab.engine.cancel_consultation(&consultation).unwrap();
-    lab.settle();
+    lab.reply_to_resume(&hold);
     let original = lab.wait(|s| {
         s.calls.len() == 1 && s.call_id.as_deref() == Some(&id) && !s.calls[0].hold_pending
     });
@@ -1320,7 +1330,7 @@ fn controls_cancel_consultation_while_ringing_resumes_original() {
     let cancel = lab.receive("consultation CANCEL", |p| p.starts_with("CANCEL "));
     lab.reply(&cancel, "200 OK", "", "");
     lab.reply(&invite, "487 Request Terminated", "", "");
-    lab.settle();
+    lab.reply_to_resume(&hold);
     lab.wait(|s| {
         s.calls.len() == 1
             && s.call_id.as_deref() == Some(original.as_str())
@@ -1428,7 +1438,7 @@ fn controls_consultation_failure_restores_original_intent_and_preserves_error() 
     let _guard = crate::NATIVE_TEST_LOCK.lock().unwrap();
     for was_held in [false, true] {
         let mut lab = Lab::new("consultation-failure");
-        lab.incoming();
+        let dialog = lab.incoming();
         let original = lab.engine.snapshot().unwrap().call_id.unwrap();
         if was_held {
             lab.engine.set_call_held(&original, true).unwrap();
@@ -1445,7 +1455,9 @@ fn controls_consultation_failure_restores_original_intent_and_preserves_error() 
             p.starts_with("INVITE ")
         });
         lab.reply(&invite, "486 Busy Here", "", "");
-        lab.settle();
+        if !was_held {
+            lab.reply_to_resume(&dialog);
+        }
         let state = lab.wait(|s| {
             s.calls.len() == 1 && !s.calls[0].hold_pending && s.calls[0].local_held == was_held
         });
@@ -1521,7 +1533,7 @@ fn consultation_native_setup_failure_is_retained_on_original_without_sip_status(
     });
     let child = lab.engine.snapshot().unwrap().call_id.unwrap();
     lab.reply(&invite, "183 Session Progress", "", "v=invalid\r\n");
-    lab.settle();
+    lab.reply_to_resume(&hold);
     let state = lab.wait(|s| {
         s.calls.len() == 1
             && s.call_id.as_deref() == Some(original.as_str())

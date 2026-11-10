@@ -65,6 +65,8 @@ pub(crate) fn installed_path(executable: &Path, installation_roots: &[std::path:
 }
 
 pub(crate) fn autostart_available(app: &tauri::AppHandle) -> bool {
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
     if cfg!(debug_assertions) {
         return false;
     }
@@ -86,10 +88,7 @@ pub(crate) fn autostart_available(app: &tauri::AppHandle) -> bool {
         .map(std::path::PathBuf::from)
         .collect();
     #[cfg(not(any(windows, target_os = "macos")))]
-    let roots = {
-        let _ = app;
-        Vec::new()
-    };
+    let roots = Vec::new();
     installed_path(&executable, &roots)
 }
 
