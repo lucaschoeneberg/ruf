@@ -1,47 +1,87 @@
+<div align="center">
+
+<img src="apps/desktop/src-tauri/icons/128x128.png" alt="Ruf-Appsymbol" width="80">
+
 # Ruf
 
-Schlankes SIP-Softphone für macOS und Windows mit Rust, Tauri 2 und Svelte.
-Eigener Code steht unter der [MIT-Lizenz](LICENSE).
+**Ein kompaktes SIP-Softphone für macOS und Windows.**
 
-**Stand: 0.1.0-Vorschau für isolierte Testnetze.** Bis zu acht gespeicherte
-Konten können unabhängig registriert sein. Gespräche bieten Stummschaltung,
-lokales Halten, direkte Vermittlung und eine Rückfrage mit Wechsel, Rückkehr und
-Vermittlungsabschluss; höchstens zwei zugehörige Dialoge und ein hörbares Gespräch.
-Konten unterstützen UDP/TCP/TLS sowie erforderliches SDES-SRTP mit TLS.
-UDP/TCP und gewöhnliches RTP sind unverschlüsselt. TLS prüft Serverzertifikat und
-Host über die Betriebssystem-Vertrauensregeln; es gibt keinen automatischen
-Klartext-Rückfall. Die Gesprächsanzeige folgt beobachtetem Schutz, nicht der
-Kontoeinstellung. Schutz bis zur Telefonanlage garantiert keine Ende-zu-Ende-Verschlüsselung.
-Passwörter liegen im macOS-Schlüsselbund bzw. Windows Credential Manager.
-Die [lokale macOS-Verifikation](docs/verification/2026-11-05-call-controls-security.md)
-belegt Anmeldung, Vermittlung, Stummschaltung, Halten und zurückkehrendes Audio
-sowie TLS-/SRTP-Erfolg und Fehlerfälle mit isoliertem Asterisk und kontrollierten
-Loopback-Gegenstellen. Provider-Interoperabilität, physische Audiohardware und
-Windows-Laufzeit bleiben gesondert zu verifizieren.
+[![CI](https://github.com/lucaschoeneberg/ruf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lucaschoeneberg/ruf/actions/workflows/ci.yml)
+[![Version: 0.1.0 Vorschau](https://img.shields.io/badge/Version-0.1.0%20Vorschau-3b82f6)](docs/releases/0.1.0.md)
+[![Zielplattformen: macOS und Windows](https://img.shields.io/badge/Zielplattformen-macOS%20%7C%20Windows-64748b)](docs/development.md)
+[![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-22c55e)](LICENSE)
 
-Die dunkle Desktop-Oberfläche startet mit 340 × 500 Pixeln. Sie bietet Wähltastatur,
-macOS-Kontakte nach ausdrücklicher Freigabe, Favoriten und einen lokalen
-SQLite-Anrufverlauf mit Rückruf.
-Formatierte Rufnummern einschließlich führendem Plus werden vor dem Wählen validiert.
-Freigegebene Kontakte erscheinen als Nummernvorschläge, in Gesprächen, Mitteilungen
-und rückwirkend im Verlauf; die Zuordnung deutscher Vorwahlen ist abschaltbar.
-Während aktiver Gespräche lässt sich eine Tastatur für native DTMF-Töne einblenden.
-Acht Einstellungsbereiche bieten Feldsuche, Kontenaktivierung, Audiotests,
-Klingeltöne, Hintergrundstart und Berechtigungschecks.
-Mit ⌘K auf macOS beziehungsweise Strg+K auf Windows lassen sich Aktionen,
-freigegebene Kontakte und der lokale Verlauf durchsuchen. Tastenkürzel und native
-Menüs greifen auf dieselben verfügbaren Gesprächsaktionen zu.
-Anruferdetails in Mitteilungen lassen sich ausblenden; der Diagnosebericht enthält
-keine persönlichen Daten. Kontaktanzeige und Verlaufsspeicherung lassen sich anpassen; abgeschlossene
-Verlaufseinträge können nach einer gewählten Frist gelöscht werden. [Produktumfang](apps/desktop/PRODUCT.md),
-[Designregeln](apps/desktop/DESIGN.md) und [Release-Notizen](docs/releases/0.1.0.md)
-beschreiben die Vorschau. Windows-Kontakte, Kalender und automatische
-Updates sind noch nicht verfügbar.
+[Screenshots](#screenshots) · [Funktionen](#funktionen) · [Lokal starten](#lokal-starten) · [Dokumentation](#weiterarbeiten)
 
-Release-Ziele sind macOS 14+ auf Apple Silicon und Windows 11 x64. Die Pakete
-nutzen derzeit Ad-hoc-Signierung auf macOS und sind unter Windows unsigniert.
-Für eine öffentliche Produktionsfreigabe sind die offenen Punkte der
-[Release-Checkliste](docs/release-checklist.md) zu erfüllen.
+</div>
+
+Ruf verbindet deinen Desktop mit einer SIP-Telefonanlage. Wähle Nummern oder
+Nebenstellen, verwalte mehrere Konten und behalte Kontakte und vergangene Anrufe
+in einer übersichtlichen Oberfläche. Im Gespräch sind Stummschaltung, Halten,
+DTMF-Tastatur und Vermittlung direkt erreichbar.
+
+**Version 0.1.0 ist eine Vorschau für isolierte Testnetze.** Die Pakete sind noch
+nicht für eine öffentliche Produktionsfreigabe qualifiziert. Den aktuellen Umfang
+beschreiben die [Release-Notizen](docs/releases/0.1.0.md).
+
+## Screenshots
+
+<table>
+  <tr>
+    <th>Wählen</th>
+    <th>Im Gespräch</th>
+    <th>Kontakte</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/dialer.png" alt="Ruf mit Kontoauswahl und kompakter Wähltastatur" width="260"></td>
+    <td><img src="docs/screenshots/call.png" alt="Gespräch mit Halten, Stummschaltung und Vermittlungsaktionen" width="260"></td>
+    <td><img src="docs/screenshots/contacts.png" alt="macOS-Kontaktansicht mit Suche und Favoriten" width="260"></td>
+  </tr>
+</table>
+
+<details>
+<summary>SIP-Kontoeinstellungen ansehen</summary>
+
+<img src="docs/screenshots/settings.png" alt="Übersicht der SIP-Konten und Kontoeinstellungen" width="900">
+
+</details>
+
+Die Abbildungen zeigen die aktuelle Oberfläche mit fiktiven Demo-Konten und
+Kontakten. Sie sind keine Nachweise für reale Gespräche oder Betriebssystem-Freigaben.
+
+## Funktionen
+
+| Bereich                | Was Ruf bietet                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Mehrere Konten**     | Bis zu acht gespeicherte SIP-Konten, unabhängig aktivierbar und mit auswählbarer ausgehender Identität.                 |
+| **Gespräche**          | Annehmen, Ablehnen, Auflegen, Stummschaltung, Halten und native DTMF-Töne für Ziffern, Stern und Raute.                 |
+| **Vermittlung**        | Direkt vermitteln oder eine Rückfrage starten, zwischen den Gesprächen wechseln und die Vermittlung abschließen.        |
+| **Kontakte auf macOS** | Nach ausdrücklicher Freigabe suchen, Favoriten nutzen und passende Kontakte beim Wählen oder im Gespräch erkennen.      |
+| **Lokaler Verlauf**    | Anrufergebnis und Dauer, Rückruf über das ursprüngliche Konto sowie einstellbare Speicherung und Aufbewahrung.          |
+| **Audio**              | Mikrofon, Gesprächslautsprecher und Klingelton getrennt auswählen und mit kurzen Audiotests prüfen.                     |
+| **Desktop**            | Tray-Menü, Hintergrundbetrieb, Tastenkürzel und Suche mit ⌘K beziehungsweise Strg+K; eingehende Mitteilungen auf macOS. |
+
+Rust und Tauri 2 bilden die Desktop-Anwendung, Svelte die Oberfläche. SIP und
+Audio laufen nativ über baresip. Der eigene Code steht unter der
+[MIT-Lizenz](LICENSE); Abhängigkeiten behalten ihre jeweiligen Lizenzen.
+
+## Stand und Grenzen
+
+- Zielplattformen sind **macOS 14+ auf Apple Silicon** und **Windows 11 x64**.
+  Ein erfolgreicher Build ersetzt keine Prüfung auf physischer Audiohardware
+  oder gegen die eigene Telefonanlage. Ergebnisse und Grenzen stehen in den
+  [Prüfnachweisen](docs/verification/README.md).
+- Die macOS-Pakete sind derzeit ad hoc signiert, Windows-Installer unsigniert.
+  Die [Release-Checkliste](docs/release-checklist.md) enthält die offenen
+  Freigabeschritte.
+- Konten unterstützen UDP, TCP und TLS sowie erforderliches SDES-SRTP mit TLS.
+  UDP/TCP und gewöhnliches RTP sind unverschlüsselt. TLS prüft Zertifikat und
+  Host über das Betriebssystem; ein automatischer Klartext-Rückfall ist
+  ausgeschlossen. Die Gesprächsanzeige folgt dem tatsächlich beobachteten
+  Schutz. Schutz bis zur Telefonanlage ist keine Ende-zu-Ende-Verschlüsselung.
+- Höchstens zwei zusammengehörige Dialoge teilen sich ein hörbares Gespräch.
+  Passwörter liegen im macOS-Schlüsselbund beziehungsweise Windows Credential Manager.
+- Windows-Kontakte, Kalenderintegration und automatische Updates sind noch nicht verfügbar.
 
 ## Lokal starten
 
@@ -134,5 +174,6 @@ Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Paket
 
 GitHub-Workflows prüfen Quellcode, Browserzustände, native Builds und das
 Asterisk-Labor. Ein passender Versionstag erstellt nach erfolgreichen Checks einen
-Entwurf als Vorabversion mit Installern und SHA-256-Prüfsummen. Ein Remote und
-Repository-Regeln müssen am tatsächlichen Repository eingerichtet werden.
+Entwurf als Vorabversion mit Installern und SHA-256-Prüfsummen. Die Einrichtung
+von Repository-Regeln und die Produktionsfreigabe beschreibt der
+[CI/CD-Leitfaden](docs/ci-cd.md).
