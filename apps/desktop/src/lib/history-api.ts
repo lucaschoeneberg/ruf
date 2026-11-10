@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { desktopInvoke } from "./api";
 import type {
   EngineSnapshot,
   HistoryPage,
@@ -9,11 +9,11 @@ function desktop<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  if (!isTauri())
-    return Promise.reject(
-      new Error("Der Verlauf ist nur in der Desktop-App verfügbar."),
-    );
-  return invoke<T>(command, args);
+  return desktopInvoke<T>(
+    command,
+    args,
+    "Der Verlauf ist nur in der Desktop-App verfügbar.",
+  );
 }
 
 export const getHistory = (query: HistoryQuery) =>

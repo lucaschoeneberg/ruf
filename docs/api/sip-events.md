@@ -15,7 +15,7 @@ outgoing transfer, the two-dialog consultation snapshot and the owner-tagged
 | `revision`          | Number; process-monotonic snapshot-read revision, including reads before native startup and across engine recreation. Zero denotes default or unobserved state. Ignore deliveries older than the applied revision; equal revisions may be replayed. Not persisted or comparable across app restarts. |
 | `call`              | Existing states plus `earlyMedia` (provisional SDP, not established) and `held` (established, remotely held). Both occupy a live dialog. Resume returns to `active`.                                                                                                                                 |
 | `callConnectedAtMs` | Number or null; native initial establishment time in Unix milliseconds. Null before establishment/while idle; unchanged through hold/resume or window restoration.                                                                                                                                   |
-| `callEvents`        | Last 64 significant `CallEvent` objects for the most recent call, oldest first. Preserved after close; reset on a new call. Memory-only, never logged or persisted.                                                                                                                                  |
+| `callEvents`        | Last 64 significant `CallEvent` objects for the selected live dialog, oldest first. When all calls close, the last projected buffer is retained until a new call. Each dialog has its own buffer in `calls`. Memory-only, never logged or persisted.                                                 |
 | `callEventsDropped` | Number of oldest events evicted from this call's buffer, saturating at u32::MAX. Allows consumers to detect retention gaps.                                                                                                                                                                          |
 
 Existing nullable `caller` / `CallerIdentity` and contact matching are reused.
@@ -64,7 +64,11 @@ nativeFailure with null sipStatus; it is never treated as a SIP response.
 Success/provisional responses and 487 cancellation do not become call errors.
 Accepted local rejection/hangup does not become a remote busy/decline error.
 New calls clear the previous error. Registration uses the same classification
-per AccountSnapshot.lastError; failures without a SIP response use nativeFailure.
+per `AccountSnapshot.lastError`; failures without a SIP response use
+`nativeFailure` or the specific native security classifications
+`certificateRejected`, `transportFailure` and `mediaSecurityRequired`, all with
+null `sipStatus`. Startup credential failures remain separate; see
+[saved credential recovery](credential-recovery.md).
 An outgoing attempt closed during calling, ringing or early media without a SIP
 status or accepted local cancellation reports `nativeFailure` with null
 `sipStatus`; for example, native SDP decoding can fail before establishment.
@@ -176,7 +180,8 @@ Contact and Record-Route processing remain native; cleanup is bounded to 32
 distinct discarded branches during the original ACK cache's 64*T1 lifetime.
 
 Incoming `application/dtmf-relay` INFO requires a single signal from 0–9, star,
-hash or A–D (case insensitive), plus a decimal duration of 1–5000 milliseconds.
+hash or A–D (case insensitive), plus a duration of one to four ASCII decimal
+digits representing 1–5000 milliseconds.
 Missing, malformed, multiple-character or out-of-range fields receive 400 without
 a DTMF event. Existing server transactions replay responses to retransmissions;
 one INFO transaction produces one digit. This changes no public IPC fields.

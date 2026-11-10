@@ -12,11 +12,7 @@ pub(crate) fn with_session<T>(
     app: &tauri::AppHandle,
     operation: impl FnOnce(&mut PhoneSession) -> Result<T, PhoneError>,
 ) -> Result<T, PhoneError> {
-    let directory = store::data_directory(app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| store::storage_error())?;
+    let (directory, cache) = store::session_directories(app)?;
     app.state::<crate::phone::PhoneState>().with(|session| {
         session.load(directory, cache)?;
         operation(session)

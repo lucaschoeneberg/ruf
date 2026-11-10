@@ -14,8 +14,8 @@ Settings-window command; main and browser previews have no permission.
 | `id`  | u32      | Existing saved, non-removing account ID. Zero/unknown IDs reject with invalidInput; malformed/missing arguments are rejected by Tauri. |
 
 Returns password-free `EngineSnapshot` after native account configuration is
-accepted. Registration remains asynchronous: observe that account's registration
-and lastError rather than treating command acceptance as successful SIP login.
+applied and acknowledged. Registration remains asynchronous: observe that
+account's registration and lastError rather than treating command acceptance as successful SIP login.
 No HTTP status mapping exists.
 
 Only an explicit foreground action invokes this command. It reads the existing
@@ -28,6 +28,10 @@ the command rechecks shutdown, account ID, saved credential reference and accoun
 metadata. If a call arrived or the account changed, recovery fails rather than
 replacing a live call/account. The native event loop repeats its existing call
 guard when applying the account.
+
+The saved account must be enabled; disabled accounts return `invalidState` before
+credential access. A registration failure is not required: an enabled, already
+registered account can also be reconnected.
 
 Recovery never saves form drafts, rewrites settings, rotates/deletes a credential
 or changes outgoing account selection. Cancellation/failure leaves saved state
@@ -48,7 +52,7 @@ secrets are never returned or logged.
 | `storageFailure`                      | Settings/application-data file access failed; inspect the app-data location. It is no longer the classification for system credential operations.                                                                                                                                                                                      |
 | `invalidInput`                        | Unknown saved account ID or invalid explicitly supplied account/password fields. Unusable contents read from an existing credential are classified separately as credentialFailure.                                                                                                                                                    |
 | `busy`                                | A call occupies the phone before access or arrived before native application.                                                                                                                                                                                                                                                          |
-| `invalidState`                        | Account/credential metadata changed during authorization, removal is pending, or shutdown started.                                                                                                                                                                                                                                     |
+| `invalidState`                        | The saved account is disabled, account/credential metadata changed during authorization, removal is pending, or shutdown started.                                                                                                                                                                                                      |
 | `nativeFailure` / `engineUnavailable` | Native queue/configuration failed or this build lacks native telephony.                                                                                                                                                                                                                                                                |
 
 Other commands using the existing credential boundary can also return the three
@@ -75,12 +79,10 @@ under OS access controls; recovery does not broaden an item's trusted-app list o
 disable credential protection. Development ad-hoc builds may need OS approval
 again when their executable identity changes.
 
-Local ad-hoc updates can also leave an older code-hash partition on an existing
-keychain item even when Always Allow updated its trusted-application entry.
-If foreground reconnect works but the same build cannot restore the account after
-a normal restart, the existing Save & Connect action with unchanged account
-fields and blank retained-password input can re-store the existing credential
-through Ruf's ordinary journaled save path. This rotates its opaque reference
-under the current app identity while preserving the password/account and then
-cleans the old reference. Reconnect itself still performs no rotation. The app
-does not rewrite keychain ACLs or provide a blanket credential-access bypass.
+A save with a blank retained-password input reads the existing credential with
+foreground authorization and keeps its opaque reference without rewriting the
+secret. It does not repair that item's code-signing access controls. To store a
+replacement credential under a new opaque reference, explicitly supply the SIP
+password and save; the existing journaled save path then cleans the old
+reference. Reconnect performs no rotation. The app does not rewrite keychain ACLs
+or provide a blanket credential-access bypass.

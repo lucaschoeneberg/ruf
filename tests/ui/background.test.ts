@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { compile } from "svelte/compiler";
 import { render } from "svelte/server";
 import type {
+  AccountSnapshot,
   CallSnapshot,
   CallState,
   ErrorCode,
@@ -149,7 +150,11 @@ for (const [state, label] of [
 const { default: AccountSetup } =
   await import("../../apps/desktop/src/lib/components/AccountSetup.svelte");
 
-function accountRecovery(code: ErrorCode, disabled = false) {
+function accountRecovery(
+  code: ErrorCode,
+  disabled = false,
+  overrides: Partial<AccountSnapshot> = {},
+) {
   return render(AccountSetup, {
     props: {
       account: {
@@ -164,9 +169,17 @@ function accountRecovery(code: ErrorCode, disabled = false) {
         name: "Büro",
         registrar: "pbx.example.test",
         username: "alice",
+        enabled: true,
+        enabledChanging: false,
+        registeredAtMs: null,
+        transport: "udp",
+        mediaSecurity: "disabled",
+        authUsername: null,
+        outboundProxy: null,
         registration: "failed",
         lastError: { code, message: "Synthetic local error", sipStatus: null },
         removing: false,
+        ...overrides,
       },
       busy: false,
       disabled,
@@ -204,3 +217,31 @@ test("credential retry is disabled during a call", () => {
     /<button[^>]*disabled[^>]*>Erneut verbinden<\/button>/,
   );
 });
+
+const accountStatuses: [Partial<AccountSnapshot>, string][] = [
+  [
+    {
+      enabledChanging: true,
+      enabled: false,
+      removing: true,
+      registration: "registered",
+    },
+    "Wird geändert …",
+  ],
+  [
+    { enabled: false, removing: true, registration: "registered" },
+    "Deaktiviert",
+  ],
+  [{ removing: true, registration: "registered" }, "Wird entfernt …"],
+  [{ registration: "registered" }, "Angemeldet"],
+  [{ registration: "registering" }, "Wird angemeldet …"],
+  [{ registration: "failed" }, "Anmeldung fehlgeschlagen"],
+  [{ registration: "unconfigured" }, "Noch nicht angemeldet"],
+];
+for (const [state, label] of accountStatuses) {
+  test(`account status preserves transition priority: ${label}`, () => {
+    expect(accountRecovery("nativeFailure", false, state)).toContain(
+      `</span>${label}</span>`,
+    );
+  });
+}

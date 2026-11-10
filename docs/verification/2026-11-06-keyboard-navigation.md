@@ -21,33 +21,6 @@ Stand: 6. November 2026. Umsetzung im bestehenden Checkout; vorher vorhandene
   generierte Gesprächsmodelle, Einstellungsnavigation, Icons und Design-Tokens
   werden wiederverwendet. Keine neue Dependency oder zweite Audiopipeline.
 
-## Geänderte Dateien dieses Auftrags
-
-Neue Dateien:
-
-- `apps/desktop/src/lib/shortcuts.ts`
-- `apps/desktop/src/lib/components/ActionSearch.svelte`
-- `tests/ui/shortcuts.test.ts`
-- `tests/ui/browser/shortcuts.mjs`
-- `docs/api/keyboard-navigation.md`
-- `docs/verification/2026-11-06-keyboard-navigation.md`
-
-Erweiterte Dateien:
-
-- `apps/desktop/src/App.svelte`
-- `apps/desktop/src/Settings.svelte`
-- `apps/desktop/src/lib/components/CallPanel.svelte`
-- `apps/desktop/src/lib/components/ContactsPanel.svelte`
-- `apps/desktop/src/lib/components/HistoryPanel.svelte`
-- `apps/desktop/src/lib/components/DtmfPad.svelte`
-- `apps/desktop/src/lib/components/DiagnosticsSettings.svelte`
-- `apps/desktop/src/lib/settings-navigation.ts`
-- `apps/desktop/src-tauri/src/shell.rs`
-- `apps/desktop/DESIGN.md`
-- `docs/api/README.md`
-- `tests/ui/browser/call-controls.mjs`
-- `scripts/check-ui-flows.mjs`
-
 ## API-Dokumentation
 
 [Keyboard navigation](../api/keyboard-navigation.md) dokumentiert Kürzel,

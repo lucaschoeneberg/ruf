@@ -106,6 +106,7 @@ All `CallSnapshot` fields are required, including nullable fields:
 | `destination`   | string or null                           | Validated requested outgoing number; null for incoming calls.                                                          |
 | `caller`        | `CallerIdentity` or null                 | Existing sanitized, unverified incoming identity; null for outgoing calls.                                             |
 | `contact`       | `ContactReference` or null               | Current authorized address-book identity for this dialog; memory-only and nullable when missing, revoked or ambiguous. |
+| `security`      | `CallSecurity`                           | Required native signaling/media observations; see [account security](account-security.md#native-observation).          |
 | `connectedAtMs` | number or null                           | Native initial connection time; null before establishment.                                                             |
 | `muted`         | boolean                                  | Confirmed suppression of outgoing audio.                                                                               |
 | `localHeld`     | boolean                                  | Confirmed accepted local hold; independent of remote hold.                                                             |

@@ -7,19 +7,16 @@ call was placed by Ruf before these incoming tests. Private runtime logs and
 window screenshots remain outside Git; this report contains no account address,
 caller number, credential reference or contact data.
 
-## Initial checks and obsolete registrations
+Historical evidence from 5 November 2026. No executable hash or source revision
+was recorded for these installed builds. The results below apply only to the
+observed installation, not to every package with version 0.1.0.
+
+## Initial permission checks
 
 The installed code signature verified. Ruf's saved notification preference was
 enabled. Its General settings reported native OS authorization as allowed.
 macOS's Ruf notification panel also had desktop, Notification Center and lock
 screen display enabled, with temporary banner style.
-
-LaunchServices contained 13 obsolete Ruf/legacy SIP entries pointing to paths
-that no longer existed. Unregistered only those missing paths and refreshed
-`/Applications/Ruf.app`. A subsequent enumeration found no missing Ruf/SIP paths
-and one registration for the installed path. This LaunchServices cleanup did not
-delete bundles/accounts or reset credential/notification permissions. Obsolete entries
-were not established as the cause of the absent banners.
 
 ## Fresh startup, without an outgoing call
 
@@ -45,8 +42,8 @@ not certify every idle interval, network change or media path.
 The first call rang but the user saw no banner. No native notification
 initialization/delivery failure was logged. macOS Focus settings showed
 Do Not Disturb active. With Do Not Disturb subsequently off, a repeated external
-call produced the Ruf notification; the user explicitly confirmed its appearance
-and requested leaving Focus off. Ruf remained in the background for the test.
+call produced the Ruf notification; the user explicitly confirmed its appearance.
+Ruf remained in the background for the test.
 No application-side Focus bypass or notification authorization reset was added.
 
 ## Separate signaling anomaly and bounded lifetime correction
@@ -69,7 +66,7 @@ registration. The test failed before the correction and passed afterward.
 Renewal now requires the exact live socket/peer mapping, unchanged advertised
 endpoint and matching validated numeric port, with the original transaction
 checks. Initial discovery, malformed values and expired/unrelated mappings remain
-rejected. See [SDK evidence](2026-11-05-nat-refresh-lifetime.md).
+rejected. See the [consolidated NAT evidence](README.md#native-sip-and-audio).
 
 The corrected installed build adds opt-in presence-only Via diagnostics. Its
 real registration showed `received=present rport=valued` during discovery and
@@ -95,6 +92,11 @@ was observed. The user confirmed the background notification, conversation and
 two-way audio. The call then closed normally with an acknowledged BYE.
 
 ## Persisted credential artifact and final normal restart
+
+This section records the repair reported for that historical installation; it is
+not current recovery guidance. A retained-password save in the current code keeps
+the existing key and does not rewrite the secret. Current behavior is documented
+in [credential recovery](../api/credential-recovery.md).
 
 A subsequent normal restart still required credential authorization despite the
 user confirming Always Allow. Read-only Security.framework metadata checks used
@@ -168,12 +170,11 @@ The real UDP SDK regression failed before the fix (`expected=3, actual=2`
 requests) and passed afterward, including negative cases, normal refresh,
 manual recovery and unregister. Both SDK regressions and all six Asterisk
 interop tests passed with the final patch. An independent read-only review
-found no required corrections. See [binding confirmation regression](2026-11-05-nat-contact-confirmation.md).
+found no required corrections. See the [consolidated NAT evidence](README.md#native-sip-and-audio).
 
 Rebuilt and installed the final native bundle; strict signature verification and
-byte comparison with the built executable passed. The final installed account
-save initially waited for macOS credential authorization; the Mac then locked.
-No attempt was made to bypass the lock or approve the credential request.
+byte comparison with the built executable passed. Credential authorization delayed the final installed account save; it was not
+bypassed by diagnostic tooling.
 
 A later read-only check observed successful real-account registration in that
 final diagnostic process: initial discovery at 744,267 ms returned one Contact
@@ -188,8 +189,7 @@ The save journal then had zero pending entries. Read-only normalized comparison
 confirmed business account fields, selected logical account and all other
 preferences remained unchanged. This is direct post-fix registrar confirmation.
 It does not itself prove a subsequent external incoming call or notification.
-The user requested no further assisted test calls, so those are not requested
-and final post-fix external-call acceptance is not claimed.
+No subsequent external acceptance call was observed for this final build.
 
 ## Checks and artifacts
 
@@ -199,20 +199,12 @@ and final post-fix external-call acceptance is not claimed.
 - The final SDK passed all six Asterisk cases separately with 4.04-second
   approximately 440.1-Hz synthetic RTP echo.
 - Native workspace Clippy with warnings denied and diff checks: passed.
-- Formatting of all eight changed documentation/script files: passed. The final
-  whole-workspace format check failed on four SBOM files being edited in other
-  active project chats: `apps/desktop/build/sbom-runtime.ts`,
-  `apps/desktop/build/software-bill-frontend.ts`,
-  `apps/desktop/build/software-bill.ts`, and
-  `apps/desktop/src/lib/software-bill.ts`. Those concurrent edits were preserved.
+- Formatting of eight changed documentation/script files passed. The concurrent
+  whole-workspace format check failed on four SBOM files; this historical run must
+  not be counted as a passing workspace format check.
 - Sanitized diagnostic checker against the final SDK: 64 allowlisted markers,
   default off, passed.
 - Native desktop bundle built and installed; signature plus actual audio/contact
   bundle entitlements/usage descriptions verified.
-- Superseded private raw logs and all captured private window screenshots were
-  removed. Only allowlisted protocol markers were retained in ignored
-  `native/build` output. The final private diagnostic log and private resumption
-  context remain for the diagnostic process; remove them when it has been
-  returned to normal launch mode. The later read-only follow-up requested no
-  further calls and did not restart the user's application.
-  No caller/account/contact data or credential material is committed.
+- Private runtime logs and window screenshots were not committed. No caller,
+  account, contact or credential material is included in this report.

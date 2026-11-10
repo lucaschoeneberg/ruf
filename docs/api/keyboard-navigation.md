@@ -89,8 +89,10 @@ payloads are required; there are no optional fields or HTTP status codes.
 | `phone-mute-requested`, `phone-hold-requested`, `phone-transfer-requested`, `phone-tones-requested` | `main`     | Opaque call-token `string`, captured in the native menu | Ignore unless token matches selected live dialog; then reuse `CallPanel` availability and action handler. |
 | `settings-find-requested`                                                                           | `settings` | `null`                                                  | Focus existing settings search when Settings owns Cmd/Ctrl+F.                                             |
 
-The shell restores/focuses the phone before emitting phone requests. Requests
-while action search owns focus are ignored. Answer/reject/hangup menu actions
+The shell restores/focuses the phone before emitting phone requests. Navigation,
+search and token-bound call-control events are ignored while action search is
+open; `phone-start-requested` still selects the getting-started view underneath
+the search dialog. Answer/reject/hangup menu actions
 continue using existing captured-token Rust handlers. Action search uses the
 same guarded UI handlers as buttons: busy and unknown-audio guards, confirmed
 mute acknowledgment, native hold/transfer recovery and one-dialog transfer rules

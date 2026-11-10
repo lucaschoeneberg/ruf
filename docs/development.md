@@ -40,6 +40,24 @@ documentation. The `desktop:build` wrapper always supplies a concrete Rust targe
 `target/<triple>/release/bundle`. The macOS examples below use the supported
 Apple Silicon target, `aarch64-apple-darwin`.
 
+If macOS packaging reports that `rust-objcopy` cannot load `libLLVM.dylib`, first
+check the helper in the pinned Rustup toolchain. A local 1.98.1 installation had
+the library in its root `lib` directory but an incorrect helper runtime search
+path. The following process-local workaround was verified; it does not change
+the toolchain or disable stripping:
+
+```sh
+DYLD_LIBRARY_PATH="$(rustc --print sysroot)/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+  bun run desktop:build --features native --bundles app,dmg
+```
+
+Cargo can replay the old warning from a cached host build helper. If that happens,
+`cargo clean --locked --release -p baresip-adapter` clears the affected release
+cache before rebuilding with the workaround above.
+
+Use Rustup's pinned compiler on `PATH`. For OpenSSL deployment-target errors,
+follow the [compatible static build instructions](../native/README.md#openssl-and-the-macos-minimum).
+
 For native changes, also run workspace Clippy/tests with
 `--features sip-desktop/native`, `bun run test:asterisk`, and
 `bun run desktop:build --features native`. Test-tone mode needs no audio
@@ -205,7 +223,7 @@ cargo test --locked -p sip-desktop --features native saved_accounts_survive -- -
 It requires the running Asterisk lab and OS credential-store access; it does not
 read or change a user's saved app accounts. UI browser fixtures remain separate
 from real native registration/audio evidence. See
-[settings verification](verification/2026-11-04-settings-accounts.md).
+[recorded credential/session checks](verification/README.md#desktop-ui-and-local-data).
 
 ## Ton settings
 
@@ -230,8 +248,9 @@ GitHub Dark Tritanopia palette. There is no settings-only color override. The
 phone has horizontal compact navigation; settings retain a dense sidebar and
 28px controls. IBM Plex Sans Regular/SemiBold are self-hosted frontend assets
 with their OFL notice, not runtime packages. No API/DTO changes accompany this
-redesign. See DESIGN.md and the Zed-design verification record for provenance,
-state captures and checks.
+redesign. See the [design rules](../apps/desktop/DESIGN.md),
+[third-party attribution](../THIRD_PARTY_NOTICES.md) and
+[UI verification summary](verification/README.md#desktop-ui-and-local-data).
 
 ## Background calling and desktop integration
 
@@ -334,7 +353,7 @@ and Windows COM activation remain installed-platform acceptance checks.
 Notification delivery runs on its own worker, coalesces the latest phone state,
 and never blocks the phone observer. A separate delivery mutex orders native
 show/withdraw/reset calls; it is never held together with the phone-session lock.
-See [verification evidence](verification/2026-11-04-call-notifications.md).
+See [notification verification and limits](verification/README.md#native-sip-and-audio).
 
 ## Contacts and observed call history
 

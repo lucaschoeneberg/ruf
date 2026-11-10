@@ -9,6 +9,15 @@ pub(crate) fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, PhoneErr
     app.path().app_data_dir().map_err(|_| storage_error())
 }
 
+/// Resolve account data and audio cache paths without loading metadata or credentials.
+pub(crate) fn session_directories(
+    app: &tauri::AppHandle,
+) -> Result<(PathBuf, PathBuf), PhoneError> {
+    let directory = data_directory(app)?;
+    let cache = app.path().app_cache_dir().map_err(|_| storage_error())?;
+    Ok((directory, cache))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SavedAccount {

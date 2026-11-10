@@ -72,21 +72,21 @@
     }
     await onconfigure(normalized, name.trim());
   }
-  const status = $derived(
-    existing?.enabledChanging
-      ? "Wird geändert …"
-      : existing?.enabled === false
-        ? "Deaktiviert"
-        : existing?.removing
-          ? "Wird entfernt …"
-          : existing?.registration === "registered"
-            ? "Angemeldet"
-            : existing?.registration === "registering"
-              ? "Wird angemeldet …"
-              : existing?.registration === "failed"
-                ? "Anmeldung fehlgeschlagen"
-                : "Noch nicht angemeldet",
-  );
+  const status = $derived.by((): string => {
+    if (existing?.enabledChanging) return "Wird geändert …";
+    if (existing?.enabled === false) return "Deaktiviert";
+    if (existing?.removing) return "Wird entfernt …";
+    switch (existing?.registration) {
+      case "registered":
+        return "Angemeldet";
+      case "registering":
+        return "Wird angemeldet …";
+      case "failed":
+        return "Anmeldung fehlgeschlagen";
+      default:
+        return "Noch nicht angemeldet";
+    }
+  });
 </script>
 
 <div class="settings-title">

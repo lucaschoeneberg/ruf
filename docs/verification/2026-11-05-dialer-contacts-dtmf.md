@@ -96,7 +96,7 @@ notification-caption changes; failed intermediate runs are not counted as passes
 The five-axis review covered correctness, readability, existing architecture,
 privacy/authority and bounded work. A leading-plus validation mutation in an
 isolated source copy turned the corresponding passing test red; tracked source
-was not altered by the experiment. Impeccable review retained the established
+was not altered by the experiment. Visual review retained the established
 compact design. Synthetic captures at 340×500 and 320×440 were inspected; numeric
 suggestions and the scrolled in-call keypad remain usable. The detector was run
 once on the changed interface and reported no findings. Captures/build output and

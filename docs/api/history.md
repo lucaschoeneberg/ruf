@@ -7,19 +7,23 @@ Portable builds cannot produce native call evidence.
 
 ## Commands
 
-All failures use the existing `{ code, message }` `PhoneError` contract.
+Application failures use the existing `PhoneError` contract with required
+`code`, `message` and nullable `sipStatus` fields; see [PhoneError](README.md#phoneerror).
+`get_history`, `delete_history_entry` and `callback_history` are allowed only in
+the `main` window. `clear_history` is allowed in both `main` and `settings`.
+Tauri rejects malformed command arguments and denied command permissions.
 
 ### `get_history { query } → HistoryPage`
 
 `query` is required; its fields are:
 
-| Field            | Required/default    | Meaning and validation                                                                                                                                                                                                                          |
-| ---------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search`         | Optional, `""`      | Case-insensitive literal substring in number, SIP peer name, original account name/registrar/username, or currently authorized matched contact name. At most 200 Unicode characters; controls are rejected. `%` and `_` are literal characters. |
-| `filter`         | Optional, `"all"`   | `all`, `missed` (incoming unanswered), `incoming`, or `outgoing`.                                                                                                                                                                               |
-| `offset`         | Optional, `0`       | Unsigned 32-bit zero-based matching-record offset.                                                                                                                                                                                              |
-| `limit`          | Optional/null, `50` | Integer 1–100.                                                                                                                                                                                                                                  |
-| `contactNumbers` | Optional, `[]`      | Restrict to any of these original contact numbers; at most 100 supported numbers. Uses current matching preferences, explicit `00`/`+` prefixes and optional German national aliases; no suffix guessing. Unsupported numbers are rejected.     |
+| Field            | Required/default    | Meaning and validation                                                                                                                                                                                                                                                   |
+| ---------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `search`         | Optional, `""`      | Trimmed, case-insensitive literal substring in number, SIP peer name, original account name/registrar/username, or currently authorized matched contact name. At most 200 Unicode characters before trimming; controls are rejected. `%` and `_` are literal characters. |
+| `filter`         | Optional, `"all"`   | `all`, `missed` (incoming records with outcome `missed`, excluding rejected/busy/failed attempts), `incoming`, or `outgoing`.                                                                                                                                            |
+| `offset`         | Optional, `0`       | Unsigned 32-bit zero-based matching-record offset.                                                                                                                                                                                                                       |
+| `limit`          | Optional/null, `50` | Integer 1–100.                                                                                                                                                                                                                                                           |
+| `contactNumbers` | Optional, `[]`      | Restrict to any of these original contact numbers; at most 100 supported numbers. Uses current matching preferences, explicit `00`/`+` prefixes and optional German national aliases; no suffix guessing. Unsupported numbers are rejected.                              |
 
 Unknown query fields and unknown enum values are rejected by deserialization.
 Invalid bounds, control characters or unsupported contact numbers return
@@ -31,7 +35,8 @@ tiebreaker. Offset pagination is not a snapshot: calls arriving between requests
 can shift page boundaries. Ordinary paging uses SQLite indexes and LIMIT/OFFSET;
 contact and text searches filter ordered candidates against current projections.
 
-Each `HistoryEntry` contains:
+All `HistoryPage` and `HistoryEntry` output fields are present, including explicit
+`null` values for unavailable nullable fields. Each `HistoryEntry` contains:
 
 | Field                                 | Meaning                                                                                                                                                            |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -81,7 +86,7 @@ The matching account is selected through the existing persisted account-selectio
 path, then the existing engine dial command reserves the single call slot and
 performs its normal validation. No fallback to another account occurs. Existing
 selection-storage, registration, engine/native and dial errors propagate. The
-returned snapshot includes current `historyError`.
+returned snapshot includes current contact projections and `historyError`.
 
 ## Events and storage lifecycle
 

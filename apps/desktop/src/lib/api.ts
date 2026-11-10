@@ -14,12 +14,13 @@ import type {
   DiagnosticsReport,
 } from "./generated/AppInfo";
 
-async function desktopInvoke<T>(
+/** Invoke desktop IPC, preserving native errors and rejecting browser calls asynchronously. */
+export async function desktopInvoke<T>(
   command: string,
   args?: Record<string, unknown>,
+  unavailableMessage = "Der native Status ist nur in der Desktop-App verfügbar.",
 ): Promise<T> {
-  if (!isTauri())
-    throw new Error("Der native Status ist nur in der Desktop-App verfügbar.");
+  if (!isTauri()) throw new Error(unavailableMessage);
   return invoke<T>(command, args);
 }
 

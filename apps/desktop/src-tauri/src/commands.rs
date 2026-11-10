@@ -9,11 +9,7 @@ async fn with_session(
     state: tauri::State<'_, PhoneState>,
     operation: impl FnOnce(&mut PhoneSession) -> Result<EngineSnapshot, PhoneError> + Send + 'static,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = crate::store::data_directory(&app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let (directory, cache) = crate::store::session_directories(&app)?;
     let mut snapshot = state
         .execute(move |session| {
             session.load(directory, cache)?;
@@ -52,11 +48,7 @@ pub async fn save_account(
     name: String,
     account: AccountConfig,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = crate::store::data_directory(&app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let (directory, cache) = crate::store::session_directories(&app)?;
     state
         .save_account(directory, cache, id, name, account)
         .await
@@ -71,11 +63,7 @@ pub async fn reconnect_account(
     state: tauri::State<'_, PhoneState>,
     id: u32,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = crate::store::data_directory(&app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let (directory, cache) = crate::store::session_directories(&app)?;
     state.reconnect_account(directory, cache, id).await
 }
 
@@ -89,11 +77,7 @@ pub async fn set_account_enabled(
     id: u32,
     enabled: bool,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = crate::store::data_directory(&app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let (directory, cache) = crate::store::session_directories(&app)?;
     state
         .set_account_enabled(directory, cache, id, enabled)
         .await
@@ -106,11 +90,7 @@ pub async fn configure_account(
     state: tauri::State<'_, PhoneState>,
     account: AccountConfig,
 ) -> Result<EngineSnapshot, PhoneError> {
-    let directory = crate::store::data_directory(&app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| crate::store::storage_error())?;
+    let (directory, cache) = crate::store::session_directories(&app)?;
     state.configure_account(directory, cache, account).await
 }
 

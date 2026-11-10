@@ -1,96 +1,42 @@
-# Product
+# Ruf product scope
 
-<!-- impeccable:product-schema 1 -->
+Ruf is a compact SIP softphone built with Rust, Tauri 2 and Svelte. Release targets
+are macOS 14+ on Apple Silicon and Windows 11 x64. The current 0.1.0 preview is
+for isolated test networks; supported provider/platform profiles require observed
+qualification. See the [README](../../README.md), [release checklist](../../docs/release-checklist.md)
+and [verification evidence](../../docs/verification/README.md).
 
-## Platform
+## Current scope
 
-web
+- Up to eight independently registered SIP accounts, with explicit outgoing
+  identity, activation and OS credential storage. Fresh account fields are empty;
+  the user's test PBX is the primary setup path and Asterisk is an optional lab.
+- One call plus one related consultation, with one audible conversation. Native
+  mute, local/remote hold, DTMF and transfer results follow observed state.
+- UDP/TCP/TLS and required SDES-SRTP with TLS. Configured policy is distinct from
+  observed protection; there is no plaintext fallback for required protection or
+  claim of end-to-end encryption.
+- Authorized macOS contacts, local favorites and SQLite call history. Contact
+  names are current in-memory projections; history retention and collection are
+  explicit preferences. Windows contacts are not implemented.
+- Separate phone/settings windows, background ringing, tray controls, action/
+  contact/history search and accessible keyboard/menu actions. Closing the phone
+  hides it; explicit Quit completes the native shutdown path.
+- Native audio routing/tests, explicit OS permission actions, anonymous diagnostics
+  and notification privacy. Automatic updates and calendar integration are absent.
 
-## Product Purpose
+Exact command, DTO, validation and error semantics live in the
+[API reference](../../docs/api/README.md), not in a second product model.
 
-A compact SIP softphone for macOS and Windows, implemented with Rust, Tauri 2
-and Svelte. The application is named Ruf. Original application code is MIT licensed.
+## Product rules
 
-## Operating Context
-
-The current verified telephony milestone is a local Asterisk test environment:
-up to eight saved SIP accounts, G.711, per-account registration/call state,
-answer, reject and hangup. Native controls now expose per-dialog mute, local hold,
-blind transfer and one consultation with switching, cancellation and attended
-transfer; at most two related dialogs share one audible conversation. UDP/TCP/TLS
-and optional required SDES-SRTP account policies are implemented. The [observed macOS loopback verification](../../docs/verification/2026-11-05-call-controls-security.md)
-covers Asterisk media/transfer, mute/hold and TLS/SRTP success and failure paths
-using isolated peers. External providers, Windows runtime and physical audio
-hardware still need separate observed verification. Native audio stays in baresip. Bun owns JavaScript tooling.
-
-## Capabilities and Constraints
-
-- Reuse existing Tauri IPC commands and generated Rust/TypeScript DTOs.
-- No credentials or private contact/call data in Git; passwords are stored only in the operating-system credential store.
-- Browser preview cannot register or place calls and must say so.
-- Contacts read the native macOS address book after explicit system permission,
-  with name/company/number search, multiple numbers, local favorite IDs and calls
-  through the selected SIP account. Windows and other sources remain deferred.
-- History records observed native calls locally with outcomes, duration, original account, search/filter/pagination, contact links, safe callback and deletion. Startup marks unfinished records interrupted without invented duration. Collection can be disabled for future calls; optional 30/90/365-day retention removes completed rows only, with confirmation before destructive shortening.
-- Mute/hold state and transfer outcomes follow native snapshots, not queue acceptance.
-  Pending hold includes uncertain recovery; mute/hangup remain reachable. Incoming
-  REFER instructions are rejected. An expandable in-call keypad sends native DTMF on the selected unheld dialog, with ordered release and stale-call guards.
-- TLS/required SDES-SRTP is the recommended encrypted configuration; required media
-  needs TLS and cannot downgrade. Private PBX certificates use intentional OS trust,
-  with no per-account CA or verification bypass. Observed per-call security is
-  separate from configuration and does not claim end-to-end encryption.
-- Native Windows runtime and hardware audio still require platform tests.
-
-## Brand Commitments
-
-The user supplied a compact dark native softphone reference and confirmed a dark,
-compact first UI iteration. The updated full-app reference is the user’s local
-Zed Settings interface with GitHub Dark Tritanopia and IBM Plex Sans. The phone
-default is now 340 × 500 pixels (minimum 320 × 440); preserve that compact density. The supplied
-people/numbers are visual reference material, not application data.
-
-## Product Principles
-
-- Prioritize dialing and reachable call controls in a small window.
-- The user explicitly prioritizes onboarding with their own SIP account; local
-  Asterisk/test audio is a secondary developer path, never the default.
-- Settings open in a separate native window with eight Zed-style sections, concrete field search and guarded drafts. Keep the permanent direct Deine Konten block below navigation; account management follows Telephone.
-- Account activation preserves credentials and selected outgoing identity. A disabled selected account blocks dialing until explicitly changed or enabled.
-- Read OS permission independently of account restoration. Prompts require explicit foreground actions; changing the notification switch alone never requests access. Anonymous test notifications are separate from calls, and caller details can be hidden in notification text.
-- Login-only hidden start is configurable. Manual opening shows the phone; closing its window preserves background operation. Diagnostics expose a whitelisted technical summary, without personal account/call/contact details.
-- Several accounts can remain registered; select the outgoing account in the compact phone header.
-- Describe actual runtime state; never fabricate registration or contact/history data.
-- Keep common actions accessible by keyboard and named in German.
-
-## Sound settings
-
-Ton provides microphone, call output and independent ringtone output, ringtone
-on/off and a native audible preview. Preferences persist with account metadata.
-Use platform default devices unless explicitly selected; unavailable or ambiguous
-endpoints remain clear and recoverable. Classic, soft and short ringtones have
-independent 0–100 volume; classic/100 preserves the original tone. An explicit
-microphone meter discards samples and runs at most ten seconds; the speaker test
-runs two seconds. Real calls preempt tests, and navigation releases test ownership.
-Ringtone preview uses saved tone/volume on the selected draft ring output. The
-developer test tone remains secondary and explicit under Diagnose & Hilfe.
-
-## Shared visual direction
-
-The user explicitly chose Zed’s compact design for the entire application. Phone,
-settings, onboarding, contacts/history empty states and call views share one dark
-palette, thin dividers, 4px controls and locally bundled IBM Plex Sans. The former
-mint phone/separate blue-settings split is replaced. Native window controls and
-all real application states remain.
-
-## Interface terminology
-
-Use concise German with direct “du” instructions. “SIP-Konto” names the identity;
-“Anmeldung” names registration and never proves that audio works. “Anruf” covers
-an attempt or incoming offer; “Gespräch” means an established call. Remote hold
-must say that the other party is holding the call. “Verlauf” stores call details,
-while “Audioaufzeichnung” is reserved for the explicit developer test-tone mode.
-“macOS-Kontakte” names the operating-system app; the action in a contact's details
-opens that specific contact by its native identifier. Destructive actions name
-“Anruf” or “Verlauf”. Keep protocol and diagnostic details in supporting text rather than primary action labels.
-
-Dial entry supports formatted telephone numbers and leading plus, with authorized contact suggestions and current per-dialog names. German 0/+49/0049 identity matching is configurable; it never rewrites the dialed number. History resolves names from current contacts after later additions or renames.
+- Keep dialing, current identity and available call actions easy to reach in the
+  compact window. Use concise German labels and visible keyboard focus.
+- Browser previews and portable builds must describe their missing native
+  capabilities. Never fabricate registration, security, contact or media success.
+- Preserve dirty settings drafts through failures and incoming calls. Confirm
+  destructive history/account actions; selected identity alone is not registration.
+- Permission prompts require explicit actions. Passwords stay in the OS store;
+  contacts and history stay local. Personal results are never search telemetry.
+- Reuse the existing Rust contracts, Tauri IPC and baresip pipeline. See
+  [architecture](../../docs/architecture.md) and [design rules](DESIGN.md).

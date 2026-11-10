@@ -6,6 +6,10 @@ commands reuse it; no new production command or trust override is introduced.
 All fields below also appear in password-free `AccountSnapshot` and saved account
 metadata. Unknown input fields are rejected.
 
+`transport` and `mediaSecurity` may be omitted but cannot be null.
+`authUsername` and `outboundProxy` accept omission or null; an empty string is
+invalid for either field.
+
 | Field           | Input/default                             | Validation and meaning                                                                                                                                                                                                                   |
 | --------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `transport`     | Optional `udp` (default), `tcp`, `tls`    | TLS requires certificate/host validation and never falls back to TCP/UDP. Plain TCP does not encrypt signaling.                                                                                                                          |

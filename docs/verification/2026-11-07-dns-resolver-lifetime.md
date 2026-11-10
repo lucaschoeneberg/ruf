@@ -47,10 +47,6 @@ it is not a multi-day desktop soak test or a guarantee against unrelated crashes
   cleanup behavior, compatibility and repeatable verification instructions.
 - This report: observed evidence and remaining limits.
 
-The requested combined commit also includes the previously present SIP
-reliability, desktop navigation/search, UI, App Store packaging, documentation
-and regression-test changes. They were preserved rather than recreated here.
-
 ## Checks observed in this session
 
 - `bun run native:build`: passed, including the existing native NAT tests.

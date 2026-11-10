@@ -104,7 +104,7 @@ on other platforms without claiming those platforms were executed here.
 | `crates/baresip-adapter/src/sip_scenario_tests.rs`, `src/sip_reliability_tests.rs` | Permanent scenario module using the existing Lab                                 |
 | `scripts/check-sip-lifetimes.mjs`, `package.json`                                  | Repeatable macOS native lifetime diagnostic, without new dependencies            |
 | `docs/api/call-controls.md`, `docs/api/sip-events.md`, `native/patches/README.md`  | Behavioral outcomes, errors, required wire validation and ownership contracts    |
-| `docs/superpowers/plans/2026-11-05-sip-followup-fixes.md`, this report             | Scope, execution and observed verification                                       |
+| This report                                                                        | Scope, execution and observed verification                                       |
 
 ## Verification
 

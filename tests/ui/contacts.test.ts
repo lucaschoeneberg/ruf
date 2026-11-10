@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Contact } from "../../apps/desktop/src/lib/generated/AppInfo";
-import { searchContacts } from "../../apps/desktop/src/lib/contacts";
-import { dialSuggestions } from "../../apps/desktop/src/lib/contacts";
+import {
+  dialSuggestions,
+  searchContacts,
+} from "../../apps/desktop/src/lib/contacts";
 
 const contacts: Contact[] = [
   {
@@ -50,6 +52,36 @@ test("dialer finds national/international choices and preserves ambiguous owners
   expect(dialSuggestions([contacts[0], duplicate], "030123456")).toHaveLength(
     2,
   );
+});
+
+test("dial suggestions rank exact matches before favorites and deduplicate before limiting", () => {
+  const phone = (number: string) => ({
+    label: "Arbeit",
+    number,
+    destination: number,
+  });
+  const rows: Contact[] = [
+    { ...contacts[1], id: "prefix", favorite: true, phones: [phone("1234")] },
+    {
+      ...contacts[1],
+      id: "exact",
+      phones: [phone("123"), phone("123"), phone("123")],
+    },
+    { ...contacts[1], id: "other-owner", phones: [phone("123")] },
+    { ...contacts[1], id: "later", phones: [phone("1235")] },
+  ];
+  const original = structuredClone(rows);
+  expect(
+    dialSuggestions(rows, "123").map(({ contact, phone }) => [
+      contact.id,
+      phone.destination,
+    ]),
+  ).toEqual([
+    ["exact", "123"],
+    ["other-owner", "123"],
+    ["prefix", "1234"],
+  ]);
+  expect(rows).toEqual(original);
 });
 
 describe("contact phonebook search", () => {

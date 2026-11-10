@@ -79,30 +79,34 @@ export function dialSuggestions(
 ): DialSuggestion[] {
   const prefix = numberPrefix(number, matchGerman);
   if (!prefix || number.replace(/\D/g, "").length < 3) return [];
-  return contacts
+  const candidates = contacts
     .flatMap((contact) =>
-      contact.phones
-        .filter(
-          (phone) =>
-            phone.destination &&
-            numberPrefix(phone.number, matchGerman)?.startsWith(prefix),
-        )
-        .map((phone) => ({ contact, phone })),
+      contact.phones.flatMap((phone) => {
+        if (!phone.destination) return [];
+        const key = numberPrefix(phone.number, matchGerman);
+        return key?.startsWith(prefix)
+          ? [{ contact, phone, exactMatch: key === prefix }]
+          : [];
+      }),
     )
     .sort(
       (a, b) =>
-        Number(numberPrefix(b.phone.number, matchGerman) === prefix) -
-          Number(numberPrefix(a.phone.number, matchGerman) === prefix) ||
+        Number(b.exactMatch) - Number(a.exactMatch) ||
         Number(b.contact.favorite) - Number(a.contact.favorite) ||
         a.contact.name.localeCompare(b.contact.name, "de"),
+    );
+  const suggestions: DialSuggestion[] = [];
+  for (const { contact, phone } of candidates) {
+    if (
+      suggestions.some(
+        (other) =>
+          other.contact.id === contact.id &&
+          other.phone.destination === phone.destination,
+      )
     )
-    .filter(
-      (item, index, items) =>
-        items.findIndex(
-          (other) =>
-            other.contact.id === item.contact.id &&
-            other.phone.destination === item.phone.destination,
-        ) === index,
-    )
-    .slice(0, 3);
+      continue;
+    suggestions.push({ contact, phone });
+    if (suggestions.length === 3) break;
+  }
+  return suggestions;
 }

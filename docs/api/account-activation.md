@@ -30,8 +30,8 @@ Editing/saving a disabled account preserves its disabled state. Removal remains
 a separate, explicitly destructive operation.
 
 `busy` rejects activation during an incoming, queued outgoing, answering or
-established/held call, or while another native update is pending. The native
-queue repeats the idle guard; a call that wins the race rejects the update and
+established/held call, or while a native update for that account is pending.
+The native queue repeats the idle guard; a call that wins the race rejects the update and
 restores the previous snapshot and durable activation intent. `invalidInput`
 rejects unknown/removing accounts. `invalidState` rejects shutdown, changed
 account identity during credential authorization, and a superseded activation
@@ -49,7 +49,7 @@ serialization and atomic account-store replacement. An idempotent activation
 request does not read credentials or re-register the account.
 
 `reconnect_account` retains its existing `{ id } → EngineSnapshot` contract and
-supports any enabled account with a registration failure. It explicitly
-reauthorizes credential reading outside the state lock without saving drafts,
+supports any enabled saved account, including an already registered account.
+It explicitly reauthorizes credential reading outside the state lock without saving drafts,
 rewriting metadata, rotating keys or changing selection. Disabled accounts
 return `invalidState` before any credential read; enable them explicitly first.

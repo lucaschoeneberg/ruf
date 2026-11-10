@@ -48,20 +48,62 @@ OpenSSL packages remain external inputs, so this is not a bit reproducible build
 CMake imported targets resolve configuration-specific OpenSSL library paths on
 Windows; archives are normalized for Cargo linking.
 
+### OpenSSL and the macOS minimum
+
+Ruf targets macOS 14. A Homebrew bottle can require a newer system even when the
+SDK itself is compiled with `CMAKE_OSX_DEPLOYMENT_TARGET=14.0`. The SDK probe now
+rejects OpenSSL archive members with a newer minimum before building/staging
+libraries. Changing `OPENSSL_ROOT_DIR` re-resolves headers and archives rather
+than retaining the previous CMake selection.
+The macOS desktop/release workflow builds the checksum-pinned OpenSSL 3.5.9
+source for that target instead of depending on a runner's Homebrew bottle.
+
+If the installed bottle is incompatible, build a compatible static OpenSSL.
+This example uses the same 3.5.9 release verified locally, with its source checksum
+from the Homebrew formula. Run from the repository root:
+
+```sh
+mkdir -p native/build/openssl-macos14
+curl --fail --location --output native/build/openssl-3.5.9.tar.gz \
+  https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
+echo '603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a  native/build/openssl-3.5.9.tar.gz' | shasum -a 256 -c -
+tar -xzf native/build/openssl-3.5.9.tar.gz -C native/build/openssl-macos14
+export OPENSSL_ROOT_DIR="$PWD/native/build/openssl-macos14/install"
+(
+  cd native/build/openssl-macos14/openssl-3.5.9
+  MACOSX_DEPLOYMENT_TARGET=14.0 perl ./Configure darwin64-arm64-cc no-shared no-zlib \
+    --prefix="$OPENSSL_ROOT_DIR" --openssldir="$OPENSSL_ROOT_DIR/ssl" \
+    --libdir=lib -mmacosx-version-min=14.0
+  make -j4
+  make test HARNESS_JOBS=4
+  make install_sw
+  cp LICENSE.txt "$OPENSSL_ROOT_DIR/LICENSE.txt"
+)
+bun run native:build
+```
+
+Follow [OpenSSL's build instructions](https://github.com/openssl/openssl/blob/openssl-3.5.9/INSTALL.md)
+when updating the version or target. All example outputs remain ignored under
+`native/build`; no system OpenSSL or trust settings are replaced. Checking object
+deployment metadata does not replace running the actual app on macOS 14.
+
 ## Build and run
 
 ```sh
 bun install --frozen-lockfile
 bun run native:build
-bun run lab:up
-bun run test:asterisk
 bun run dev:native
 ```
 
-The lab's synthetic account is documented in [the lab guide](../tests/interop/asterisk/README.md).
-The test leaves the lab running for desktop work; use `bun run lab:down` afterward.
-The desktop initially offers the same registrar/user/echo extension, but requires
-entering the password. Select audio before the first registration. Changing the
+The desktop starts with empty account fields; enter your own test-PBX credentials.
+For the optional isolated lab, install Docker with Compose, Python 3 and the
+`openssl` CLI, then run
+`bun run test:asterisk`. It provisions fresh synthetic TLS certificates before
+recreating the container; a prior `lab:up` is unnecessary and can fail without
+those certificate files. The synthetic account is documented in
+[the lab guide](../tests/interop/asterisk/README.md). The test leaves the lab running
+for desktop work; use `bun run lab:down` afterward.
+Select audio before the first registration. Changing the
 audio backend of an existing engine currently requires restarting the application.
 Account replacement with the same audio backend is supported only while idle.
 
@@ -90,8 +132,9 @@ host identity, enforce a sticky TLS floor and block mandatory media before valid
 keys and during renegotiation. Native OS trust evaluation uses no exported root
 bundle or runtime Homebrew CA path. Matching OpenSSL headers are staged alongside
 the static libraries by the existing CMake probe. Build-time Homebrew OpenSSL is
-still an external input: this host's objects warn of a macOS 27 target despite
-Ruf's macOS 14 minimum; this work does not verify older macOS compatibility.
+still an external input. The SDK rejects static OpenSSL archives whose object
+minimum exceeds Ruf's macOS 14 target; actual older-macOS runtime compatibility
+still needs platform acceptance.
 
 The tracked [libre NAT extension](patches/README.md) learns the observed local
 SIP/UDP address from validated REGISTER responses and uses it for Contact/Via,
@@ -149,7 +192,7 @@ production releases.
 - [Upstream build and source](https://github.com/baresip/baresip)
 - [Library integration](https://github.com/baresip/baresip/wiki/Using-baresip-as-a-Library)
 - [Pinned public API](https://github.com/baresip/baresip/blob/9cfab81550acc4bd38d6580d79b45cc6eea65cd6/include/baresip.h)
-- [Current verification evidence](../docs/verification/2026-11-04-native.md)
+- [Recorded verification and limits](../docs/verification/README.md#native-sip-and-audio)
 
 ## Sound routing
 

@@ -9,7 +9,7 @@ phone session. The system address book is read-only in this iteration.
 
 | Command                   | Required input                    | Result             | Behavior                                                                                                                                                                              |
 | ------------------------- | --------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_contacts`            | none                              | `ContactsSnapshot` | Returns the current in-memory snapshot (initial read when absent). Never requests permission.                                                                                         |
+| `get_contacts`            | none                              | `ContactsSnapshot` | Returns the cached snapshot, rejects a cached read error, or performs an initial read when neither exists. Never requests permission.                                                 |
 | `request_contacts_access` | none                              | `ContactsSnapshot` | Explicit user action. Requests system permission only while `notDetermined`, then reads the accessible contacts. Denial is a normal permission result; it does not repeatedly prompt. |
 | `set_contact_favorite`    | `{id: string, favorite: boolean}` | `null`             | Adds/removes an app-local favorite by opaque native contact identifier. Never modifies a system contact.                                                                              |
 
@@ -46,8 +46,10 @@ the phone session lock. Worker/lock failures use `storageFailure`. Non-macOS
 permission queries return `unsupported`. Tauri rejects malformed arguments and
 denied command permissions. No HTTP status codes or credentials are involved.
 
-The Kontakte section in Ruf Settings displays the current OS state and offers an
-explicit request. After denial, macOS does not prompt again; use the system privacy
+The Datenschutz section in Ruf Settings displays the current Contacts permission
+and offers an explicit request. `section: "contacts"` opens Kontakte & Verlauf for
+display, matching and history preferences; permission controls are under
+`section: "privacy"`. After denial, macOS does not prompt again; use the system privacy
 pane and enable Ruf there. The status refreshes when the window regains focus.
 Only after an access request does macOS normally list the app in Contacts privacy.
 Browser preview reports unsupported access without invoking a native API.
@@ -93,6 +95,7 @@ type ContactsSnapshot = {
   only when the result is unambiguous. It retains national prefixes, extensions,
   star/hash service codes and an initial `+`. A result must contain a digit, fit
   the existing 64-byte ASCII dial syntax and have at most one initial plus sign.
+  A number beginning with `+` cannot also contain `*` or `#`.
   An international optional `(0)` prefix, controls, letters, SIP URIs, post-dial
   comma/semicolon sequences and unsupported characters produce `null`; the
   original number remains visible but cannot be dialed. No country is inferred.
@@ -103,12 +106,12 @@ type ContactsSnapshot = {
 
 Commands reject with the existing `PhoneError` shape:
 
-| Code                | Conditions                                                                                                                                                           |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalidInput`      | Invalid favorite ID or exceeding the 1000-favorite limit.                                                                                                            |
-| `nativeFailure`     | Native enumeration fails, borrowed strings cannot be copied without loss, or native data is invalid. No partial contact snapshot is returned.                        |
-| `storageFailure`    | Favorite preferences cannot be read/replaced, have an unsupported version or are corrupt; or a blocking operation fails. Existing corrupt preferences are preserved. |
-| `engineUnavailable` | Attempt to save a macOS contact favorite on an unsupported platform. This does not describe SIP linkage.                                                             |
+| Code                | Conditions                                                                                                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalidInput`      | Invalid favorite/contact ID, invalid clipboard text or exceeding the 1000-favorite limit.                                                                                                    |
+| `nativeFailure`     | Native permission/enumeration fails, borrowed strings cannot be copied without loss, native data is invalid, or an OS launch/clipboard write fails. No partial contact snapshot is returned. |
+| `storageFailure`    | Favorite preferences cannot be read/replaced, have an unsupported version or are corrupt; or a blocking operation fails. Existing corrupt preferences are preserved.                         |
+| `engineUnavailable` | Favorite mutation, native clipboard access or opening the macOS Contacts app/privacy pane on an unsupported platform. This does not describe SIP linkage.                                    |
 
 Permission denial/restriction is a snapshot state, not an exception. If access is
 revoked during enumeration, all partial rows are discarded. Failed reads clear

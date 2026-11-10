@@ -168,6 +168,8 @@ if (windows && !openssl) {
   openssl = join(installed, "x64-windows-static-md");
 }
 const common = [
+  "-ULIB_EAY*",
+  "-USSL_EAY*",
   "-DCMAKE_BUILD_TYPE=Release",
   `-DCMAKE_INSTALL_PREFIX=${prefix}`,
   "-DCMAKE_INSTALL_LIBDIR=lib",
@@ -182,6 +184,36 @@ if (process.platform === "darwin")
   common.push(
     "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
     "-DCMAKE_OSX_ARCHITECTURES=arm64",
+  );
+
+// Resolve and validate dependencies before compiling or replacing staged files.
+const probe = join(build, "openssl-probe");
+run("cmake", [
+  "-S",
+  join(root, "native/openssl-probe"),
+  "-B",
+  probe,
+  ...common,
+]);
+const resolved = JSON.parse(
+  readFileSync(join(probe, "openssl-Release.json"), "utf8"),
+);
+if (!resolved.include || !existsSync(join(resolved.include, "openssl/ssl.h")))
+  throw new Error("Matching OpenSSL headers missing");
+for (const name of ["ssl", "crypto"]) {
+  const path = resolved[name];
+  if (!path || (!path.endsWith(".a") && !path.endsWith(".lib")))
+    throw new Error(`Static ${name} was not resolved`);
+}
+common.push(
+  `-DOPENSSL_INCLUDE_DIR=${resolved.include}`,
+  `-DOPENSSL_SSL_LIBRARY=${resolved.ssl}`,
+  `-DOPENSSL_CRYPTO_LIBRARY=${resolved.crypto}`,
+);
+if (windows)
+  common.push(
+    `-DLIB_EAY_RELEASE=${resolved.crypto}`,
+    `-DSSL_EAY_RELEASE=${resolved.ssl}`,
   );
 
 const reBuild = join(build, "re-nat");
@@ -263,27 +295,12 @@ run("cmake", [
 ]);
 
 // Normalize archive names for Rust's platform-independent static link directives.
-const probe = join(build, "openssl-probe");
-run("cmake", [
-  "-S",
-  join(root, "native/openssl-probe"),
-  "-B",
-  probe,
-  ...common,
-]);
-const resolved = JSON.parse(
-  readFileSync(join(probe, "openssl-Release.json"), "utf8"),
-);
-if (!resolved.include || !existsSync(join(resolved.include, "openssl/ssl.h")))
-  throw new Error("Matching OpenSSL headers missing");
 rmSync(join(prefix, "include/openssl"), { recursive: true, force: true });
 cpSync(join(resolved.include, "openssl"), join(prefix, "include/openssl"), {
   recursive: true,
 });
 for (const name of ["ssl", "crypto"]) {
   const path = resolved[name];
-  if (!path || (!path.endsWith(".a") && !path.endsWith(".lib")))
-    throw new Error(`Static ${name} was not resolved`);
   stageFile(
     path,
     join(prefix, "lib", windows ? `${name}.lib` : `lib${name}.a`),

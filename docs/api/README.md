@@ -42,13 +42,14 @@ shared Rust session, registrations and any call. The main phone stays compact.
 | `get_engine_snapshot` | none                                                                                                                                          | `EngineSnapshot`. Startup restores saved accounts in Rust independently of windows. Reads share the same managed session and can complete initialization if needed.                                                                                                   |
 | `save_account`        | `{id: number \| null, name: string, account: AccountConfig}`                                                                                  | Null/missing ID creates; existing ID updates. Saves metadata/keychain credentials and waits for native configuration acceptance. Actual registration remains asynchronous.                                                                                            |
 | `reconnect_account`   | required `{id: number}`                                                                                                                       | Settings only: explicitly authorize reading the saved password and reapply the existing account while idle. Preserves metadata, credentials and drafts; registration is asynchronous. See [credential recovery](credential-recovery.md).                              |
+| `set_account_enabled` | required `{id: number, enabled: boolean}`                                                                                                     | Settings only: activate/deactivate a saved account while idle, preserving credentials and outgoing selection. Waits for native application, not registration success. See [account activation](account-activation.md).                                                |
 | `select_account`      | `{id: number}`                                                                                                                                | Persists outgoing selection without unregistering other accounts. Requires idle call state.                                                                                                                                                                           |
 | `remove_account`      | `{id: number}`                                                                                                                                | Requires idle state. Waits for native removal, commits metadata deletion and removes the keychain secret. A native incoming-call rejection leaves saved data unchanged.                                                                                               |
-| `configure_account`   | `{account: AccountConfig}`                                                                                                                    | Compatibility command, settings only: save/replace the selected account, using username as its name. **Now durable**, unlike the earlier ephemeral API. New UI uses `save_account`.                                                                                   |
+| `configure_account`   | `{account: AccountConfig}`                                                                                                                    | Compatibility command, settings only: save/replace the selected account, using username as its name. Uses the same durable storage as `save_account`.                                                                                                                 |
 | `dial`                | `{destination: string}`                                                                                                                       | Reserves the single call slot on the selected, registered account. Formatted number/extension normalized to 1–64 dial characters; leading plus, spaces and visual separators supported. See [call controls](call-controls.md) for validation and in-call `send_dtmf`. |
 | `answer`              | required `{callId: string}`                                                                                                                   | Accepts the current incoming call on its own account, independent of outgoing selection.                                                                                                                                                                              |
 | `reject`              | required `{callId: string}`                                                                                                                   | Rejects only an unanswered incoming call; stale or already answered calls return `invalidState`. Main window only.                                                                                                                                                    |
-| `hangup`              | required `{callId: string}`                                                                                                                   | Rejects/ends the current call; native completion follows through state.                                                                                                                                                                                               |
+| `hangup`              | required `{callId: string}`                                                                                                                   | Ends the named live dialog, including a nonselected original/consultation; native completion follows through state.                                                                                                                                                   |
 
 `reject` is a main-window command with required `{callId: string}` input and an
 `EngineSnapshot` result. It rejects only an offered incoming call. Empty/stale
@@ -56,6 +57,10 @@ tokens and calls already answering or established reject with `invalidState`;
 the native queue rechecks the offer. Missing/malformed arguments are rejected by
 Tauri. Absent/stopped native support or queue failures use the existing
 `engineUnavailable` / `nativeFailure` errors. No optional input fields exist.
+
+Account and call commands in the table return `EngineSnapshot`; `get_app_info`
+and `open_settings` have the distinct results shown above. Call-control additions,
+including `send_dtmf`, are listed in [call controls](call-controls.md).
 
 All except `get_app_info` can reject with `PhoneError`. Tauri separately rejects
 malformed arguments, missing required fields, unknown account fields/enum values,
@@ -103,6 +108,8 @@ do not use this mode for private calls. The upstream path limit is 127 UTF-8 byt
 
 ```ts
 {
+  calls: CallSnapshot[];
+  lastCallFailure: CallFailure | null;
   revision: number;
   registration: "unconfigured" | "registering" | "registered" | "failed";
   call: "idle" | "calling" | "ringing" | "earlyMedia" | "incoming" | "answering" | "active" | "held";
@@ -125,16 +132,24 @@ do not use this mode for private calls. The upstream path limit is 127 UTF-8 byt
 }
 ```
 
+`calls` contains at most the original and its consultation, in allocation order.
+The legacy `call`, `callId`, `callAccountId`, `caller`, timing and event fields
+project the selected dialog; they do not describe every live dialog. See
+[call controls](call-controls.md#snapshot-additions).
+`lastCallFailure` retains the most recent terminal failure independently of
+selection or dialog removal. It has required `callId: string`, `accountId: number`
+and `error: PhoneError` fields, and clears on a new call allocation or engine
+recreation. Recovered control errors do not populate it.
+
 `registration` projects the selected outgoing account; other accounts retain their
-own status. `callAccountId` identifies the UA actually owning the call, including
+own status. `callAccountId` identifies the UA actually owning the selected call, including
 incoming calls to another account. `audioMode` is the real shared native mode,
 null before engine initialization. Webview reloads/settings windows read this
 value and do not infer it from draft defaults. `active` means SIP established;
 [the echo test](../../tests/interop/asterisk/README.md) separately verifies media.
 
 Required ordering/event/timing fields, early media/hold, SIP errors and explicit
-REFER rejection are detailed in [SIP events and state](sip-events.md). These new
-output fields and enum values intentionally extend the generated IPC contract.
+REFER rejection are detailed in [SIP events and state](sip-events.md).
 
 `caller` is a required nullable `CallerIdentity`. Its required nullable `name` and
 `number` fields are the bounded, plain-text display name and URI user from the
@@ -153,13 +168,24 @@ and registration errors as described in [history](history.md).
 `registration`, nullable `lastError`, boolean `removing`, boolean `enabled`,
 boolean `enabledChanging` and nullable `registeredAtMs`. Activation and confirmed
 registration timestamps are documented in [account activation](account-activation.md).
+The required security fields are `transport`, `mediaSecurity`, nullable
+`authUsername` and nullable `outboundProxy`; their values are documented in
+[account security](account-security.md). Output fields are always present even
+when their input counterparts may be omitted for compatibility.
 Registration failures
 are per account. Missing/inaccessible saved credentials restore a visibly failed
-account that can be repaired by supplying a password. No secret is read back.
+account that can be repaired by supplying a password. Saved secrets may be read
+by the native credential layer but are never returned to webviews.
 
 Answer/reject/hangup capture an internal call generation; delayed actions for call A
-cannot affect replacement call B. The opaque `callId` is a session-local generation token, not a SIP Call-ID. It is null while idle and reserved before a successful outgoing attempt is queued. All three call-control commands require the displayed token; empty/stale tokens reject with `invalidState`. Duplicate answers reject. `answering` means the native answer is pending an ACK; only the native established event reports `active` (or `held` when already remotely held). Engine lifetime
-belongs to the application, rather than either webview.
+cannot affect replacement call B. The opaque `callId` identifies the selected live
+dialog, is unique across engine recreation within the process, and is not a SIP
+Call-ID. It is null while idle and reserved before an outgoing attempt is queued.
+Answer/reject require the selected incoming token; hangup accepts either live
+dialog's token. Empty/stale tokens reject with `invalidState`. Duplicate answers
+reject. `answering` means the native answer is pending an ACK; only the native
+established event reports `active` (or `held` when already remotely held). Engine
+lifetime belongs to the application, rather than either webview.
 
 All incoming “Ablehnen” controls in the main window, tray/application menu and
 native notification use the same guarded rejection operation. A delayed reject
@@ -205,6 +231,10 @@ are ordinary local application data.
 
 ## PhoneError
 
+All three output fields are required: `code: ErrorCode`, `message: string` and
+`sipStatus: number | null`. A missing SIP response is serialized as null, not an
+omitted field. Tauri's own argument/capability errors need not have this shape.
+
 Saved-password access failures now use `credentialAccessRequired`,
 `credentialMissing` or `credentialFailure`, independently of SIP errors and
 application-data `storageFailure`. Full command semantics and recovery guidance
@@ -219,7 +249,13 @@ are documented in [saved credential recovery](credential-recovery.md).
 | `engineUnavailable`        | Native support absent/stopped.                                                                                              |
 | `nativeFailure`            | Initialization, queueing, SIP/native execution, state or shutdown failure.                                                  |
 | `storageFailure`           | Settings or application-data storage access failed.                                                                         |
+| `credentialAccessRequired` | OS credential access requires explicit foreground authorization or unlocking.                                               |
+| `credentialMissing`        | The saved password is absent; an explicit replacement is required.                                                          |
+| `credentialFailure`        | The OS credential store could not initialize, read, write or decode a password.                                             |
 | `credentialCleanupPending` | Account change committed; obsolete secret deletion is durably queued for retry.                                             |
+| `certificateRejected`      | TLS certificate chain or expected server identity was rejected.                                                             |
+| `transportFailure`         | Network/TLS transport failed or an insecure signaling downgrade was blocked.                                                |
+| `mediaSecurityRequired`    | Required SDES-SRTP negotiation failed; plaintext media remains blocked.                                                     |
 
 `message` is a safe explanation, sometimes with a numeric native/SIP code; never
 raw protocol text or credentials. Codes are application classifications, not SIP
@@ -227,6 +263,8 @@ response codes. Required nullable `sipStatus` contains an actual final SIP respo
 only; native errors leave it null. Additional `sip*` classifications are defined
 in [SIP events and state](sip-events.md#phoneerror). The frontend translates known
 codes to German recovery guidance.
+Transport/media error details and trust boundaries are documented in
+[account security](account-security.md#safe-errors).
 
 ## Sound commands (settings window only)
 
@@ -287,8 +325,9 @@ Mappings prefer an exact local-socket and peer-IP+port match. For an incoming PB
 unmatched or nonnumeric observations are ignored. Address instability beyond two
 immediate corrections, or exhausted bounded mapping storage, uses the existing
 `nativeFailure` registration/error path with normal failure backoff. A subsequent
-fresh registration cycle can recover. This does not add encryption, SIP/TCP,
-media ICE/TURN or support for every NAT/proxy topology. The internal C contracts
+fresh registration cycle can recover. This UDP address adaptation is separate from
+the account's TCP/TLS and SDES-SRTP support; it does not provide media ICE/TURN or
+support for every NAT/proxy topology. The internal C contracts
 and regression evidence are documented in [the native extension](../../native/patches/README.md).
 
 ## Desktop lifecycle, events and preferences

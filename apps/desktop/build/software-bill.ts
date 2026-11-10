@@ -1,9 +1,5 @@
 import type { Plugin } from "vite";
-import type {
-  SoftwareBill,
-  SoftwareBuild,
-  SoftwareComponent,
-} from "../src/lib/software-bill.js";
+import type { SoftwareBill, SoftwareBuild } from "../src/lib/software-bill.js";
 import { command, read, root, runtime, sha256 } from "./sbom-runtime.js";
 import { addFrontend } from "./software-bill-frontend.js";
 

@@ -48,15 +48,19 @@ Use [development commands](development.md) and [CI/release behavior](ci-cd.md).
   recovery, upgrade/restart, silent login, second launch, hide/reopen, tray/quit,
   denied notifications and actual notification clicks. Test real microphones,
   speakers/headsets and incoming/outgoing audio through supported PBXs/networks.
-- Document the supported unencrypted SIP/UDP deployment boundary. TLS/SRTP are
-  not implemented; do not advertise encrypted/public-network telephony.
+- Document the preview's isolated-test-network boundary. UDP/TCP signaling and
+  ordinary RTP remain unencrypted. Verified TLS and required SDES-SRTP with TLS
+  are implemented without plaintext fallback; qualify them against the actual
+  provider, platform and shipped build. Per-call observations do not establish
+  end-to-end encryption or public-network/provider interoperability. See
+  [account security](api/account-security.md).
 - Complete the redistribution/license inventory for the actual shipped variant.
   Review the product SBOM against the selected platform, Cargo features, frontend
   bundle and native SDK, including OpenSSL, local patches and dependency
   relationships. Archive it with the matching installer and verify its contents;
   generating CycloneDX alone does not establish completeness. The
-  [earlier SBOM review](verification/2026-11-05-sbom-eu-review.md) records the initial
-  inventory's gaps; recheck them against the current implementation and
+  [SBOM build evidence](verification/2026-11-05-sbom-build-fix.md) records corrected
+  technical gaps and remaining inventory limits; recheck the current variant and
   [licensing documentation](licensing.md#about-page-and-project-sbom).
 - Connect the actual repository, enable branch protection and private security
   reporting, and publish a maintained private reporting contact/support policy.
@@ -64,6 +68,30 @@ Use [development commands](development.md) and [CI/release behavior](ci-cd.md).
 
 Automatic updates remain disabled. A future updater requires its own endpoint,
 signing key, release policy and verification before being enabled.
+
+## Supported beta qualification
+
+The original beta acceptance baseline remains unfulfilled. The current preview
+and local Asterisk results do not establish this matrix:
+
+- Qualify macOS 14+ Apple Silicon and Windows 11 x64 with physical audio hardware
+  against both Asterisk and FreeSWITCH. Record exact application/PBX versions,
+  target architecture, transport, codec, media protection and network path.
+- For each PBX/platform pair, exercise G.711 A-law and mu-law over UDP/RTP,
+  TCP/RTP and TLS/SDES-SRTP (`AES_CM_128_HMAC_SHA1_80`). Cover registration,
+  incoming/outgoing bidirectional audio, answer/reject/cancel, mute, hold/resume,
+  RFC 4733 DTMF and correctly attributed history.
+- Verify trusted-server success, invalid certificate/hostname rejection and no
+  plaintext fallback. With two registered accounts, verify outgoing identity and
+  safe rejection of additional incoming offers. Retain the current original-plus-
+  consultation model with one audible conversation; the original one-call-only
+  design has been superseded.
+- On each platform, complete a 30-minute call, standby/network-interruption
+  recovery, headset-removal handling and bidirectional calls from a home router
+  to a test server outside that LAN. Arbitrary CGNAT reachability is not promised.
+- Missing access to a required platform or PBX blocks supported-beta qualification.
+  FRITZ!Box/easybell, additional codecs and Intel Macs are separate optional
+  profiles. Publish only profiles with observed passing results.
 
 ## Mac App Store preparation
 

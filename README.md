@@ -28,6 +28,9 @@ und rückwirkend im Verlauf; die Zuordnung deutscher Vorwahlen ist abschaltbar.
 Während aktiver Gespräche lässt sich eine Tastatur für native DTMF-Töne einblenden.
 Acht Einstellungsbereiche bieten Feldsuche, Kontenaktivierung, Audiotests,
 Klingeltöne, Hintergrundstart und Berechtigungschecks.
+Mit ⌘K auf macOS beziehungsweise Strg+K auf Windows lassen sich Aktionen,
+freigegebene Kontakte und der lokale Verlauf durchsuchen. Tastenkürzel und native
+Menüs greifen auf dieselben verfügbaren Gesprächsaktionen zu.
 Anruferdetails in Mitteilungen lassen sich ausblenden; der Diagnosebericht enthält
 keine persönlichen Daten. Kontaktanzeige und Verlaufsspeicherung lassen sich anpassen; abgeschlossene
 Verlaufseinträge können nach einer gewählten Frist gelöscht werden. [Produktumfang](apps/desktop/PRODUCT.md),
@@ -44,21 +47,36 @@ Für eine öffentliche Produktionsfreigabe sind die offenen Punkte der
 
 Voraussetzungen: Bun aus `.bun-version`, Rustup sowie die
 [Tauri-Systemvoraussetzungen](https://v2.tauri.app/start/prerequisites/)
-(Xcode auf macOS, MSVC Build Tools und WebView2 auf Windows).
+(Xcode auf macOS, MSVC Build Tools und WebView2 auf Windows). Für die native
+Telefonie werden außerdem CMake und OpenSSL benötigt; die plattformspezifische
+Einrichtung steht in [native/README.md](native/README.md).
 
 ```sh
 bun install --frozen-lockfile
 bun run native:build
-bun run lab:up
-bun run test:asterisk
 bun run dev:native
 ```
 
-Native Voraussetzungen und Windows-vcpkg-Konfiguration stehen in
-[native/README.md](native/README.md). Das öffentliche Testkonto und die
-Nebenstelle stehen im [Asterisk-Labor](tests/interop/asterisk/README.md).
-`bun run dev` startet weiterhin ohne native Telefonie, `bun run lab:down` beendet
-nur die eigene Testanlage. SIP/UDP ist vorerst auf isolierte Testnetze beschränkt.
+Eine frische Installation startet ohne SIP-Konto. Trage die Zugangsdaten deiner
+Telefonanlage in den Kontoeinstellungen ein; das Labor ist dafür nicht erforderlich.
+Die Vorschau bleibt auf isolierte Testnetze beschränkt.
+`bun run dev` startet Tauri ohne native Telefonie, `bun run dev:web` nur die
+Web-Oberfläche ohne native API.
+
+Für das optionale [Asterisk-Labor](tests/interop/asterisk/README.md) werden zusätzlich
+Docker mit Compose, Python 3 und das `openssl`-Kommando benötigt:
+
+```sh
+bun run test:asterisk
+# Nach Abschluss der Labortests:
+bun run lab:down
+```
+
+`test:asterisk` erzeugt die synthetischen TLS-Testzertifikate, startet beziehungsweise
+erstellt die isolierte Testanlage neu und lässt sie anschließend laufen.
+Ein vorheriges `lab:up` ist auf einem frischen Checkout nicht erforderlich und kann
+ohne die erzeugten Zertifikate scheitern. Testkonto und Nebenstellen stehen im
+Laborleitfaden; die Test-CA wird nicht in den System-Vertrauensspeicher importiert.
 
 Rustup installiert die in `rust-toolchain.toml` festgelegte Version. Wenn Cargo
 über Homebrew oder einen anderen Paketmanager statt Rustup aufgerufen wird,
@@ -74,14 +92,22 @@ bun run test:ui
 bun run test:ui:flows
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
-bun run desktop:build --features native
 ```
 
-Für portable Buildprüfungen kann `--features native` entfallen; dieser Build
-meldet `notLinked` und enthält keine native Telefonie.
+Nach dem SDK-Build prüfen diese Befehle zusätzlich die native Variante:
 
-`bun run dev:web` öffnet nur die Web-Oberfläche; der native Status ist dort
-ausdrücklich nicht verfügbar. Cargo nutzt ein gemeinsames `target/` im Root.
+```sh
+cargo clippy --locked --workspace --all-targets --features sip-desktop/native -- -D warnings
+cargo test --locked --workspace --features sip-desktop/native
+bun run desktop:build --features native --bundles app,dmg
+```
+
+Der gezeigte Paketbefehl baut auf macOS App und DMG; auf Windows ist
+`--bundles nsis` zu verwenden. Für portable Buildprüfungen entfällt
+`--features native`; diese Variante meldet `notLinked` und enthält keine native
+Telefonie. `linked` bestätigt ausschließlich die kompilierte Anbindung.
+
+Cargo nutzt ein gemeinsames `target/` im Root.
 Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Pakete.
 
 ## Aufbau
@@ -101,7 +127,7 @@ Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Paket
 - [Architektur](docs/architecture.md) und [Entwicklungsablauf](docs/development.md)
 - [Interne API und generierte Typen](docs/api/README.md)
 - [GitHub, CI/CD und Signierung](docs/ci-cd.md)
-- [MVP-Entwurf](docs/superpowers/specs/2026-11-04-sip-mvp-design.md)
+- [Prüfnachweise und Grenzen](docs/verification/README.md)
 - [Beitrag leisten](CONTRIBUTING.md)
 - [Verhaltensregeln](CODE_OF_CONDUCT.md), [Sicherheitsmeldungen](SECURITY.md) und
   [Lizenzierung und Attribution](docs/licensing.md)

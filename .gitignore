@@ -4,6 +4,7 @@
 **/dist/
 apps/desktop/src-tauri/gen/
 .superpowers/
+/docs/superpowers/
 .DS_Store
 Thumbs.db
 *.log
@@ -21,4 +22,4 @@ Thumbs.db
 /native/build/
 /native/install/
 
-/.impeccable/review/
+.impeccable/

@@ -1,15 +1,15 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { desktopInvoke } from "./api";
 import type { ContactsPermission, ContactsSnapshot } from "./generated/AppInfo";
 
 function desktop<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  if (!isTauri())
-    return Promise.reject(
-      new Error("Kontakte sind nur in der macOS-App verfügbar."),
-    );
-  return invoke<T>(command, args);
+  return desktopInvoke<T>(
+    command,
+    args,
+    "Kontakte sind nur in der macOS-App verfügbar.",
+  );
 }
 
 export const getContacts = () => desktop<ContactsSnapshot>("get_contacts");

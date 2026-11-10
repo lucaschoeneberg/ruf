@@ -1103,11 +1103,10 @@ mod tests {
         session.select(second).unwrap();
         // Simulate interruption after a new secret was journaled and written.
         let interrupted_key = format!("abcd-{:x}", std::process::id());
-        session
-            .settings
-            .pending_deletions
-            .push(interrupted_key.clone());
-        session.write(&session.settings).unwrap();
+        let mut journal = session.settings.clone();
+        journal.pending_deletions.push(interrupted_key.clone());
+        session.write(&journal).unwrap();
+        session.settings = journal;
         session
             .credentials
             .write(&interrupted_key, "synthetic-orphan")

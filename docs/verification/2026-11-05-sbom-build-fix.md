@@ -1,8 +1,7 @@
 # Buildbezogene SBOM: Umsetzung und Prüfung
 
-Stand: 5. November 2026. Die drei im
-[SBOM-Review](2026-11-05-sbom-eu-review.md) festgestellten technischen Lücken sind
-behoben: native OpenSSL-Abdeckung, Abhängigkeitsbeziehungen und Build-Zuordnung.
+Stand: 5. November 2026. Drei technische Lücken des vorherigen Projektinventars
+wurden für den hier geprüften Build behoben: native OpenSSL-Abdeckung, Abhängigkeitsbeziehungen und Build-Zuordnung.
 Das ist keine pauschale Konformitätserklärung für den gesamten CRA.
 
 ## Tatsächliches Ergebnis

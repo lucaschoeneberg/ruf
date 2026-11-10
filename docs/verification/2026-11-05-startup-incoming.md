@@ -112,9 +112,8 @@ Observed locally on macOS arm64:
 - Workspace Clippy with `-D warnings`: passed in portable and native modes.
 - `bun run check`, `bun run build`, `bun run check:versions`: passed.
 - `bun run types:generate`: passed; generated TypeScript remained unchanged.
-- `bun run format:check` and `git diff --check`: passed. An initial format check
-  caught a concurrently edited, unrelated UI review script; the final check was
-  clean.
+- `bun run format:check` and `git diff --check`: passed after an initial format
+  failure in an unrelated UI review script.
 - `bun run desktop:build --features native --bundles app`: passed and exported
   native build/SBOM hashes. Rust's debug-strip helper emitted the existing local
   missing-libLLVM warning; packaging completed successfully.
@@ -134,7 +133,9 @@ application with its unchanged persistent configuration and the existing opt-in
 sanitized diagnostics. No outgoing call, manual reconnect, password extraction
 or account modification was performed. The installed app reports version 0.1.0;
 its executable differs from the latest locally built executable, so this result
-applies specifically to the installed package.
+applies specifically to the installed package. No executable hash or source
+revision was recorded for that package; this is not qualification of the latest
+build or of every package sharing version 0.1.0.
 
 The allowlisted native trace observed the real registrar's authentication
 challenge, successful REGISTER responses and confirmation of the mapped Contact.

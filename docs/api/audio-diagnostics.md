@@ -7,6 +7,7 @@ not read account metadata or passwords to inspect microphone authorization.
 | ------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `get_microphone_permission`     | none                                                  | `MicrophonePermission`; read-only, never prompts or opens an input stream.                                                                                                                             |
 | `request_microphone_permission` | none                                                  | `MicrophonePermission`; explicit user action only. Prompts only while undecided; denied/restricted permission must be changed in OS settings.                                                          |
+| `open_microphone_settings`      | none                                                  | No result (`void`). Opens the fixed macOS microphone privacy pane or Windows microphone privacy settings; never accepts a caller-supplied URL.                                                         |
 | `start_audio_test`              | `{ kind: "microphone" \| "speaker", device: string }` | Opaque owner token (`string`) for the accepted native test. Empty device follows the system default. Other IDs are unchanged native inventory IDs, at most 127 UTF-8 bytes without control characters. |
 | `stop_audio_test`               | `{ id: string }`                                      | No result (`void`). Idempotent for a valid stale token; never stops another test, call audio or an incoming ringtone.                                                                                  |
 
@@ -18,7 +19,8 @@ read failure, unknown native status or authorization timeout returns
 `nativeFailure`; consumers must display an unknown/error state, never infer
 denial. Other platforms currently return `unsupported`; this does not establish
 that microphone access is available. Opening a settings page never captures
-samples or automatically requests permission.
+samples or automatically requests permission. Unsupported settings opening returns
+`engineUnavailable`; failure to open the OS pane returns `nativeFailure`.
 
 Tests require the idle call slot and exclusive native test/preview ownership.
 Where authorization metadata is supported, the microphone test requires already-authorized
@@ -42,7 +44,12 @@ the owned token; engine shutdown also releases all resources. Tokens are opaque
 canonical nonzero decimal strings, unique across engine recreation in the
 process; clients must not manufacture or numerically interpret them.
 
-Malformed kinds/devices/tokens return `invalidInput`. Concurrent calls/tests or
+Missing required arguments and unknown test kinds are rejected by IPC
+deserialization. Invalid devices or malformed owner tokens return `invalidInput`.
+Both test commands use the existing phone session and can restore saved accounts;
+unlike permission queries, they can read local metadata and saved credentials.
+No configured engine or a shutting-down session returns `invalidState`; local
+metadata access failures return `storageFailure`. Concurrent calls/tests or
 ringtone previews return `busy`; a real incoming call winning after validation
 can yield `nativeFailure` from the repeated native guard. Unlinked builds return
 `engineUnavailable`. Missing/ambiguous/unavailable hardware, capture/playback

@@ -26,10 +26,15 @@ domain on failure. Browser previews use ordinary external HTTPS links.
 `get_software_bill` is a settings-only command with no arguments. Success returns
 one required JSON **string** (`Promise<string>`) containing the exact CycloneDX
 1.6 snapshot compiled into this executable. It performs no filesystem reads,
-credential access, SIP initialization or network requests. The serialized format
-has `metadata` (application identity, timestamp, generator, build properties),
-`components` (unique `bom-ref`, name, version; optional purl, scope, licenses,
-hashes and properties) and `dependencies` (`ref`, `dependsOn` references).
+credential access, SIP initialization or network requests. Required top-level
+fields are `bomFormat: "CycloneDX"`, `specVersion: "1.6"`, `version: 1`,
+`serialNumber` (a UUID URN), `metadata`, `components` and `dependencies`.
+`metadata` contains application identity, timestamp, generator and build properties.
+Each entry in the top-level `components` array and `metadata.component` has a
+required `type`, unique `bom-ref`, `name` and `version`;
+`group`, `publisher`, `purl`, `scope`, `licenses`, `hashes` and `properties` are
+optional. Generator entries under `metadata.tools.components` contain `type`,
+`name` and `version`. Each dependency has required `ref` and `dependsOn` references.
 
 Build properties include `ruf:build:target`, `ruf:build:native` (string
 `true`/`false`), `ruf:build:profile` (`debug`/`release`), `ruf:build:kind`
@@ -63,8 +68,8 @@ without bullets, and documents over 100,000 characters are rejected.
 
 Optional build configuration: `VITE_RUF_CHANGELOG_URL`, a public
 `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/CHANGELOG.md` URL.
-No default remote is invented: the current project has no GitHub remote, so builds
-without this setting show only bundled notes and perform no changelog requests.
+Builds without this setting show only bundled notes and perform no changelog
+requests; a Git remote does not configure this source automatically.
 Private repositories and authentication are unsupported. This value is public
 build configuration and must not contain credentials or query parameters.
 

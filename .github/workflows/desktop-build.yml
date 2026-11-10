@@ -34,6 +34,28 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Install the desktop target
         run: rustup target add ${{ matrix.target }}
+      - name: Build OpenSSL for the macOS deployment target
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native/build/openssl-macos14
+          curl --fail --location --retry 2 --output native/build/openssl-3.5.9.tar.gz \
+            https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
+          echo '603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a  native/build/openssl-3.5.9.tar.gz' | shasum -a 256 -c -
+          tar -xzf native/build/openssl-3.5.9.tar.gz -C native/build/openssl-macos14
+          export OPENSSL_ROOT_DIR="$PWD/native/build/openssl-macos14/install"
+          (
+            cd native/build/openssl-macos14/openssl-3.5.9
+            perl ./Configure darwin64-arm64-cc no-shared no-zlib \
+              --prefix="$OPENSSL_ROOT_DIR" --openssldir="$OPENSSL_ROOT_DIR/ssl" \
+              --libdir=lib -mmacosx-version-min=14.0
+            make -j4
+            make test HARNESS_JOBS=4
+            make install_sw
+            cp LICENSE.txt "$OPENSSL_ROOT_DIR/LICENSE.txt"
+          )
+          echo "OPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR" >> "$GITHUB_ENV"
       - name: Build pinned native SDK
         run: bun run native:build
       - run: bun run check:versions

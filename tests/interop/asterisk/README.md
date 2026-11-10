@@ -1,18 +1,24 @@
 # Isolated Asterisk echo lab
 
-Requires Docker Engine/Desktop with Compose, and the matching native SDK.
+Requires Docker Engine/Desktop with Compose, Python 3, the `openssl` CLI and the
+matching native SDK.
 The digest-pinned `andrius/asterisk:22` community image reports Asterisk 22.11.0
 in the verified macOS arm64 run. This container is a separate test tool; it is
 not linked into or distributed inside the MIT application.
 
 ```sh
 bun run native:build
-bun run lab:up
 bun run test:asterisk
 bun run dev:native
 # When finished:
 bun run lab:down
 ```
+
+`test:asterisk` generates the required synthetic TLS certificate files before
+starting/recreating the container. On a fresh checkout, do not run `lab:up` first:
+the certificate bind mounts do not exist yet. After successful provisioning,
+`lab:up` can restart the existing fixture without renewing its one-day certificates;
+rerun `test:asterisk` when fresh certificates are required.
 
 Desktop fields: registrar `127.0.0.1:5070`, user `1000`, password
 `sip-lab-only-not-a-secret`, number `600`. This is an intentionally public,
@@ -20,7 +26,8 @@ synthetic fixture password, never a real account credential. Choose test-tone
 mode for headless verification. System audio is available for a separate manual
 microphone/headset check. Use headphones to avoid feedback with Echo.
 
-Only loopback host ports are published: SIP/UDP 5070 and RTP/UDP 30000–30010.
+Only loopback host ports are published: SIP/UDP 5070, SIP/TLS TCP 5071 and
+RTP/UDP 30000–30010.
 The client uses an ephemeral SIP port and RTP ports 40000–40100. The endpoint
 advertises `media_address=127.0.0.1` explicitly: Docker Desktop's gateway rewriting
 otherwise makes NAT heuristics advertise an unreachable container address.
@@ -51,7 +58,7 @@ docker compose -f tests/interop/asterisk/compose.yml exec asterisk asterisk -rx 
 docker compose -f tests/interop/asterisk/compose.yml logs --tail 50
 ```
 
-Evidence and limits are recorded in [native verification](../../../docs/verification/2026-11-04-native.md).
+Evidence and limits are recorded in the [verification overview](../../../docs/verification/README.md#native-sip-and-audio).
 Configuration follows the official
 [Asterisk NAT guidance](https://docs.asterisk.org/Configuration/Channel-Drivers/SIP/Configuring-res_pjsip/Configuring-res_pjsip-to-work-through-NAT/).
 
@@ -106,7 +113,7 @@ client's required-SRTP offer with actual SIP488 (`sipNotAcceptable`), distinct
 from the controlled missing-crypto `mediaSecurityRequired` failure.
 
 The original six native interop regressions and strict UDP Echo WAV validation
-remain. Eight additional ignored Asterisk tests cover:
+remain. Additional ignored Asterisk tests cover:
 
 - Hold/resume with new returned440Hz audio after native confirmation. A fresh
   post-resume byte checkpoint accounts for aufile reopening/truncating its WAV.
@@ -136,7 +143,7 @@ Container `/tmp/ruf-lab-*` recording files from each owned test are removed.
 
 All native tests run serially under the process-global engine lock. The runner
 explicitly enables `native-test-hooks` for test binaries and then separately runs
-all eight controlled `security_tests` (which `--ignored` would omit). The public
+the controlled `security_tests` (which `--ignored` would omit). The public
 UDP example and final production desktop build use `native`, without test hooks.
 On macOS and Windows, the runner also executes the desktop regression
 `saved_account_accepts_first_incoming_call_after_each_restart`. It restores an

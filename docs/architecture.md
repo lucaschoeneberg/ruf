@@ -5,6 +5,12 @@ The Cargo workspace has three packages. `sip-desktop` composes `phone-core` and
 preconditions, independently of Tauri, C handles or network implementations.
 The Bun workspace contains the plain Svelte/Vite frontend.
 
+baresip is linked in process behind a narrow native adapter rather than run as a
+separate controlled process. This avoids an additional local network/control
+surface and keeps credential delivery inside the native boundary; a native
+crash can still terminate the desktop application. There is no application-owned
+cloud service or parallel frontend audio pipeline.
+
 ```mermaid
 flowchart LR
     UI[Svelte / generated TypeScript] -->|Tauri commands| App[Rust managed engine state]
@@ -12,7 +18,7 @@ flowchart LR
     App --> Adapter[Safe baresip-adapter Engine]
     Adapter --> FFI[Private Rust FFI / C shim]
     FFI -->|message queue| Thread[Dedicated libre / baresip thread]
-    Thread -->|SIP UDP / G.711 RTP| PBX[Local Asterisk]
+    Thread -->|SIP UDP/TCP/TLS / G.711 RTP or SRTP| PBX[Test PBX]
     Thread -->|owned numeric events| State[Password-free snapshot]
     State --> App
 ```

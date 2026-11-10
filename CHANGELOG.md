@@ -2,6 +2,7 @@
 
 ## 0.1.0 · Vorschau
 
+- Ruf mit ⌘K auf dem Mac oder Strg+K unter Windows nach Aktionen, freigegebenen Kontakten und vergangenen Anrufen durchsuchen. Suchtreffer öffnen die vorhandenen Details; ein Anruf startet erst über die jeweilige Anrufaktion. Tastenkürzel und native Menüs machen Gesprächsaktionen direkt erreichbar.
 - Formatierte Nummern mit Leerzeichen und führendem Plus wählen; Kontaktvorschläge direkt bei der Eingabe nutzen.
 - Gesprächstastatur für Ziffern, Stern und Raute während eines Gesprächs einblenden; Töne werden nativ über baresip gesendet.
 - Aktuelle Kontaktnamen für ausgehende und eingehende Gespräche, Mitteilungen und ältere Verlaufseinträge verwenden; deutsche nationale und internationale Vorwahlen optional zuordnen.

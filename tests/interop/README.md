@@ -7,4 +7,4 @@ audio and clean teardown. Native SDK setup is in [native/README.md](../../native
 Expand compatibility only with observed, versioned test results. Asterisk success
 does not establish compatibility with Ubiquiti, 3CX, FreePBX configurations or
 other PBXs/providers. Public-network NAT, TLS/SRTP and hardware audio remain
-separate test dimensions. See [current evidence](../../docs/verification/2026-11-04-native.md).
+separate test dimensions. See [recorded evidence](../../docs/verification/README.md#native-sip-and-audio).
