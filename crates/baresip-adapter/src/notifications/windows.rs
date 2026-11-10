@@ -53,11 +53,17 @@ type Reply<T> = Sender<Result<T, PhoneError>>;
 
 enum Command {
     Permission(Reply<NotificationPermission>),
-    Test(Reply<()>),
+    Test {
+        title: String,
+        body: String,
+        reply: Reply<()>,
+    },
     Show {
         token: String,
         title: String,
         body: String,
+        answer: String,
+        reject: String,
         reply: Reply<()>,
     },
     Dismiss {
@@ -117,7 +123,13 @@ pub(super) fn permission(_request: bool) -> Result<NotificationPermission, Phone
     request(Command::Permission)
 }
 
-pub(super) fn show(token: &str, title: &str, body: &str) -> Result<(), PhoneError> {
+pub(super) fn show(
+    token: &str,
+    title: &str,
+    body: &str,
+    answer: &str,
+    reject: &str,
+) -> Result<(), PhoneError> {
     // Toast tags have a 16-character limit. The desktop issues 16 hex digits.
     if token.len() > 16 {
         return Err(PhoneError::new(
@@ -129,18 +141,24 @@ pub(super) fn show(token: &str, title: &str, body: &str) -> Result<(), PhoneErro
         token: token.into(),
         title: title.into(),
         body: body.into(),
+        answer: answer.into(),
+        reject: reject.into(),
         reply,
     })
 }
 
-pub(super) fn show_test() -> Result<(), PhoneError> {
+pub(super) fn show_test(title: &str, body: &str) -> Result<(), PhoneError> {
     if SERVICE.get().and_then(Option::as_ref).is_none() {
         return Err(PhoneError::new(
             ErrorCode::EngineUnavailable,
             "Native test notifications are unavailable in this launch context.",
         ));
     }
-    request(Command::Test)
+    request(|reply| Command::Test {
+        title: title.into(),
+        body: body.into(),
+        reply,
+    })
 }
 
 pub(super) fn dismiss(token: &str) -> Result<(), PhoneError> {
@@ -256,16 +274,21 @@ impl Worker {
                         .map_err(|_| failure());
                     let _ = reply.send(result);
                 }
-                Command::Test(reply) => {
-                    let _ = reply.send(self.show_test().map_err(|_| failure()));
+                Command::Test { title, body, reply } => {
+                    let _ = reply.send(self.show_test(&title, &body).map_err(|_| failure()));
                 }
                 Command::Show {
                     token,
                     title,
                     body,
+                    answer,
+                    reject,
                     reply,
                 } => {
-                    let _ = reply.send(self.show(&token, &title, &body).map_err(|_| failure()));
+                    let _ = reply.send(
+                        self.show(&token, &title, &body, &answer, &reject)
+                            .map_err(|_| failure()),
+                    );
                 }
                 Command::Dismiss { token, reply } => {
                     let _ = reply.send(self.dismiss(&token).map_err(|_| failure()));
@@ -276,7 +299,14 @@ impl Worker {
             let _ = self.dismiss(&token);
         }
     }
-    fn show(&mut self, token: &str, title: &str, body: &str) -> windows::core::Result<()> {
+    fn show(
+        &mut self,
+        token: &str,
+        title: &str,
+        body: &str,
+        answer: &str,
+        reject: &str,
+    ) -> windows::core::Result<()> {
         if self.toasts.len() >= MAX_TOASTS && !self.toasts.contains_key(token) {
             return Err(windows::core::Error::from_hresult(
                 windows::Win32::Foundation::E_OUTOFMEMORY,
@@ -285,7 +315,7 @@ impl Worker {
         self.dismiss(token)?;
         let document = XmlDocument::new()?;
         document.LoadXml(&HSTRING::from(windows_payload::toast_xml(
-            token, title, body,
+            token, title, body, answer, reject,
         )))?;
         let toast = ToastNotification::CreateToastNotification(&document)?;
         toast.SetTag(&HSTRING::from(token))?;
@@ -318,7 +348,7 @@ impl Worker {
         self.toasts.insert(token.to_owned(), active);
         Ok(())
     }
-    fn show_test(&self) -> windows::core::Result<()> {
+    fn show_test(&self, title: &str, body: &str) -> windows::core::Result<()> {
         // Recheck at delivery time without requesting access. This toast has no
         // call action handler and never replaces entries in self.toasts.
         if self.notifier.Setting()? != NotificationSetting::Enabled {
@@ -327,7 +357,7 @@ impl Worker {
             ));
         }
         let document = XmlDocument::new()?;
-        document.LoadXml(&HSTRING::from(windows_payload::test_toast_xml()))?;
+        document.LoadXml(&HSTRING::from(windows_payload::test_toast_xml(title, body)))?;
         let toast = ToastNotification::CreateToastNotification(&document)?;
         toast.SetTag(&HSTRING::from("settings-test"))?;
         toast.SetGroup(&HSTRING::from(TEST_GROUP))?;

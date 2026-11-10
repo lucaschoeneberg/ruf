@@ -14,12 +14,49 @@ unchanged. No desktop IPC commands or generated Rust DTOs change.
 | `bun run check:tooling` | No required or optional arguments. | Runs the existing TypeScript compiler with `tsconfig.tooling.json` and `noEmit`. Reports file/line diagnostics; exits zero when valid and nonzero on type or configuration errors. Writes no compiled files. |
 
 The tooling check includes `scripts/**/*.ts`, `native/*.ts`, `tests/ui/**/*.ts`,
-`apps/desktop/build/**/*.ts` and the icon generator. It enables `strict`,
+`apps/desktop/build/**/*.ts`, the icon generator and the DMG artwork generator. It enables `strict`,
 `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `isolatedModules` and
 `verbatimModuleSyntax`. Bun, Svelte and Vite declarations describe the runtime
-and imported sources; Playwright imports are type-only. Browser fixture types
+and imported sources. Browser fixture Playwright imports are type-only; the DMG
+artwork generator uses the existing Playwright runtime. Browser fixture types
 reuse the generated DTOs while describing intentionally partial legacy mocks.
 Executing scripts and tests does not replace this separate static check.
+
+`bun run check` also runs `bun run i18n:check` first to validate the shared German
+and English catalogs. See [localization contracts](localization.md).
+
+`bun run test:ui:flows` runs the nine existing German regression flows, nine
+English scenarios using the same synthetic native fixtures, and a multiwindow
+language-switch flow. Optional environment variables: `SIP_UI_LANGUAGE=de|en`
+selects a language; `SIP_UI_FLOW` retains its existing individual-flow filter,
+with `localization` selecting only the language-switch/changelog-race flow.
+An unsupported `SIP_UI_LANGUAGE` fails the command. These are test-runner
+controls, not application preference or language overrides.
+
+## DMG artwork
+
+`bun apps/desktop/src-tauri/dmg/generate.ts` requires macOS and an existing
+Chromium browser. No arguments are required; optional
+`SIP_UI_BROWSER_EXECUTABLE` selects the browser executable. It reads the authored
+SVG, canonical Ruf mark and bundled IBM Plex Sans faces, then replaces only
+`apps/desktop/src-tauri/dmg/background.png` with a 1440×960 render at 144 DPI.
+Missing inputs/browser, render failures and unsupported platforms exit nonzero.
+It performs no app installation, signing or notarization. Normal desktop builds
+use the checked-in PNG without running the generator. See the
+[artwork guide](../../apps/desktop/src-tauri/dmg/README.md) for Finder/CI requirements.
+
+## Repository media
+
+`bun run media:repository` accepts no arguments and requires the existing
+Playwright/Chromium installation plus `ffmpeg` on PATH. Optional
+`SIP_UI_BROWSER_EXECUTABLE` selects a browser executable. It captures the actual
+English UI through the existing synthetic App Store fixtures, then overwrites
+only the documented media in `docs/screenshots`. PNG frames and a capture report
+are written to ignored `output/playwright/repository`; a 30-second MP4 goes to
+ignored `artifacts/release-preparation/media`. Off-origin browser traffic is
+blocked. No SIP, audio, OS account/contact store, installer or publication is used.
+Missing tools, unsupported arguments, server/capture errors or failed media
+conversion exit nonzero. See [media provenance](../screenshots/README.md).
 
 ## Migrated entry points
 

@@ -1,4 +1,12 @@
 <script lang="ts">
+  import {
+    t,
+    text,
+    locale,
+    message,
+    LocalizedError,
+    type MessageValue,
+  } from "./lib/i18n";
   import { onMount, tick } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -87,11 +95,13 @@
           let reason = "";
           if (disabled)
             reason = callIdle
-              ? "Kein laufender Anruf"
-              : "Im aktuellen Gesprächsstatus nicht verfügbar";
+              ? $t("app.no_call")
+              : $t("app.call_action_unavailable");
           return {
             ...action,
-            shortcut: shortcutLabel(action),
+            label: $text(action.label),
+            terms: $text(action.terms),
+            shortcut: shortcutLabel(action, $locale),
             disabled,
             reason,
           };
@@ -100,16 +110,16 @@
         .filter((section) => section.id !== "general")
         .map((section) => ({
           id: `settings:${section.id}`,
-          label: section.label,
+          label: $text(section.label),
           terms:
             section.id === "diagnostics"
-              ? "tastenkombinationen shortcuts kürzel hilfe"
-              : "einstellungen",
+              ? $t("app.diagnostics_terms")
+              : $t("app.settings_terms"),
         })),
       {
         id: "start",
-        label: "Starthilfe öffnen",
-        terms: "hilfe einrichtung erste schritte",
+        label: $t("app.start"),
+        terms: $t("app.start_terms"),
       },
     ];
   });
@@ -187,9 +197,7 @@
             "code" in reason &&
             reason.code === "storageFailure"
           )
-            throw new Error(
-              "Der Rückruf konnte nicht aus dem Verlauf geladen werden. Prüfe den App-Datenordner und starte Ruf neu.",
-            );
+            throw new LocalizedError(message("app.callback_load_error"));
           throw reason;
         }),
       )
@@ -241,7 +249,7 @@
   let browser = $state(false);
   let loading = $state(true);
   let busy = $state(false);
-  let error = $state<string | null>(null);
+  let error = $state<MessageValue | null>(null);
   let notificationPermission = $state<NotificationPermission | null>(null);
   let notificationsEnabled = $state<boolean | null>(null);
   let notificationRequest = 0;
@@ -390,25 +398,25 @@
       .toString()
       .padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`,
   );
-  const registrationLabels: Record<RegistrationState, string> = {
-    unconfigured: "Nicht angemeldet",
-    registering: "Wird angemeldet …",
-    registered: "Angemeldet",
-    failed: "Anmeldung fehlgeschlagen",
-  };
+  const registrationLabels = $derived<Record<RegistrationState, string>>({
+    unconfigured: $t("app.not_registered"),
+    registering: $t("app.registering"),
+    registered: $t("app.registered"),
+    failed: $t("app.registration_failed"),
+  });
   const availability = $derived.by((): string => {
-    if (loading) return "Telefonie wird geladen …";
-    if (browser) return "Browser-Vorschau";
-    if (info?.telephony === "notLinked") return "Telefonie nicht eingebunden";
-    if (!snapshot) return "Status nicht verfügbar";
-    if (selectedAccount?.enabled === false) return "Konto deaktiviert";
+    if (loading) return $t("app.loading");
+    if (browser) return $t("app.browser_preview");
+    if (info?.telephony === "notLinked") return $t("app.not_linked");
+    if (!snapshot) return $t("app.status_unavailable");
+    if (selectedAccount?.enabled === false) return $t("app.disabled_account");
     return registrationLabels[registration];
   });
-  const tabs = [
-    { id: "dialer", label: "Tastatur", icon: "keypad" },
-    { id: "contacts", label: "Kontakte", icon: "contacts" },
-    { id: "history", label: "Verlauf", icon: "history" },
-  ] as const;
+  const tabs = $derived([
+    { id: "dialer", label: $t("app.keypad"), icon: "keypad" },
+    { id: "contacts", label: $t("app.contacts"), icon: "contacts" },
+    { id: "history", label: $t("app.history"), icon: "history" },
+  ] as const);
 
   const introRuntime = $derived.by(() => {
     if (browser) return "browser";
@@ -417,20 +425,18 @@
   });
   const setupLabel = $derived.by((): string => {
     if (!error && !browser && !snapshot && info?.telephony !== "notLinked")
-      return "Status erneut laden";
-    if (browser || !nativeAvailable) return "Starthilfe öffnen";
-    if (selectedAccount?.enabled === false) return "Konto aktivieren";
-    if (registration === "failed") return "Verbindung prüfen";
-    if (registration === "registering")
-      return "Anmeldung läuft · Angaben ansehen";
-    return "SIP-Konto verbinden";
+      return $t("app.reload");
+    if (browser || !nativeAvailable) return $t("app.start");
+    if (selectedAccount?.enabled === false) return $t("app.enable_account");
+    if (registration === "failed") return $t("app.check_connection");
+    if (registration === "registering") return $t("app.registration_details");
+    return $t("app.connect_account");
   });
   const connectionHint = $derived.by((): string => {
-    if (audioUnknown) return "Audioquelle unbekannt · App neu starten";
-    if (sessionAudio === "testTone")
-      return "Testton statt Mikrofon · Audio wird aufgezeichnet";
-    if (firstCallHint) return "Angemeldet. Jetzt eine Nummer wählen.";
-    return "0 halten für + · Enter zum Anrufen";
+    if (audioUnknown) return $t("app.audio_unknown");
+    if (sessionAudio === "testTone") return $t("app.test_audio");
+    if (firstCallHint) return $t("app.ready_to_dial");
+    return $t("app.dial_hint");
   });
 
   function markIntroduction() {
@@ -733,8 +739,7 @@
   let toneRequests = Promise.resolve();
   function sendTone(callId: string, digit: string) {
     if (queuedTones >= 32) {
-      error =
-        "Die Gesprächstastatur ist beschäftigt. Warte kurz und versuche es erneut.";
+      error = message("app.tone_queue_busy");
       return;
     }
     queuedTones++;
@@ -795,14 +800,14 @@
     onclose={() => (searchOpen = false)}
   />{/if}
 
-<div class="softphone" aria-label="Ruf Softphone">
+<div class="softphone" aria-label={$t("app.softphone")}>
   <header class="app-header">
     <div class="app-brand">
       <img src="/ruf.svg" alt="" width="32" height="32" />
       <div class="identity">
         {#if (snapshot?.accounts.length ?? 0) > 1}<label
             class="sr-only"
-            for="outgoing-account">Konto für ausgehende Anrufe</label
+            for="outgoing-account">{$t("app.outgoing_account")}</label
           ><select
             class="account-picker"
             id="outgoing-account"
@@ -832,16 +837,19 @@
       <button
         class="icon-button"
         type="button"
-        aria-label="Ruf durchsuchen"
-        title={`Ruf durchsuchen (${shortcutLabel(phoneActions.find((action) => action.id === "search")!)})`}
+        aria-label={$t("app.search")}
+        title={`${$t("app.search")} (${shortcutLabel(
+          phoneActions.find((action) => action.id === "search")!,
+          $locale,
+        )})`}
         onclick={() => (searchOpen = true)}
         ><Icon name="search" size={16} /></button
       >
       <button
         class="icon-button"
         type="button"
-        aria-label="Starthilfe"
-        title="Starthilfe"
+        aria-label={$t("app.getting_started")}
+        title={$t("app.getting_started")}
         aria-pressed={view === "start"}
         onclick={() => selectView(view === "start" ? "dialer" : "start")}
         ><Icon name="info" size={16} /></button
@@ -849,8 +857,13 @@
       <button
         class="icon-button settings-button"
         type="button"
-        aria-label="Einstellungen öffnen"
-        title={`Einstellungen (${shortcutLabel(phoneActions.find((action) => action.id === "settings")!)})`}
+        aria-label={$t("app.settings")}
+        title={$t("app.settings_tooltip", {
+          shortcut: shortcutLabel(
+            phoneActions.find((action) => action.id === "settings")!,
+            $locale,
+          ),
+        })}
         disabled={openingSettings}
         onclick={() => {
           void showSettings();
@@ -861,43 +874,42 @@
 
   {#if notificationHint}
     <div class="notification-hint" role="status">
-      <p>Mitteilungen für eingehende Anrufe sind nicht freigegeben.</p>
+      <p>{$t("app.notifications_unavailable")}</p>
       <button
         class="text-button"
         type="button"
         disabled={openingSettings}
         onclick={() => void showSettings("notifications")}
-        >Mitteilungen prüfen</button
+        >{$t("app.check_notifications")}</button
       >
     </div>
   {/if}
 
   {#if snapshot?.historyError}<p class="error-notice" role="alert">
-      Der Anrufverlauf kann gerade nicht gespeichert werden. Prüfe den Zugriff
-      auf den App-Datenordner.
+      {$t("app.history_save_error")}
     </p>{/if}
   {#if error}<div class="error-notice">
       <div class="error-copy">
-        <p role="alert">{error}</p>
+        <p role="alert">{$text(error)}</p>
         {#if (!info || !snapshot) && !browser}<button
             class="text-button"
             type="button"
             disabled={loading || busy}
             onclick={() => {
               void refreshNativeState();
-            }}>Status erneut laden</button
+            }}>{$t("app.reload")}</button
           >{:else if registration === "failed"}<button
             class="text-button"
             type="button"
             onclick={() => {
               void showSettings();
-            }}>Verbindung prüfen</button
+            }}>{$t("app.check_connection")}</button
           >{/if}
       </div>
       <button
         class="icon-button"
         type="button"
-        aria-label="Fehlermeldung schließen"
+        aria-label={$t("app.dismiss_error")}
         onclick={() => (error = null)}><Icon name="close" size={15} /></button
       >
     </div>{/if}
@@ -905,14 +917,14 @@
   {#if callFailure && failureKey !== dismissedFailure}
     <div class="error-notice owned-call-failure">
       <p role="alert">
-        Anruffehler{failureOwner ? ` · ${failureOwner}` : ""}: {errorMessage(
-          callFailure.error,
+        {$t("app.call_error")}{failureOwner ? ` · ${failureOwner}` : ""}: {$text(
+          errorMessage(callFailure.error),
         )}
       </p>
       <button
         class="icon-button"
         type="button"
-        aria-label="Anruffehler schließen"
+        aria-label={$t("app.dismiss_call_error")}
         onclick={() => (dismissedFailure = failureKey)}
         ><Icon name="close" size={15} /></button
       >
@@ -920,11 +932,11 @@
   {/if}
   {#if transferSuccessKey && transferSuccessKey !== dismissedTransfer}
     <div class="transfer-success" role="status">
-      <p>Vermittlung bestätigt.</p>
+      <p>{$t("app.transfer_confirmed")}</p>
       <button
         class="icon-button"
         type="button"
-        aria-label="Vermittlungsmeldung schließen"
+        aria-label={$t("app.dismiss_transfer")}
         onclick={() => (dismissedTransfer = transferSuccessKey)}
         ><Icon name="close" size={15} /></button
       >
@@ -992,12 +1004,12 @@
           contactsHint={dialContacts?.permission === "authorized"
             ? null
             : dialContacts?.permission === "unsupported"
-              ? "Kontaktzuordnung ist auf dieser Plattform nicht verfügbar."
+              ? $t("app.contacts_unsupported")
               : dialContacts?.permission === "restricted"
-                ? "Der Kontaktzugriff ist durch eine Systemrichtlinie eingeschränkt."
+                ? $t("app.contacts_restricted")
                 : dialContacts
-                  ? "Kontaktnamen nach Freigabe der macOS-Kontakte."
-                  : "Kontakte sind momentan nicht verfügbar."}
+                  ? $t("app.contacts_after_permission")
+                  : $t("app.contacts_unavailable")}
           {canCall}
           {busy}
           {registered}
@@ -1031,14 +1043,14 @@
           callIdle &&
           !busy}
         callHint={!nativeAvailable
-          ? "Telefonieren ist in diesem Build nicht verfügbar."
+          ? $t("app.calling_unavailable")
           : audioUnknown
-            ? "Audioquelle unbekannt · App neu starten"
+            ? $t("app.audio_unknown")
             : !callIdle
-              ? "Beende das laufende Gespräch, um einen Kontakt anzurufen."
+              ? $t("app.end_before_contact")
               : !registered
-                ? "Verbinde dein SIP-Konto, um Kontakte anzurufen."
-                : "Die Telefonie ist gerade beschäftigt."}
+                ? $t("app.connect_before_contact")
+                : $t("app.phone_busy")}
         oncall={(target) => {
           void placeContactCall(target);
         }}
@@ -1057,11 +1069,14 @@
     {/if}
   </main>
 
-  <nav class="bottom-nav" aria-label="Hauptnavigation">
+  <nav class="bottom-nav" aria-label={$t("app.main_navigation")}>
     {#each tabs as tab}<button
         type="button"
         class:active={view === tab.id}
-        title={`${tab.label} (${shortcutLabel(phoneActions.find((action) => action.id === tab.id)!)})`}
+        title={`${tab.label} (${shortcutLabel(
+          phoneActions.find((action) => action.id === tab.id)!,
+          $locale,
+        )})`}
         aria-current={view === tab.id ? "page" : undefined}
         onclick={() => selectView(tab.id)}
         ><Icon name={tab.icon} size={16} /><span>{tab.label}</span></button

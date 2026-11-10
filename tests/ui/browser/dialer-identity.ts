@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type {
   FixtureSnapshot,
@@ -13,6 +14,7 @@ export default async function dialerIdentity(
   page: Page,
   origin: string,
   capture = false,
+  englishSmoke?: EnglishSmoke,
 ) {
   await page.addInitScript(() => {
     if (location.search.includes("identity-flow") === false) return;
@@ -126,6 +128,12 @@ export default async function dialerIdentity(
         callbacks.delete(id);
       },
       async invoke(command, args = {}) {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         fixture.commands.push({ command, args: structuredClone(args) });
         if (command === "plugin:event|listen") {
           const id = next++;
@@ -137,6 +145,7 @@ export default async function dialerIdentity(
           return { version: "0.1.0", telephony: "linked" };
         if (command === "get_preferences")
           return {
+            language: "system",
             startHidden: true,
             showCallerInNotifications: true,
             contacts: {
@@ -234,6 +243,7 @@ export default async function dialerIdentity(
       },
     };
   });
+  if (englishSmoke) return englishSmoke(page, "dialer-identity", origin);
   const assert = (ok: unknown, message: string) => {
     if (!ok) throw new Error(message);
   };

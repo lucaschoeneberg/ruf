@@ -11,6 +11,7 @@
 @end
 
 @interface StalledCenter : NSObject
+@property(nonatomic, strong) NSSet<UNNotificationCategory *> *categories;
 @property(nonatomic) BOOL stallSettings;
 @property(nonatomic) BOOL denied;
 @property(nonatomic) BOOL failDelivery;
@@ -27,6 +28,7 @@
 - (void)finishDelivery;
 @end
 @implementation StalledCenter
+- (void)setNotificationCategories:(NSSet<UNNotificationCategory *> *)categories { self.categories = categories; }
 - (void)getNotificationSettingsWithCompletionHandler:(void (^)(UNNotificationSettings *))completion {
     if (self.stallSettings) return;
     TestSettings *settings = [[TestSettings alloc] init];
@@ -116,21 +118,30 @@ int main(void) {
             if (permission != 3) exit(31);
             fake.lateSettings = NO;
             if (sip_call_notifications_permission(0, &permission) || permission != 2) exit(3);
-            if (!sip_call_notifications_show("test-token", "Test", "Synthetic call")) exit(4);
+            if (!sip_call_notifications_show("test-token", "Test", "Synthetic call", "Answer", "Reject")) exit(4);
             if (sip_call_notifications_dismiss("test-token") || fake.removed != 2) exit(5);
             fake.lateDelivery = YES;
-            if (!sip_call_notifications_show("late-token", "Test", "Synthetic call")) exit(6);
+            if (!sip_call_notifications_show("late-token", "Test", "Synthetic call", "Answer", "Reject")) exit(6);
             if (sip_call_notifications_dismiss("late-token")) exit(7);
             [fake finishDelivery];
             dispatch_sync(delivery_queue, ^{});
             if (fake.visibleToken) exit(8);
-            if (!sip_call_notifications_show("retry-token", "Test", "Synthetic call")) exit(9);
+            if (!sip_call_notifications_show("retry-token", "Test", "Synthetic call", "Answer", "Reject")) exit(9);
             fake.lateDelivery = NO;
             fake.acknowledgeDelivery = YES;
-            if (sip_call_notifications_show("retry-token", "Test", "Synthetic call")) exit(10);
+            if (sip_call_notifications_show("retry-token", "Test", "Synthetic call", "Answer", "Reject")) exit(10);
             [fake finishDelivery];
             dispatch_sync(delivery_queue, ^{});
             if (![fake.visibleToken isEqualToString:@"retry-token"]) exit(11);
+            UNNotificationCategory *english = fake.categories.anyObject;
+            if (![english.actions[0].title isEqualToString:@"Answer"] || ![english.actions[1].title isEqualToString:@"Reject"]) exit(31);
+            /* An initialized process must replace labels, keeping the same token and action IDs. */
+            fake.lateDelivery = NO;
+            fake.acknowledgeDelivery = YES;
+            if (sip_call_notifications_show("retry-token", "Anruf", "Synthetischer Anruf", "Annehmen", "Ablehnen")) exit(32);
+            UNNotificationCategory *german = fake.categories.anyObject;
+            if (![german.actions[0].title isEqualToString:@"Annehmen"] || ![german.actions[0].identifier isEqualToString:@"accept"] ||
+                ![german.actions[1].title isEqualToString:@"Ablehnen"] || ![fake.visibleToken isEqualToString:@"retry-token"]) exit(33);
             if (sip_call_notifications_dismiss("retry-token")) exit(12);
             /* The settings test has no call token/category/personal payload and
              * may not wait behind real-call delivery or touch its withdrawal state. */
@@ -138,12 +149,12 @@ int main(void) {
             int removed = fake.removed;
             dispatch_semaphore_t releaseQueue = dispatch_semaphore_create(0);
             dispatch_async(delivery_queue, ^{ dispatch_semaphore_wait(releaseQueue, DISPATCH_TIME_FOREVER); });
-            if (sip_test_notification_show()) exit(16);
+            if (sip_test_notification_show("Test notification", "Ruf notifications are enabled.")) exit(16);
             if (![fake.lastRequest.identifier hasPrefix:@"org.sipsoftphone.settings-test."] ||
                 fake.lastRequest.content.categoryIdentifier.length || fake.lastRequest.content.userInfo.count ||
                 fake.lastRequest.content.sound ||
-                ![fake.lastRequest.content.title isEqualToString:@"Testbenachrichtigung"] ||
-                ![fake.lastRequest.content.body isEqualToString:@"Benachrichtigungen von Ruf sind aktiviert."] ||
+                ![fake.lastRequest.content.title isEqualToString:@"Test notification"] ||
+                ![fake.lastRequest.content.body isEqualToString:@"Ruf notifications are enabled."] ||
                 ![active_token isEqualToString:@"live-call"] || fake.removed != removed) exit(17);
             SIPCallNotificationDelegate *delegate = [[SIPCallNotificationDelegate alloc] init];
             action_callback = record_action;
@@ -166,25 +177,25 @@ int main(void) {
             dispatch_semaphore_signal(releaseQueue);
             fake.denied = YES;
             fake.lastRequest = nil;
-            if (!sip_test_notification_show() || fake.lastRequest || fake.permissionRequests) exit(18);
+            if (!sip_test_notification_show("Test notification", "Ruf notifications are enabled.") || fake.lastRequest || fake.permissionRequests) exit(18);
             fake.denied = NO;
             fake.acknowledgeDelivery = NO;
-            if (!sip_test_notification_show()) exit(19);
+            if (!sip_test_notification_show("Test notification", "Ruf notifications are enabled.")) exit(19);
             fake.lateDelivery = YES;
-            if (!sip_test_notification_show()) exit(20);
+            if (!sip_test_notification_show("Test notification", "Ruf notifications are enabled.")) exit(20);
             [fake finishDelivery];
             dispatch_sync(delivery_queue, ^{});
             if (![active_token isEqualToString:@"live-call"] || fake.removed != removed) exit(22);
             fake.lateDelivery = NO;
             fake.stallSettings = YES;
             fake.lastRequest = nil;
-            if (!sip_test_notification_show() || fake.lastRequest) exit(26);
+            if (!sip_test_notification_show("Test notification", "Ruf notifications are enabled.") || fake.lastRequest) exit(26);
             fake.stallSettings = NO;
             fake.lateSettings = YES;
-            if (!sip_test_notification_show() || fake.lastRequest) exit(27);
+            if (!sip_test_notification_show("Test notification", "Ruf notifications are enabled.") || fake.lastRequest) exit(27);
             fake.lateSettings = NO;
             fake.failDelivery = YES;
-            if (!sip_test_notification_show() || fake.permissionRequests) exit(28);
+            if (!sip_test_notification_show("Test notification", "Ruf notifications are enabled.") || fake.permissionRequests) exit(28);
             /* Late settings callbacks must be safe after their caller timed out. */
             [fake finishSettings];
             dispatch_semaphore_signal(finished);

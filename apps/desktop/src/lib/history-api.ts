@@ -1,3 +1,4 @@
+import { message } from "./i18n";
 import { desktopInvoke } from "./api";
 import type {
   EngineSnapshot,
@@ -9,11 +10,7 @@ function desktop<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  return desktopInvoke<T>(
-    command,
-    args,
-    "Der Verlauf ist nur in der Desktop-App verfügbar.",
-  );
+  return desktopInvoke<T>(command, args, message("errors.historyOnly"));
 }
 
 export const getHistory = (query: HistoryQuery) =>

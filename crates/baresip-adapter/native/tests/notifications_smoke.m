@@ -41,7 +41,8 @@ static void check_category(void) {
 
 static void check_delivery(int action) {
     NSString *token = [NSString stringWithFormat:@"%016d", action];
-    if (sip_call_notifications_show(token.UTF8String, "Ada Beispiel", "+4930000000 · Testkonto")) exit(4);
+    if (sip_call_notifications_show(token.UTF8String, "Ada Beispiel", "+4930000000 · Testkonto", "Annehmen", "Ablehnen")) exit(4);
+    check_category();
     [NSThread sleepForTimeInterval:1];
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
     [UNUserNotificationCenter.currentNotificationCenter getDeliveredNotificationsWithCompletionHandler:^(NSArray<UNNotification *> *notices) {
@@ -80,7 +81,6 @@ int main(int argc, const char *argv[]) {
                 fprintf(stderr, "Notification access unavailable. Run with --request-permission or enable Ruf Notification Test in System Settings.\n");
                 exit(2);
             }
-            check_category();
             for (int action = 1; action <= 3; action++) check_delivery(action);
             [NSThread sleepForTimeInterval:1];
             [UNUserNotificationCenter.currentNotificationCenter getDeliveredNotificationsWithCompletionHandler:^(NSArray<UNNotification *> *notices) {

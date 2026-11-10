@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import type { Contact } from "../generated/AppInfo";
   import { copyPhoneNumber, openContactsApp } from "../contacts-api";
   import Icon from "./Icon.svelte";
@@ -28,7 +29,7 @@
   const first = $derived(contact.phones[0]);
   const multiple = $derived(contact.phones.length > 1);
   let copiedIndex = $state<number | null>(null);
-  let actionError = $state<string | null>(null);
+  let actionError = $state<MessageValue | null>(null);
 
   async function copyNumber(number: string, index: number) {
     actionError = null;
@@ -37,8 +38,7 @@
       await copyPhoneNumber(number);
       copiedIndex = index;
     } catch {
-      actionError =
-        "Die Nummer konnte nicht kopiert werden. Versuche es erneut oder markiere und kopiere sie direkt.";
+      actionError = message("phone.contacts.copy_error");
     }
   }
 
@@ -47,8 +47,7 @@
     try {
       await openContactsApp(contact.id);
     } catch {
-      actionError =
-        "Der Kontakt konnte nicht geöffnet werden. Öffne die macOS-App Kontakte manuell.";
+      actionError = message("phone.contacts.open_error");
     }
   }
 </script>
@@ -62,10 +61,19 @@
       aria-expanded={multiple ? expanded : undefined}
       aria-controls={multiple && expanded ? numbersId : undefined}
       aria-label={multiple
-        ? `${contact.name}: ${contact.phones.length} Nummern ${expanded ? "ausblenden" : "anzeigen"}`
+        ? $t(
+            expanded
+              ? "phone.contacts.hide_numbers"
+              : "phone.contacts.show_numbers",
+            { name: contact.name, count: contact.phones.length },
+          )
         : first
-          ? `${contact.name}, ${first.label}: ${first.number} anrufen`
-          : `${contact.name}: Keine Nummer`}
+          ? $t("phone.contacts.call_number", {
+              name: contact.name,
+              label: first.label,
+              number: first.number,
+            })
+          : $t("phone.contacts.named_no_number", { name: contact.name })}
       onclick={() => {
         if (multiple) onexpand();
         else if (canDial && first?.destination) oncall(first.destination);
@@ -76,11 +84,11 @@
         <span class="contact-summary">
           {#if showOrganization && contact.organization && contact.organization !== contact.name}{contact.organization}{" · "}{/if}
           {multiple
-            ? `${contact.phones.length} Nummern`
-            : (first?.number ?? "Keine Nummer")}
+            ? $t("phone.contacts.numbers", { count: contact.phones.length })
+            : (first?.number ?? $t("phone.contacts.no_number"))}
         </span>
         {#if first && !multiple && !first.destination}<span class="unavailable"
-            >Nicht wählbar</span
+            >{$t("phone.contacts.not_dialable")}</span
           >{/if}
       </span>
       {#if first}<Icon
@@ -95,7 +103,7 @@
     <button
       class="icon-button details-button"
       type="button"
-      aria-label={`Details zu ${contact.name}`}
+      aria-label={$t("phone.contacts.details", { name: contact.name })}
       aria-expanded={expanded}
       aria-controls={expanded ? numbersId : undefined}
       onclick={onexpand}><Icon name="info" size={15} /></button
@@ -104,7 +112,12 @@
       class="icon-button favorite-button"
       class:is-favorite={contact.favorite}
       type="button"
-      aria-label={`${contact.name}: ${contact.favorite ? "Favorit entfernen" : "Als Favorit merken"}`}
+      aria-label={$t(
+        contact.favorite
+          ? "phone.contacts.named_remove_favorite"
+          : "phone.contacts.named_add_favorite",
+        { name: contact.name },
+      )}
       aria-pressed={contact.favorite}
       disabled={favoriteBusy}
       onclick={onfavorite}
@@ -117,7 +130,7 @@
       class="contact-numbers"
       id={numbersId}
       role="group"
-      aria-label={`${contact.name}: Kontaktdetails`}
+      aria-label={$t("phone.contacts.named_details", { name: contact.name })}
     >
       {#each contact.phones as phone, index}
         <div class="number-line">
@@ -125,7 +138,11 @@
             class="contact-number"
             type="button"
             disabled={!canDial || !phone.destination}
-            aria-label={`${contact.name}, ${phone.label}: ${phone.number} anrufen`}
+            aria-label={$t("phone.contacts.call_number", {
+              name: contact.name,
+              label: phone.label,
+              number: phone.number,
+            })}
             onclick={() => {
               if (canDial && phone.destination) oncall(phone.destination);
             }}
@@ -135,7 +152,7 @@
                 >{phone.number}</span
               >
               {#if !phone.destination}<span class="unavailable"
-                  >Nicht wählbar</span
+                  >{$t("phone.contacts.not_dialable")}</span
                 >{/if}</span
             >
             <Icon name="phone" size={15} />
@@ -143,33 +160,43 @@
           <button
             class="text-button copy-number"
             type="button"
-            aria-label={`${contact.name}, ${phone.label}: ${phone.number} kopieren`}
+            aria-label={$t("phone.contacts.copy_number", {
+              name: contact.name,
+              label: phone.label,
+              number: phone.number,
+            })}
             onclick={() => void copyNumber(phone.number, index)}
-            >{copiedIndex === index ? "Kopiert" : "Kopieren"}</button
+            >{copiedIndex === index
+              ? $t("phone.common.copied")
+              : $t("phone.common.copy")}</button
           >
         </div>
       {/each}
       {#if contact.phones.length === 0}<p class="contact-note">
-          Keine Telefonnummer vorhanden.
+          {$t("phone.contacts.no_phone")}
         </p>{/if}
       <div class="contact-actions">
         <button
           class="text-button"
           type="button"
-          aria-label={`Anrufverlauf von ${contact.name}`}
+          aria-label={$t("phone.contacts.named_history", {
+            name: contact.name,
+          })}
           disabled={!contact.phones.some((phone) => phone.destination)}
-          onclick={() => onhistory(contact)}>Anrufverlauf</button
+          onclick={() => onhistory(contact)}
+          >{$t("phone.contacts.call_history")}</button
         ><button
           class="text-button"
           type="button"
-          onclick={() => void openSource()}>macOS-Kontakte öffnen</button
+          onclick={() => void openSource()}
+          >{$t("phone.contacts.open_source")}</button
         >
       </div>
       {#if copiedIndex !== null}<span class="sr-only" role="status"
-          >Nummer kopiert</span
+          >{$t("phone.contacts.copied")}</span
         >{/if}
       {#if actionError}<p class="contact-note contact-error" role="alert">
-          {actionError}
+          {$text(actionError)}
         </p>{/if}
     </div>
   {/if}

@@ -196,6 +196,12 @@ export function installAppStoreFixtures() {
       callbacks.delete(id);
     },
     async invoke(command, args) {
+      if (command === "get_localization")
+        return {
+          preference: "system",
+          locale: window.__rufTestLanguage ?? "de",
+          revision: 0,
+        };
       fixture.commands.push({ command, args });
       if (command === "plugin:event|listen") {
         const id = nextId++;
@@ -213,6 +219,7 @@ export function installAppStoreFixtures() {
       if (command === "get_engine_snapshot") return structuredClone(state);
       if (command === "get_preferences")
         return {
+          language: "system",
           startHidden: true,
           showCallerInNotifications: true,
           contacts: {

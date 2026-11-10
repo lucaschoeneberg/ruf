@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text as formatText, locale } from "../i18n";
   import { onMount, tick } from "svelte";
   import { searchActions, type SearchAction } from "../shortcuts";
   import Icon from "./Icon.svelte";
@@ -46,10 +47,12 @@
   let historyError = $state(false);
   let revision = $state(0);
   let historyRequest = 0;
-  const historyDate = new Intl.DateTimeFormat("de-DE", {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
+  const historyDate = $derived(
+    new Intl.DateTimeFormat($locale === "de" ? "de-DE" : "en-GB", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }),
+  );
   const text = $derived(query.trim());
   const historySearch = $derived(normalizeDialNumber(text) ?? text);
   const searchPeople = $derived(Array.from(text).length >= 2);
@@ -61,6 +64,7 @@
           false,
           preferences.favoritesFirst,
           preferences.matchGermanNumbers,
+          $locale,
         )
       : [],
   );
@@ -70,17 +74,19 @@
     choose: () => void;
   };
   const results = $derived.by((): Result[] => {
-    const found: Result[] = searchActions(actions, query).map((action) => ({
-      ...action,
-      group: "Aktionen",
-      choose: () => onaction(action.id),
-    }));
+    const found: Result[] = searchActions(actions, query, $locale).map(
+      (action) => ({
+        ...action,
+        group: $t("phone.search.actions"),
+        choose: () => onaction(action.id),
+      }),
+    );
     found.push(
       ...contactMatches.slice(0, previewLimit).map((contact) => ({
         id: `contact:${contact.id}`,
         label: contact.name,
         terms: "",
-        group: "Kontakte",
+        group: $t("phone.contacts.title"),
         detail: [
           preferences.showOrganization ? contact.organization : "",
           contact.phones[0]?.number,
@@ -93,9 +99,11 @@
     if (contactMatches.length > previewLimit)
       found.push({
         id: "more-contacts",
-        label: `Alle ${contactMatches.length} Kontakte anzeigen`,
+        label: $t("phone.search.more_contacts", {
+          count: contactMatches.length,
+        }),
         terms: "",
-        group: "Kontakte",
+        group: $t("phone.contacts.title"),
         choose: () => onsearchview("contacts", text),
       });
     found.push(
@@ -105,11 +113,12 @@
           contacts?.permission === "authorized"
             ? entry
             : { ...entry, contact: null },
+          $locale,
         ),
         terms: "",
-        group: "Verlauf",
+        group: $t("phone.history.title"),
         detail: [
-          historyOutcomes[entry.outcome],
+          $formatText(historyOutcomes[entry.outcome]),
           historyDate.format(entry.startedAtMs),
           entry.accountName,
         ]
@@ -121,9 +130,9 @@
     if (historyPage?.hasMore)
       found.push({
         id: "more-history",
-        label: `Alle ${historyPage.total} Anrufe anzeigen`,
+        label: $t("phone.search.more_history", { count: historyPage.total }),
         terms: "",
-        group: "Verlauf",
+        group: $t("phone.history.title"),
         choose: () => onsearchview("history", historySearch),
       });
     return found;
@@ -242,11 +251,11 @@
   onkeydown={keyboard}
 >
   <header>
-    <h2 id="action-search-title">Ruf durchsuchen</h2>
+    <h2 id="action-search-title">{$t("phone.search.title")}</h2>
     <button
       class="icon-button"
       type="button"
-      aria-label="Suche schließen"
+      aria-label={$t("phone.search.close")}
       onclick={onclose}><Icon name="close" size={16} /></button
     >
   </header>
@@ -257,20 +266,24 @@
       bind:value={query}
       oninput={() => (selected = 0)}
       role="combobox"
-      aria-label="Ruf durchsuchen"
+      aria-label={$t("phone.search.title")}
       aria-expanded="true"
       aria-controls="ruf-action-list"
       aria-autocomplete="list"
       aria-activedescendant={results.length
         ? `ruf-action-${current}`
         : undefined}
-      placeholder="Name, Nummer oder Aktion suchen …"
+      placeholder={$t("phone.search.placeholder")}
       maxlength="200"
       autocomplete="off"
       spellcheck="false"
     />
   </div>
-  <div id="ruf-action-list" role="listbox" aria-label="Aktionen">
+  <div
+    id="ruf-action-list"
+    role="listbox"
+    aria-label={$t("phone.search.actions")}
+  >
     {#each results as action, index (action.id)}
       {#if index === 0 || results[index - 1]?.group !== action.group}
         <div class="result-group" role="presentation">{action.group}</div>
@@ -300,40 +313,39 @@
     {/each}
   </div>
   {#if searchPeople && historyLoading}<p class="empty" role="status">
-      Verlauf wird durchsucht …
+      {$t("phone.search.history_loading")}
     </p>{/if}
   {#if searchPeople && desktop && contacts?.permission !== "authorized"}
     <p class="empty">
       {contacts === null
-        ? "Kontakte sind momentan nicht verfügbar."
+        ? $t("phone.search.contacts_unavailable")
         : contacts.permission === "unsupported"
-          ? "Kontakte sind auf dieser Plattform nicht verfügbar."
-          : "Kontakte sind nicht freigegeben. Freigabe unter Einstellungen → Datenschutz."}
+          ? $t("phone.search.contacts_unsupported")
+          : $t("phone.search.contacts_denied")}
     </p>
   {/if}
   {#if searchPeople && !desktop}<p class="empty">
-      Kontakte und Verlauf findest du in der Desktop-App.
+      {$t("phone.search.desktop")}
     </p>{/if}
   {#if searchPeople && historyError}<div class="search-error" role="status">
-      <p>Der Verlauf konnte nicht geladen werden.</p>
+      <p>{$t("phone.search.history_error")}</p>
       <button class="text-button" type="button" onclick={refreshHistory}
-        >Erneut versuchen</button
+        >{$t("phone.common.retry")}</button
       >
     </div>{/if}
   {#if historyPage?.recordingError}<p class="empty">
-      Der Verlauf kann momentan nicht vollständig gespeichert werden.
+      {$t("phone.search.recording_error")}
     </p>{/if}
   {#if !results.length && !historyLoading && !historyError}<p
       class="empty"
       role="status"
     >
-      Keine passenden Treffer. Versuche einen Namen, eine Nummer oder eine
-      Aktion.
+      {$t("phone.search.empty")}
     </p>{/if}
   {#if !searchPeople}<p class="empty">
-      Ab 2 Zeichen auch Kontakte und Verlauf durchsuchen.
+      {$t("phone.search.minimum")}
     </p>{/if}
-  <footer>↑ ↓ auswählen · Enter ausführen · Esc schließen</footer>
+  <footer>{$t("phone.search.keyboard")}</footer>
 </dialog>
 
 <style>

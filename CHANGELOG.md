@@ -26,3 +26,4 @@
 - Distinguish caller information, call states and SIP errors more precisely. Unsupported transfer requests are explicitly rejected.
 - View and explicitly copy a diagnostic report without personal account, contact or caller data.
 - Migrate existing settings while backing up the original metadata, with improved long account names, clear account actions and search focus.
+- First free Developer Preview, with German/English UI and native presentation, a preview tester guide and a dedicated compatibility-report form. No in-app purchases.

@@ -1,7 +1,13 @@
+import type { AppLocale } from "../../../apps/desktop/src/lib/generated/AppInfo";
 import type { DialogProjection, FixtureCall } from "./types";
 // Shared native-shaped projection for legacy browser regression scenarios only.
 // Serialized into context.addInitScript: keep this installer free of module closures.
-export function installDialogFixtures() {
+export function installDialogFixtures(language: AppLocale = "de") {
+  window.__rufTestLanguage = language;
+  Object.defineProperty(navigator, "languages", {
+    configurable: true,
+    get: () => [language === "de" ? "de-DE" : "en-GB"],
+  });
   window.__rufTestSyncDialogs = (<T extends Parameters<DialogProjection>[0]>(
     snapshot: T,
   ) => {

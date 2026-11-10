@@ -1,11 +1,14 @@
 //! Desktop lifecycle and IPC composition; application logic lives in phone-core.
 
+rust_i18n::i18n!("../../../locales");
+
 mod about;
 mod call_notifications;
 mod commands;
 mod contacts;
 mod desktop;
 mod history;
+mod localization;
 mod phone;
 mod preferences;
 mod shell;
@@ -38,8 +41,12 @@ pub fn run() {
         .manage(phone::PhoneState::default())
         .manage(contacts::ContactsState::default())
         .manage(shell::ShellState::default())
-        .menu(|app| shell::app_menu(app, &phone_core::EngineSnapshot::default()))
+        .menu(|app| {
+            localization::initialize(app);
+            shell::app_menu(app, &phone_core::EngineSnapshot::default())
+        })
         .setup(|app| {
+            localization::initialize(app.handle());
             contacts::setup(app.handle());
             history::setup(app.handle());
             shell::setup(app)?;
@@ -59,6 +66,7 @@ pub fn run() {
             about::get_software_bill,
             commands::get_app_info,
             preferences::get_preferences,
+            localization::get_localization,
             preferences::save_preferences,
             commands::get_diagnostics,
             commands::copy_diagnostics,

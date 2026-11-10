@@ -19,11 +19,13 @@ int sip_call_notifications_init(const char *app_id, sip_call_notification_callba
  * has a separate three-minute deadline. A timeout is an execution failure. */
 int sip_call_notifications_permission(int request, int *permission);
 
-/* Silent immediate delivery with fixed accept/reject actions. Never requests
+/* Localized title/body/actions are copied synchronously; Rust validates bounds.
+ * Category labels are refreshed even after process initialization.
+ * Silent immediate delivery with fixed accept/reject actions. Never requests
  * authorization. Waits for OS acceptance, cancellation by dismiss or timeout.
  * Nonzero reports native execution failure, a five-second service timeout or
  * missing authorization. A late OS callback remains safe after a timeout. */
-int sip_call_notifications_show(const char *token, const char *title, const char *body);
+int sip_call_notifications_show(const char *token, const char *title, const char *body, const char *answer, const char *reject);
 
 /* Invalidates in-flight delivery and removes pending and delivered requests for
  * this exact token. Unknown tokens are harmless. No authorization prompt. */
@@ -34,6 +36,6 @@ int sip_call_notifications_dismiss(const char *token);
  * delivery/withdrawal; bounded five-second settings and OS-acceptance waits.
  * Returns zero only after OS acceptance; nonzero covers missing authorization,
  * unsupported context, native failure or timeout. Late completions remain safe. */
-int sip_test_notification_show(void);
+int sip_test_notification_show(const char *title, const char *body);
 
 #endif

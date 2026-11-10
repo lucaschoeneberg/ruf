@@ -1,3 +1,5 @@
+import { getLocale } from "./i18n";
+import type { AppLocale } from "./generated/AppInfo";
 import { normalizeDialNumber } from "./dialing";
 import type { Contact, ContactPhone } from "./generated/AppInfo";
 
@@ -22,6 +24,7 @@ export function searchContacts(
   favoritesOnly = false,
   favoritesFirst = true,
   matchGermanNumbers = true,
+  language: AppLocale = getLocale(),
 ): Contact[] {
   const text = searchable(query.trim());
   const telephone = phoneSearch(text);
@@ -52,7 +55,7 @@ export function searchContacts(
     .sort(
       (a, b) =>
         (favoritesFirst ? Number(b.favorite) - Number(a.favorite) : 0) ||
-        a.name.localeCompare(b.name, "de", { sensitivity: "base" }) ||
+        a.name.localeCompare(b.name, language, { sensitivity: "base" }) ||
         a.id.localeCompare(b.id),
     );
 }
@@ -76,6 +79,7 @@ export function dialSuggestions(
   contacts: readonly Contact[],
   number: string,
   matchGerman = true,
+  language: AppLocale = getLocale(),
 ): DialSuggestion[] {
   const prefix = numberPrefix(number, matchGerman);
   if (!prefix || number.replace(/\D/g, "").length < 3) return [];
@@ -93,7 +97,7 @@ export function dialSuggestions(
       (a, b) =>
         Number(b.exactMatch) - Number(a.exactMatch) ||
         Number(b.contact.favorite) - Number(a.contact.favorite) ||
-        a.contact.name.localeCompare(b.contact.name, "de"),
+        a.contact.name.localeCompare(b.contact.name, language),
     );
   const suggestions: DialSuggestion[] = [];
   for (const { contact, phone } of candidates) {

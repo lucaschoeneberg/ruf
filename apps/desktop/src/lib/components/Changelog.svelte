@@ -1,23 +1,48 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
-  import bundled from "../../../../../CHANGELOG.md?raw";
+  import { onDestroy, untrack } from "svelte";
+  import { locale, t, getLocale } from "../i18n";
+  import type { AppLocale } from "../generated/AppInfo";
+  import bundledEnglish from "../../../../../CHANGELOG.md?raw";
+  import bundledGerman from "../../../../../CHANGELOG.de.md?raw";
   import { loadChangelog, parseChangelog } from "../changelog";
 
-  const local = parseChangelog(bundled);
-  const source = import.meta.env.VITE_RUF_CHANGELOG_URL;
+  const bundled = {
+    de: parseChangelog(bundledGerman),
+    en: parseChangelog(bundledEnglish),
+  };
+  const source = $derived(
+    $locale === "de"
+      ? import.meta.env.VITE_RUF_CHANGELOG_URL_DE
+      : import.meta.env.VITE_RUF_CHANGELOG_URL,
+  );
   let open = $state(false);
-  let entries = $state(local);
+  let entries = $state(bundled[getLocale()]);
   let loading = $state(false);
   let failed = $state(false);
+  let currentLocale: AppLocale = getLocale();
   let requested = false;
   let disposed = false;
   let active: AbortController | null = null;
 
   $effect(() => {
-    if (open && source && !requested) {
-      requested = true;
-      void refresh();
-    }
+    const language = $locale;
+    const expanded = open;
+    const url = source;
+    untrack(() => {
+      if (language !== currentLocale) {
+        active?.abort();
+        active = null;
+        currentLocale = language;
+        entries = bundled[language];
+        loading = false;
+        failed = false;
+        requested = false;
+      }
+      if (expanded && url && !requested) {
+        requested = true;
+        void refresh();
+      }
+    });
   });
   onDestroy(() => {
     disposed = true;
@@ -25,35 +50,40 @@
   });
 
   async function refresh() {
-    if (!source || loading) return;
+    const url = source;
+    const language = $locale;
+    if (!url || loading) return;
     loading = true;
     failed = false;
     const controller = new AbortController();
     active = controller;
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const updated = await loadChangelog(source, controller.signal);
-      if (!disposed) entries = updated;
+      const updated = await loadChangelog(url, controller.signal);
+      if (!disposed && active === controller && getLocale() === language)
+        entries = updated;
     } catch {
-      if (!disposed) {
-        entries = local;
+      if (!disposed && active === controller && getLocale() === language) {
+        entries = bundled[language];
         failed = true;
       }
     } finally {
       clearTimeout(timeout);
-      if (!disposed) loading = false;
+      if (!disposed && active === controller && getLocale() === language) {
+        active = null;
+        loading = false;
+      }
     }
   }
 </script>
 
 <details class="settings-lab changelog" bind:open>
-  <summary>Was ist neu?</summary>
+  <summary>{$t("settings.whats_new")}</summary>
   {#if open}
     <div class="changelog-status" role="status">
-      {#if loading}<p>Aktuelle Änderungen werden geladen …</p>{/if}
+      {#if loading}<p>{$t("settings.changelog_loading")}</p>{/if}
       {#if failed}<p>
-          Online-Änderungen konnten nicht geladen werden. Hier siehst du den
-          Stand dieser Version.
+          {$t("settings.changelog_failed")}
         </p>{/if}
     </div>
     {#each entries as entry}
@@ -63,7 +93,7 @@
       </ul>
     {/each}
     {#if source}<button class="text-button" disabled={loading} onclick={refresh}
-        >Aktualisieren</button
+        >{$t("settings.refresh")}</button
       >{/if}
   {/if}
 </details>

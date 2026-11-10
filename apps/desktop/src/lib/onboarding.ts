@@ -1,3 +1,4 @@
+import { message, type Message } from "./i18n";
 import type { AccountConfig } from "./generated/AppInfo";
 
 export type AccountField =
@@ -8,7 +9,7 @@ export type AccountField =
   | "mediaSecurity"
   | "authUsername"
   | "outboundProxy";
-export type AccountErrors = Partial<Record<AccountField, string>>;
+export type AccountErrors = Partial<Record<AccountField, Message>>;
 const INTRODUCTION_KEY = "sip.introduction.v1";
 
 /** Trim address/username paste artifacts; passwords are always passed unchanged. */
@@ -29,30 +30,25 @@ export function validateAccount(
 ): AccountErrors {
   const errors: AccountErrors = {};
   if (!validServer(account.registrar))
-    errors.registrar =
-      "Gib die Serveradresse an, optional mit :Port. Ohne sip:, Leerzeichen oder Pfad.";
+    errors.registrar = message("validation.registrar");
   if (account.outboundProxy != null && !validServer(account.outboundProxy))
-    errors.outboundProxy =
-      "Gib einen Proxy als Serveradresse an, optional mit :Port. Ohne sip:, Parameter oder Pfad.";
+    errors.outboundProxy = message("validation.outboundProxy");
   if (
     account.authUsername != null &&
     !/^[a-z0-9_.+-]{1,80}$/i.test(account.authUsername)
   )
-    errors.authUsername =
-      "Nutze 1–80 Buchstaben, Ziffern oder _ . + - für die separate Anmeldekennung.";
+    errors.authUsername = message("validation.authUsername");
   if (account.mediaSecurity === "required" && account.transport !== "tls")
-    errors.mediaSecurity = "SRTP erforderlich benötigt TLS als SIP-Transport.";
+    errors.mediaSecurity = message("validation.mediaSecurity");
   if (!/^[a-z0-9_.+-]{1,80}$/i.test(account.username)) {
-    errors.username =
-      "Nutze den SIP-Benutzernamen aus deinen Zugangsdaten (max. 80 Zeichen), keine E-Mail-Adresse.";
+    errors.username = message("validation.username");
   }
   if (
     (!account.password && !keepSavedPassword) ||
     new TextEncoder().encode(account.password).length > 1024 ||
     account.password.includes("\0")
   ) {
-    errors.password =
-      "Gib dein SIP-Passwort ein (max. 1024 Bytes, ohne Nullzeichen).";
+    errors.password = message("validation.password");
   }
   return errors;
 }

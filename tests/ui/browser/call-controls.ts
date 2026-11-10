@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type {
   FixtureSnapshot,
@@ -12,6 +13,7 @@ export default async function callControls(
   page: Page,
   baseUrl: string,
   capture = false,
+  englishSmoke?: EnglishSmoke,
 ) {
   const target = await page.context().newPage();
   target.setDefaultTimeout(10000);
@@ -174,6 +176,12 @@ export default async function callControls(
         callbacks.delete(id);
       },
       async invoke(command, args = {}) {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         fixture.commands.push({ command, args: structuredClone(args) });
         if (command === "plugin:event|listen") {
           const id = sequence++;
@@ -196,6 +204,7 @@ export default async function callControls(
           };
         if (command === "get_preferences")
           return {
+            language: "system",
             startHidden: true,
             showCallerInNotifications: true,
             contacts: {
@@ -300,6 +309,7 @@ export default async function callControls(
       },
     };
   });
+  if (englishSmoke) return englishSmoke(target, "call-controls", baseUrl);
   const assert = (value: unknown, message: string) => {
     if (!value) throw new Error(message);
   };

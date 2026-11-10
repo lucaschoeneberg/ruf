@@ -77,9 +77,54 @@ pub fn call_notification_permission(request: bool) -> Result<NotificationPermiss
 }
 
 /// Deliver a silent call banner with Answer/Reject actions. Never requests permission.
+/// Required `answer`/`reject` are localized action labels (1–128 UTF-8 bytes).
+/// Title/body are required plain text bounded to 512/1024 bytes. Invalid inputs return `InvalidInput`.
 /// The token is opaque and must contain no caller/account information. Call off the UI thread.
-pub fn show_call_notification(token: &str, title: &str, body: &str) -> Result<(), PhoneError> {
+pub fn show_call_notification(
+    token: &str,
+    title: &str,
+    body: &str,
+    answer: &str,
+    reject: &str,
+) -> Result<(), PhoneError> {
     validate_token(token)?;
+    for (text, bound) in [(title, 512), (body, 1024), (answer, 128), (reject, 128)] {
+        if text.is_empty()
+            || text.len() > bound
+            || text.chars().any(|c| {
+                c.is_control() || matches!(c, '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            })
+        {
+            return Err(input_error());
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::show(token, title, body, answer, reject)
+    }
+    #[cfg(windows)]
+    {
+        windows::show(token, title, body, answer, reject)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        Err(PhoneError::new(
+            ErrorCode::EngineUnavailable,
+            "Native call notifications are unavailable on this platform.",
+        ))
+    }
+}
+
+/// Deliver one anonymous, silent settings-test notification without call actions.
+/// Required localized title/body must be plain text bounded to 512/1024 UTF-8 bytes; invalid text returns `InvalidInput`.
+/// Never requests authorization; the native service rechecks it before submission.
+/// Call on a blocking worker. Success means OS acceptance, not guaranteed display.
+/// macOS settings and acceptance each have a five-second deadline; late callbacks
+/// remain safe and never modify live-call delivery. Windows uses its existing COM
+/// worker and a separate notification group, without touching the live-call map.
+/// Returns `NativeFailure` on denial, timeout or service failure and
+/// `EngineUnavailable` on unsupported platforms or Windows launch contexts.
+pub fn show_test_notification(title: &str, body: &str) -> Result<(), PhoneError> {
     for (text, bound) in [(title, 512), (body, 1024)] {
         if text.is_empty()
             || text.len() > bound
@@ -92,37 +137,11 @@ pub fn show_call_notification(token: &str, title: &str, body: &str) -> Result<()
     }
     #[cfg(target_os = "macos")]
     {
-        macos::show(token, title, body)
+        macos::show_test(title, body)
     }
     #[cfg(windows)]
     {
-        windows::show(token, title, body)
-    }
-    #[cfg(not(any(windows, target_os = "macos")))]
-    {
-        Err(PhoneError::new(
-            ErrorCode::EngineUnavailable,
-            "Native call notifications are unavailable on this platform.",
-        ))
-    }
-}
-
-/// Deliver one anonymous, silent settings-test notification without call actions.
-/// Never requests authorization; the native service rechecks it before submission.
-/// Call on a blocking worker. Success means OS acceptance, not guaranteed display.
-/// macOS settings and acceptance each have a five-second deadline; late callbacks
-/// remain safe and never modify live-call delivery. Windows uses its existing COM
-/// worker and a separate notification group, without touching the live-call map.
-/// Returns `NativeFailure` on denial, timeout or service failure and
-/// `EngineUnavailable` on unsupported platforms or Windows launch contexts.
-pub fn show_test_notification() -> Result<(), PhoneError> {
-    #[cfg(target_os = "macos")]
-    {
-        macos::show_test()
-    }
-    #[cfg(windows)]
-    {
-        windows::show_test()
+        windows::show_test(title, body)
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -171,6 +190,43 @@ fn input_error() -> PhoneError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn translated_notification_labels_and_test_content_retain_input_bounds() {
+        for label in [
+            "".into(),
+            "x".repeat(129),
+            "Answer\nnow".into(),
+            "Answer\u{202e}".into(),
+        ] {
+            assert_eq!(
+                show_call_notification("opaque", "Title", "Body", &label, "Reject")
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidInput
+            );
+            assert_eq!(
+                show_call_notification("opaque", "Title", "Body", "Answer", &label)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidInput
+            );
+        }
+        for title in ["".into(), "x".repeat(513), "Title\u{0}".into()] {
+            assert_eq!(
+                show_test_notification(&title, "Anonymous body")
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidInput
+            );
+        }
+        assert_eq!(
+            show_test_notification("Test", &"x".repeat(1025))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidInput
+        );
+    }
+
     #[test]
     fn notification_tokens_are_bounded_and_contain_no_transport_data() {
         assert!(validate_token("session-0123.call-9").is_ok());

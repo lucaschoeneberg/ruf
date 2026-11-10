@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, locale, type MessageValue } from "../i18n";
   import { onMount, tick, untrack } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -43,20 +44,24 @@
 
   const pageSize = 50;
   const searchDelayMs = 200;
-  const filters: { value: HistoryFilter; label: string }[] = [
-    { value: "all", label: "Alle" },
-    { value: "missed", label: "Verpasst" },
-    { value: "incoming", label: "Eingehend" },
-    { value: "outgoing", label: "Ausgehend" },
-  ];
-  const time = new Intl.DateTimeFormat("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const fullTime = new Intl.DateTimeFormat("de-DE", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-  });
+  const filters = $derived<{ value: HistoryFilter; label: string }[]>([
+    { value: "all", label: $t("phone.history.all") },
+    { value: "missed", label: $t("phone.history.missed") },
+    { value: "incoming", label: $t("phone.history.incoming") },
+    { value: "outgoing", label: $t("phone.history.outgoing") },
+  ]);
+  const time = $derived(
+    new Intl.DateTimeFormat($locale === "de" ? "de-DE" : "en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  );
+  const fullTime = $derived(
+    new Intl.DateTimeFormat($locale === "de" ? "de-DE" : "en-GB", {
+      dateStyle: "medium",
+      timeStyle: "medium",
+    }),
+  );
   let searchInput = $state<HTMLInputElement>();
   let appliedSearchFocus = 0;
   $effect(() => {
@@ -77,8 +82,8 @@
   let expandedId = $state<string | null>(null);
   let confirmation = $state<string | null>(null);
   let mutating = $state(false);
-  let error = $state<string | null>(null);
-  let actionError = $state<string | null>(null);
+  let error = $state<MessageValue | null>(null);
+  let actionError = $state<MessageValue | null>(null);
   let copiedId = $state<string | null>(null);
   let requestId = 0;
   let failedRequest: {
@@ -165,8 +170,7 @@
     } catch {
       if (mounted && id === requestId) {
         failedRequest = { query: request, append, retainCount };
-        error =
-          "Der Verlauf konnte nicht geladen werden. Prüfe den Zugriff auf den App-Datenordner und versuche es erneut.";
+        error = message("phone.history.load_error");
       }
     } finally {
       if (mounted && id === requestId) loading = false;
@@ -211,9 +215,7 @@
       expandedId = null;
       await load();
     } catch {
-      if (mounted)
-        actionError =
-          "Löschen fehlgeschlagen. Laufende Anrufe bleiben erhalten. Versuche es erneut.";
+      if (mounted) actionError = message("phone.history.delete_error");
     } finally {
       if (mounted) mutating = false;
     }
@@ -227,9 +229,7 @@
       await copyPhoneNumber(entry.number);
       if (mounted) copiedId = entry.id;
     } catch {
-      if (mounted)
-        actionError =
-          "Die Nummer konnte nicht kopiert werden. Versuche es erneut oder markiere und kopiere sie direkt.";
+      if (mounted) actionError = message("phone.contacts.copy_error");
     }
   }
 
@@ -293,16 +293,18 @@
   aria-busy={loading || mutating}
 >
   <div class="history-heading">
-    <h1 id="history-heading">Verlauf</h1>
+    <h1 id="history-heading">{$t("phone.history.title")}</h1>
     {#if page}<span class="history-count" role="status"
-        >{page.total}<span class="sr-only"> Anrufe</span></span
+        >{page.total}<span class="sr-only">
+          {$t("phone.history.count_label", { count: page.total })}</span
+        ></span
       >{/if}
     {#if desktop}
       <button
         class="icon-button refresh-history"
         type="button"
-        aria-label="Verlauf aktualisieren"
-        title="Verlauf aktualisieren"
+        aria-label={$t("phone.history.refresh")}
+        title={$t("phone.history.refresh")}
         disabled={loading || mutating}
         onclick={() => void load()}><Icon name="refresh" size={15} /></button
       >
@@ -313,7 +315,7 @@
         onclick={() => {
           confirmation = "all";
           actionError = null;
-        }}>Verlauf löschen …</button
+        }}>{$t("phone.history.clear_prompt")}</button
       >
     {/if}
   </div>
@@ -321,33 +323,36 @@
   {#if !desktop}
     <div class="empty-state">
       <Icon name="history" size={22} />
-      <h2>Verlauf in der Desktop-App</h2>
-      <p>Öffne Ruf auf deinem Computer, um deine lokalen Anrufe zu sehen.</p>
+      <h2>{$t("phone.history.desktop_title")}</h2>
+      <p>{$t("phone.history.desktop_hint")}</p>
     </div>
   {:else}
     {#if contactScope}
       <div class="contact-scope">
-        <span>Für {contactScope.name}</span><button
-          class="text-button"
-          type="button"
-          onclick={onclearscope}>Alle Anrufe</button
+        <span>{$t("phone.history.scope", { name: contactScope.name })}</span
+        ><button class="text-button" type="button" onclick={onclearscope}
+          >{$t("phone.history.all_calls")}</button
         >
       </div>
     {/if}
     <label class="history-search">
       <Icon name="search" size={15} />
-      <span class="sr-only">Verlauf nach Name, Nummer oder Konto suchen</span>
+      <span class="sr-only">{$t("phone.history.search")}</span>
       <input
         bind:this={searchInput}
         type="search"
-        placeholder="Name, Nummer oder Konto"
+        placeholder={$t("phone.history.search_placeholder")}
         bind:value={query}
         maxlength="200"
         autocomplete="off"
         spellcheck="false"
       />
     </label>
-    <div class="history-filters" role="group" aria-label="Anrufe filtern">
+    <div
+      class="history-filters"
+      role="group"
+      aria-label={$t("phone.history.filter")}
+    >
       {#each filters as option}
         <button
           type="button"
@@ -360,40 +365,40 @@
       <div
         class="confirmation"
         role="group"
-        aria-label="Verlauf löschen bestätigen"
+        aria-label={$t("phone.history.confirm_clear")}
       >
         <p>
-          Alle abgeschlossenen Anrufe aus dem Verlauf löschen? Laufende Anrufe
-          bleiben erhalten. Dies lässt sich nicht rückgängig machen.
+          {$t("phone.history.clear_warning")}
         </p>
         <div class="actions">
           <button
             class="danger-button"
             type="button"
             disabled={mutating}
-            onclick={() => void remove(null)}>Verlauf löschen</button
+            onclick={() => void remove(null)}
+            >{$t("phone.history.clear")}</button
           ><button
             class="secondary-button"
             type="button"
             disabled={mutating}
-            onclick={() => (confirmation = null)}>Abbrechen</button
+            onclick={() => (confirmation = null)}
+            >{$t("phone.common.cancel")}</button
           >
         </div>
       </div>
     {/if}
     {#if actionError}<p class="history-note history-error" role="alert">
-        {actionError}
+        {$text(actionError)}
       </p>{/if}
     {#if page?.recordingError}<p
         class="history-note history-error"
         role="alert"
       >
-        Anrufe konnten nicht vollständig gespeichert werden. Prüfe den Zugriff
-        auf den App-Datenordner und starte Ruf nach Beheben der Ursache neu.
+        {$t("phone.history.recording_error")}
       </p>{/if}
     {#if error}
       <div class="history-note history-error">
-        <p role="alert">{error}</p>
+        <p role="alert">{$text(error)}</p>
         <button
           class="secondary-button"
           type="button"
@@ -405,13 +410,13 @@
                 failedRequest.append,
                 failedRequest.retainCount,
               );
-          }}>Erneut versuchen</button
+          }}>{$t("phone.common.retry")}</button
         >
       </div>
     {/if}
     {#if loading}
       <p class="history-note" class:sr-only={page !== null} role="status">
-        Verlauf wird geladen …
+        {$t("phone.history.loading")}
       </p>
     {/if}
     {#if page && page.entries.length === 0 && !loading}
@@ -419,15 +424,15 @@
         <Icon name="history" size={22} />
         <h2>
           {query.trim() || filter !== "all" || contactScope
-            ? "Keine passenden Anrufe"
-            : "Noch keine Anrufe"}
+            ? $t("phone.history.no_matches")
+            : $t("phone.history.empty")}
         </h2>
         <p>
           {query.trim() || filter !== "all"
-            ? "Ändere die Suche oder den Filter."
+            ? $t("phone.history.search_hint")
             : contactScope
-              ? "Für diese Nummern sind keine Anrufe gespeichert."
-              : "Hier erscheinen Anrufe, die du mit Ruf tätigst oder empfängst."}
+              ? $t("phone.history.scope_empty")
+              : $t("phone.history.empty_hint")}
         </p>
         {#if query.trim() || filter !== "all"}<button
             class="secondary-button"
@@ -435,16 +440,21 @@
             onclick={() => {
               query = "";
               filter = "all";
-            }}>Suche und Filter zurücksetzen</button
+            }}>{$t("phone.history.reset")}</button
           >{/if}
       </div>
     {:else if page}
       {#each groups as group (group.key)}
-        <h2 class="day-heading">{historyDayLabel(group.atMs)}</h2>
-        <ul class="history-list" aria-label={historyDayLabel(group.atMs)}>
+        <h2 class="day-heading">
+          {historyDayLabel(group.atMs, Date.now(), $locale)}
+        </h2>
+        <ul
+          class="history-list"
+          aria-label={historyDayLabel(group.atMs, Date.now(), $locale)}
+        >
           {#each group.entries as entry (entry.id)}
             {@const expanded = expandedId === entry.id}
-            {@const title = historyTitle(entry)}
+            {@const title = historyTitle(entry, $locale)}
             {@const unavailable = callbackUnavailable(entry, canDial)}
             {@const duration = historyDuration(entry.durationMs)}
             <li
@@ -456,7 +466,12 @@
                 class="history-main"
                 type="button"
                 aria-expanded={expanded}
-                aria-label={`${title}: Anrufdetails ${expanded ? "ausblenden" : "anzeigen"}`}
+                aria-label={$t(
+                  expanded
+                    ? "phone.history.hide_details"
+                    : "phone.history.show_details",
+                  { name: title },
+                )}
                 onclick={() => {
                   expandedId = expanded ? null : entry.id;
                   confirmation = null;
@@ -468,9 +483,10 @@
                   ><span class="history-name">{title}</span><span
                     class="history-summary"
                     >{entry.direction === "incoming"
-                      ? "Eingehend"
-                      : "Ausgehend"} ·
-                    <span class="outcome">{historyOutcomes[entry.outcome]}</span
+                      ? $t("phone.history.incoming")
+                      : $t("phone.history.outgoing")} ·
+                    <span class="outcome"
+                      >{$text(historyOutcomes[entry.outcome])}</span
                     >{duration !== null ? ` · ${duration}` : ""}</span
                   ><span class="history-account">{entry.accountName}</span
                   ></span
@@ -488,23 +504,25 @@
                 <div
                   class="history-details"
                   role="group"
-                  aria-label={`${title}: Anrufdetails`}
+                  aria-label={$t("phone.history.details", { name: title })}
                 >
                   {#if entry.contact}<button
                       class="text-button contact-link"
                       type="button"
                       onclick={() => entry.contact && oncontact(entry.contact)}
-                      >Kontakt {entry.contact.name} öffnen</button
+                      >{$t("phone.history.open_contact", {
+                        name: entry.contact.name,
+                      })}</button
                     >{/if}
                   <dl>
                     <div>
-                      <dt>Nummer</dt>
+                      <dt>{$t("phone.history.number")}</dt>
                       <dd class="selectable-number">
-                        {entry.number ?? "Unbekannt / unterdrückt"}
+                        {entry.number ?? $t("phone.history.unknown_number")}
                       </dd>
                     </div>
                     <div>
-                      <dt>Konto</dt>
+                      <dt>{$t("phone.history.account")}</dt>
                       <dd>
                         {entry.accountName}{entry.accountUsername &&
                         entry.accountRegistrar
@@ -513,82 +531,85 @@
                       </dd>
                     </div>
                     <div>
-                      <dt>Beginn</dt>
+                      <dt>{$t("phone.history.started")}</dt>
                       <dd>{fullTime.format(entry.startedAtMs)}</dd>
                     </div>
                     {#if entry.answeredAtMs !== null}<div>
-                        <dt>Verbunden</dt>
+                        <dt>{$t("phone.history.connected")}</dt>
                         <dd>{fullTime.format(entry.answeredAtMs)}</dd>
                       </div>{/if}
                     {#if entry.endedAtMs !== null}<div>
-                        <dt>Ende</dt>
+                        <dt>{$t("phone.history.ended")}</dt>
                         <dd>{fullTime.format(entry.endedAtMs)}</dd>
                       </div>{/if}
                     <div>
-                      <dt>Ergebnis</dt>
+                      <dt>{$t("phone.history.outcome")}</dt>
                       <dd>
-                        {historyOutcomes[entry.outcome]}{entry.sipStatus !==
-                        null
+                        {$text(
+                          historyOutcomes[entry.outcome],
+                        )}{entry.sipStatus !== null
                           ? ` · SIP ${entry.sipStatus}`
                           : ""}
                       </dd>
                     </div>
                     {#if duration !== null}<div>
-                        <dt>Dauer</dt>
+                        <dt>{$t("phone.history.duration")}</dt>
                         <dd>{duration}</dd>
                       </div>{/if}
                     {#if entry.outcome === "interrupted" && entry.durationMs === null}<div
                       >
-                        <dt>Dauer</dt>
-                        <dd>Unbekannt</dd>
+                        <dt>{$t("phone.history.duration")}</dt>
+                        <dd>{$t("phone.history.unknown")}</dd>
                       </div>{/if}
                   </dl>
                   {#if unavailable}<p class="history-note">
-                      {unavailable}
+                      {$text(unavailable)}
                     </p>{/if}
                   <div class="actions">
                     <button
                       class="secondary-button"
                       type="button"
                       disabled={!!unavailable || mutating}
-                      title={unavailable ??
-                        `Über ${entry.accountName} zurückrufen`}
+                      title={unavailable
+                        ? $text(unavailable)
+                        : $t("phone.history.callback_account", {
+                            name: entry.accountName,
+                          })}
                       onclick={() => {
                         if (!callbackUnavailable(entry, canDial))
                           oncallback(entry.id, entry.number);
-                      }}>Rückruf</button
+                      }}>{$t("phone.history.callback")}</button
                     >
                     {#if entry.number}<button
                         class="secondary-button"
                         type="button"
                         onclick={() => void copyNumber(entry)}
                         >{copiedId === entry.id
-                          ? "Kopiert"
-                          : "Nummer kopieren"}</button
+                          ? $t("phone.common.copied")
+                          : $t("phone.history.copy")}</button
                       >{/if}
                     <button
                       class="text-button delete-entry"
                       type="button"
                       disabled={entry.outcome === "inProgress" || mutating}
                       onclick={() => (confirmation = entry.id)}
-                      >Anruf löschen …</button
+                      >{$t("phone.history.delete_prompt")}</button
                     >
                   </div>
                   {#if entry.outcome === "inProgress"}<p class="history-note">
-                      Laufende Anrufe können nicht gelöscht werden.
+                      {$t("phone.history.active_retained")}
                     </p>{/if}
                   {#if copiedId === entry.id}<span class="sr-only" role="status"
-                      >Nummer kopiert</span
+                      >{$t("phone.contacts.copied")}</span
                     >{/if}
                   {#if confirmation === entry.id}
                     <div
                       class="confirmation"
                       role="group"
-                      aria-label="Anruf löschen bestätigen"
+                      aria-label={$t("phone.history.confirm_delete")}
                     >
                       <p>
-                        Diesen Anruf aus dem Verlauf löschen? Dies lässt sich
-                        nicht rückgängig machen.
+                        {$t("phone.history.delete_warning")}
                       </p>
                       <div class="actions">
                         <button
@@ -596,13 +617,13 @@
                           type="button"
                           disabled={mutating}
                           onclick={() => void remove(entry.id)}
-                          >Anruf löschen</button
+                          >{$t("phone.history.delete")}</button
                         ><button
                           class="secondary-button"
                           type="button"
                           disabled={mutating}
                           onclick={() => (confirmation = null)}
-                          >Abbrechen</button
+                          >{$t("phone.common.cancel")}</button
                         >
                       </div>
                     </div>
@@ -620,8 +641,8 @@
           onclick={() =>
             void load({ ...currentQuery, offset: nextOffset }, true)}
           >{loading
-            ? "Anrufe werden geladen …"
-            : "Weitere Anrufe anzeigen"}</button
+            ? $t("phone.history.loading_more")
+            : $t("phone.history.more")}</button
         >{/if}
     {/if}
   {/if}

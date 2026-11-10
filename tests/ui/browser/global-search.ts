@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type {
   FixtureCallback,
@@ -11,6 +12,7 @@ export default async function globalSearch(
   page: Page,
   baseUrl: string,
   capture = false,
+  englishSmoke?: EnglishSmoke,
 ) {
   const target = await page.context().newPage();
   target.setDefaultTimeout(10000);
@@ -81,6 +83,12 @@ export default async function globalSearch(
         return id;
       },
       async invoke(command, args = {}) {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         fixture.commands.push({ command, args });
         if (command === "plugin:event|listen") {
           const id = next++;
@@ -101,6 +109,7 @@ export default async function globalSearch(
         if (command === "get_notification_permission") return "authorized";
         if (command === "get_preferences")
           return {
+            language: "system",
             startHidden: false,
             showCallerInNotifications: false,
             contacts: {
@@ -170,6 +179,7 @@ export default async function globalSearch(
       },
     };
   });
+  if (englishSmoke) return englishSmoke(target, "global-search", baseUrl);
   const assert = (ok: unknown, message: string) => {
     if (!ok) throw new Error(message);
   };

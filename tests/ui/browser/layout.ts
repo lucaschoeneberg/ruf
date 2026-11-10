@@ -1,7 +1,13 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type { FixtureCallback } from "./types";
 // Synthetic IPC only: screenshots and layout checks never open SIP/audio/keychains.
-export default async function layoutRegressions(page: Page) {
+export default async function layoutRegressions(
+  page: Page,
+  _baseUrl?: string,
+  _capture = false,
+  englishSmoke?: EnglishSmoke,
+) {
   const origin = new URL(page.url()).origin;
   const target = await page.context().newPage();
   await target.addInitScript(() => {
@@ -22,6 +28,12 @@ export default async function layoutRegressions(page: Page) {
         callbacks.delete(id);
       },
       async invoke(command) {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         if (command === "get_app_info")
           return { version: "0.1.0", telephony: "linked" };
         if (command === "plugin:event|listen") return next++;
@@ -81,6 +93,7 @@ export default async function layoutRegressions(page: Page) {
         if (command === "get_audio_devices") return { inputs: [], outputs: [] };
         if (command === "get_preferences")
           return {
+            language: "system",
             startHidden: true,
             showCallerInNotifications: true,
             contacts: {
@@ -102,6 +115,7 @@ export default async function layoutRegressions(page: Page) {
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
     localStorage.setItem("sip.onboarding.dismissed.v1", "yes");
   });
+  if (englishSmoke) return englishSmoke(target, "layout", origin);
   const errors: string[] = [];
   target.on("pageerror", (error) => errors.push(error.message));
   const check = async (label: string) => {

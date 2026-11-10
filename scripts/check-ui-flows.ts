@@ -19,8 +19,14 @@ import settings from "../tests/ui/browser/settings.ts";
 import layout from "../tests/ui/browser/layout.ts";
 import history from "../tests/ui/browser/history.ts";
 import contacts from "../tests/ui/browser/contacts.ts";
+import {
+  englishSmoke,
+  englishExpectedLabels,
+} from "../tests/ui/browser/english-smoke.ts";
+import localization from "../tests/ui/browser/localization.ts";
 
 const root = resolve(import.meta.dir, "..");
+const expectedEnglishLabels = englishExpectedLabels();
 const temporary = mkdtempSync(join(tmpdir(), "sip-ui-flows-"));
 const session = `sip-flows-${process.pid}`;
 const cli = [
@@ -106,6 +112,8 @@ const server = Bun.spawn(
       ...process.env,
       VITE_RUF_CHANGELOG_URL:
         "https://raw.githubusercontent.com/example/ruf/main/CHANGELOG.md",
+      VITE_RUF_CHANGELOG_URL_DE:
+        "https://raw.githubusercontent.com/example/ruf/main/CHANGELOG.de.md",
     },
   },
 );
@@ -123,33 +131,57 @@ try {
   }
   mkdirSync(join(root, "output/playwright"), { recursive: true });
   run("open", url, `--config=${config}`);
-  const fixturePath = join(temporary, "fixtures.js");
-  await Bun.write(
-    fixturePath,
-    `async (page) => { await page.context().addInitScript(${installDialogFixtures.toString()}); }`,
-  );
-  run("run-code", `--filename=${fixturePath}`);
-
-  for (const [name, test] of [
-    ["contacts", contacts],
-    ["history", history],
-    ["phone", phone],
-    ["call-controls", callControls],
-    ["shortcuts", shortcuts],
-    ["global-search", globalSearch],
-    ["dialer-identity", dialerIdentity],
-    ["settings", settings],
-    ["layout", layout],
-  ] as const) {
-    if (process.env.SIP_UI_FLOW && process.env.SIP_UI_FLOW !== name) continue;
-    const path = join(temporary, `${name}.js`);
+  const selectedLanguage = process.env.SIP_UI_LANGUAGE;
+  if (
+    selectedLanguage &&
+    selectedLanguage !== "de" &&
+    selectedLanguage !== "en"
+  )
+    throw new Error("SIP_UI_LANGUAGE must be de or en");
+  const languages = selectedLanguage ? [selectedLanguage] : ["de", "en"];
+  for (const [index, language] of languages.entries()) {
+    if (index > 0) {
+      run("close");
+      run("open", url, `--config=${config}`);
+    }
+    // Separate contexts retain every original DE regression and isolate EN state.
+    const fixturePath = join(temporary, `${language}-fixtures.js`);
+    await Bun.write(
+      fixturePath,
+      `async (page) => { await page.context().addInitScript(${installDialogFixtures.toString()}, ${JSON.stringify(language)}); }`,
+    );
+    run("run-code", `--filename=${fixturePath}`);
+    for (const [name, test] of [
+      ["contacts", contacts],
+      ["history", history],
+      ["phone", phone],
+      ["call-controls", callControls],
+      ["shortcuts", shortcuts],
+      ["global-search", globalSearch],
+      ["dialer-identity", dialerIdentity],
+      ["settings", settings],
+      ["layout", layout],
+    ] as const) {
+      if (process.env.SIP_UI_FLOW && process.env.SIP_UI_FLOW !== name) continue;
+      const path = join(temporary, `${language}-${name}.js`);
+      await Bun.write(
+        path,
+        `async (page) => { const englishScenario = ${language === "en" ? `async (target, flow, origin) => (${englishSmoke.toString()})(target, flow, origin, ${JSON.stringify(expectedEnglishLabels)})` : "undefined"}; const result = await (${test.toString()})(page, new URL(page.url()).origin, ${process.env.SIP_UI_CAPTURE === "1"}, englishScenario); if (result && result.passed === false) throw new Error(JSON.stringify(result)); return result ?? { passed: true }; }`,
+      );
+      const result = run("run-code", `--filename=${path}`);
+      console.log(`UI_FLOW_OK ${language} ${name}`);
+      if (result.includes('"passed": false')) throw new Error(result);
+    }
+  }
+  if (!process.env.SIP_UI_FLOW || process.env.SIP_UI_FLOW === "localization") {
+    const path = join(temporary, "localization.js");
     await Bun.write(
       path,
-      `async (page) => { const result = await (${test.toString()})(page, new URL(page.url()).origin, ${process.env.SIP_UI_CAPTURE === "1"}); if (result && result.passed === false) throw new Error(JSON.stringify(result)); return result ?? { passed: true }; }`,
+      `async (page) => (${localization.toString()})(page, new URL(page.url()).origin)`,
     );
     const result = run("run-code", `--filename=${path}`);
-    console.log(`UI_FLOW_OK ${name}`);
     if (result.includes('"passed": false')) throw new Error(result);
+    console.log("UI_FLOW_OK localization multiwindow");
   }
   passed = true;
 } finally {

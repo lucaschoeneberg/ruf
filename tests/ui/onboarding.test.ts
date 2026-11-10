@@ -1,11 +1,12 @@
+import { formatMessage } from "../../apps/desktop/src/lib/i18n";
 import { describe, expect, test } from "bun:test";
 import {
   normalizeAccount,
-  validateAccount,
+  validateAccount as validateAccountMessages,
   hasSeenIntroduction,
   rememberIntroduction,
 } from "../../apps/desktop/src/lib/onboarding";
-import { errorMessage } from "../../apps/desktop/src/lib/api";
+import { errorMessage as errorReference } from "../../apps/desktop/src/lib/api";
 import type { AccountConfig } from "../../apps/desktop/src/lib/generated/AppInfo";
 
 const account = (): AccountConfig => ({
@@ -112,7 +113,7 @@ describe("SIP account onboarding", () => {
       errorMessage({ code: "nativeFailure", message: "Do not display me" }),
     ).not.toContain("Do not display me");
     expect(errorMessage(new Error("Bekannter Hinweis"))).toBe(
-      "Bekannter Hinweis",
+      "Die Telefonie-Aktion konnte nicht abgeschlossen werden.",
     );
   });
 });
@@ -155,3 +156,16 @@ test("unusable saved credentials explain both retry and password replacement saf
   expect(message).toMatch(/Passwort.*ein.*speichere/);
   expect(message).not.toContain("private malformed secret contents");
 });
+
+function errorMessage(error: unknown): string {
+  return formatMessage("de", errorReference(error));
+}
+
+function validateAccount(...args: Parameters<typeof validateAccountMessages>) {
+  return Object.fromEntries(
+    Object.entries(validateAccountMessages(...args)).map(([key, value]) => [
+      key,
+      formatMessage("de", value),
+    ]),
+  );
+}

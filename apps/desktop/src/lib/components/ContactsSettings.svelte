@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import { onMount } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import type { ContactsPermission } from "../generated/AppInfo";
@@ -12,16 +13,16 @@
   let permission = $state<ContactsPermission | null>(null);
   let working = $state(false);
   let checking = $state(false);
-  let permissionError = $state<string | null>(null);
-  let actionError = $state<string | null>(null);
+  let permissionError = $state<MessageValue | null>(null);
+  let actionError = $state<MessageValue | null>(null);
   const error = $derived(permissionError ?? actionError);
   let mounted = false;
-  const labels: Record<ContactsPermission, string> = {
-    notDetermined: "Noch nicht angefragt",
-    authorized: "Freigegeben",
-    denied: "Nicht freigegeben",
-    restricted: "Durch Systemrichtlinie eingeschränkt",
-    unsupported: "Nur unter macOS verfügbar",
+  const labels: Record<ContactsPermission, MessageValue> = {
+    notDetermined: message("settings.permission_not_requested"),
+    authorized: message("settings.permission_granted"),
+    denied: message("settings.permission_not_granted"),
+    restricted: message("settings.permission_restricted"),
+    unsupported: message("settings.macos_only"),
   };
 
   async function refresh(request = false) {
@@ -40,13 +41,10 @@
       }
     } catch {
       if (mounted) {
-        if (request)
-          actionError =
-            "Die Kontakte-Freigabe konnte nicht angefordert werden. Starte Ruf neu und versuche es erneut.";
+        if (request) actionError = message("settings.contacts_request_failed");
         else {
           permission = null;
-          permissionError =
-            "Die Kontakte-Freigabe konnte nicht geprüft werden. Versuche es erneut.";
+          permissionError = message("settings.contacts_check_failed");
         }
       }
     } finally {
@@ -64,9 +62,7 @@
     try {
       await openContactsSettings();
     } catch {
-      if (mounted)
-        actionError =
-          "Die Systemeinstellungen konnten nicht geöffnet werden. Öffne dort Datenschutz & Sicherheit → Kontakte.";
+      if (mounted) actionError = message("settings.contacts_settings_failed");
     } finally {
       if (mounted) working = false;
     }
@@ -91,46 +87,40 @@
 
 {#if !embedded}<div class="settings-title">
     <div>
-      <h1>Kontakte</h1>
-      <p>Dein macOS-Adressbuch zum Suchen und Anrufen.</p>
+      <h1>{$t("settings.contacts")}</h1>
+      <p>{$t("settings.contacts_description")}</p>
     </div>
   </div>
 {/if}
 <h2 class="settings-group" id="contacts-permission" tabindex="-1">
-  Kontakte · Zugriff & Datenschutz
+  {$t("settings.contacts_access_privacy")}
 </h2>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>macOS-Kontakte</h3>
+    <h3>{$t("settings.macos_contacts")}</h3>
     <p>
-      Ruf liest Namen, Firmen und Telefonnummern. Dein Adressbuch bleibt
-      unverändert.
+      {$t("settings.contacts_read_help")}
     </p>
     <p class="permission-status" role="status">
       {checking
-        ? "Freigabe wird geprüft …"
+        ? $t("settings.permission_checking")
         : permissionError
-          ? "Prüfung fehlgeschlagen"
+          ? $t("settings.permission_check_failed")
           : permission
-            ? labels[permission]
-            : "Noch nicht geprüft"}
+            ? $text(labels[permission])
+            : $t("settings.permission_unchecked")}
     </p>
     {#if permission === "notDetermined"}<p>
-        Mit „macOS-Kontakte freigeben“ öffnest du den Freigabedialog. Erst
-        danach erscheint Ruf in der Kontakte-Datenschutzliste.
+        {$t("settings.contacts_request_help")}
       </p>
     {:else if permission === "denied"}<p>
-        macOS fragt nach einer Ablehnung nicht erneut. Erlaube Ruf den Zugriff
-        unter Systemeinstellungen → Datenschutz & Sicherheit → Kontakte.
+        {$t("settings.contacts_denied_help")}
       </p>
     {:else if permission === "restricted"}<p>
-        Eine Systemrichtlinie verhindert den Zugriff. Wende dich an die Person,
-        die diesen Mac verwaltet.
+        {$t("settings.contacts_restricted_help")}
       </p>
     {:else if permission === "authorized"}<p>
-        Deine Kontakte findest du im Kontakte-Tab des Telefonfensters. Nach
-        Änderungen oder einer neuen Freigabe aktualisiert sich die Liste beim
-        Zurückkehren.
+        {$t("settings.contacts_location_help")}
       </p>{/if}
   </div>
   <div class="permission-actions">
@@ -138,22 +128,25 @@
         class="primary-button"
         type="button"
         disabled={working}
-        onclick={() => void refresh(true)}>macOS-Kontakte freigeben</button
+        onclick={() => void refresh(true)}
+        >{$t("settings.allow_macos_contacts")}</button
       >{/if}
     {#if permission && permission !== "unsupported"}<button
         class="secondary-button"
         type="button"
         disabled={working}
-        onclick={() => void openPrivacy()}>Systemeinstellungen öffnen</button
+        onclick={() => void openPrivacy()}
+        >{$t("settings.open_system_settings")}</button
       >{/if}
     {#if permission !== "unsupported"}<button
         class="text-button"
         type="button"
         disabled={working}
-        onclick={() => void refresh()}>Freigabe erneut prüfen</button
+        onclick={() => void refresh()}
+        >{$t("settings.check_permission_again")}</button
       >{/if}
     {#if working}<span class="permission-progress" role="status"
-        >Bitte warten …</span
+        >{$t("settings.please_wait")}</span
       >{/if}
   </div>
 </div>
@@ -161,12 +154,10 @@
     class="settings-feedback error contacts-permission-error"
     role="alert"
   >
-    {error}
+    {$text(error)}
   </p>{/if}
 <p class="settings-footnote">
-  Die Freigabe gilt für diese App und wird von macOS verwaltet. Hier werden nur
-  die Zugriffsrechte geprüft; Kontaktinhalte werden erst im Kontakte-Tab
-  geladen.
+  {$t("settings.contacts_permission_help")}
 </p>
 
 <style>

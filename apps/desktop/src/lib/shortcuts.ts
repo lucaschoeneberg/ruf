@@ -1,81 +1,88 @@
+import { formatMessage, getLocale, message, type MessageValue } from "./i18n";
+import type { AppLocale } from "./generated/AppInfo";
 /** Window-local actions. Native menus forward to the same guarded controls. */
 export const phoneActions = [
   {
     id: "dialer",
-    label: "Tastatur anzeigen",
+    label: message("actions.show_keypad"),
     key: "1",
-    terms: "telefon wählen nummer",
+    terms: message("actions.phone_dial_number"),
   },
   {
     id: "contacts",
-    label: "Kontakte anzeigen",
+    label: message("actions.show_contacts"),
     key: "2",
-    terms: "adressbuch personen",
+    terms: message("actions.address_book_people"),
   },
   {
     id: "history",
-    label: "Verlauf anzeigen",
+    label: message("actions.show_history"),
     key: "3",
-    terms: "anrufe rückruf",
+    terms: message("actions.calls_callback"),
   },
-  { id: "number", label: "Nummer eingeben", key: "l", terms: "wählen telefon" },
+  {
+    id: "number",
+    label: message("actions.enter_number"),
+    key: "l",
+    terms: message("actions.dial_phone"),
+  },
   {
     id: "find",
-    label: "In dieser Ansicht suchen",
+    label: message("actions.search_this_view"),
     key: "f",
-    terms: "suche finden kontakte verlauf",
+    terms: message("actions.search_find_contacts_history"),
   },
   {
     id: "search",
-    label: "Ruf durchsuchen",
+    label: message("actions.search_ruf"),
     key: "k",
-    terms: "befehle tastenkürzel shortcuts",
+    terms: message("actions.commands_keyboard_shortcuts"),
   },
   {
     id: "settings",
-    label: "Einstellungen öffnen",
+    label: message("actions.open_settings"),
     key: ",",
-    terms: "optionen",
+    terms: message("actions.options"),
   },
   {
     id: "answer",
-    label: "Anruf annehmen",
+    label: message("actions.answer_call"),
     key: "Enter",
-    terms: "antworten gespräch",
+    terms: message("actions.answer_call"),
   },
   {
     id: "end",
-    label: "Anruf beenden / ablehnen",
+    label: message("actions.end_reject_call"),
     key: ".",
-    terms: "auflegen stoppen",
+    terms: message("actions.hang_up_stop"),
   },
   {
     id: "mute",
-    label: "Mikrofon ein-/ausschalten",
+    label: message("actions.toggle_microphone"),
     key: "m",
     shift: true,
-    terms: "stummschalten ton",
+    terms: message("actions.mute_sound"),
   },
   {
     id: "hold",
-    label: "Gespräch halten / fortsetzen",
+    label: message("actions.hold_resume_call"),
     key: "h",
     shift: true,
-    terms: "pause",
+    terms: message("actions.pause"),
   },
   {
     id: "transfer",
-    label: "Vermitteln / Rückfrage",
+    label: message("actions.transfer_consultation"),
     key: "t",
     shift: true,
-    terms: "weiterleiten transfer",
+    terms: message("actions.forward_transfer"),
   },
   {
     id: "tones",
-    label: "Gesprächstastatur ein-/ausblenden",
+    label: message("actions.toggle_in_call_keypad"),
     key: "d",
     shift: true,
-    terms: "dtmf töne ziffern",
+    terms: message("actions.dtmf_tones_digits"),
   },
 ] as const;
 export type PhoneAction = (typeof phoneActions)[number]["id"];
@@ -102,12 +109,15 @@ export type SearchAction = {
 export const isMac = () =>
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad/.test(navigator.platform);
-export function shortcutLabel(action: (typeof phoneActions)[number]): string {
+export function shortcutLabel(
+  action: (typeof phoneActions)[number],
+  language: AppLocale = getLocale(),
+): string {
   const shift = "shift" in action && action.shift;
   const key = action.key === "Enter" ? "↵" : action.key.toUpperCase();
   return isMac()
     ? `⌘${shift ? "⇧" : ""}${key}`
-    : `Strg+${shift ? "Umschalt+" : ""}${key}`;
+    : `${language === "de" ? "Strg" : "Ctrl"}+${shift ? (language === "de" ? "Umschalt+" : "Shift+") : ""}${key}`;
 }
 /** Ignore held keys, IME composition and additional modifiers. Never bind plain letters. */
 export function keyboardAction(event: KeyboardEvent): PhoneAction | undefined {
@@ -124,17 +134,23 @@ export function keyboardAction(event: KeyboardEvent): PhoneAction | undefined {
       ("shift" in action && action.shift) === event.shiftKey,
   )?.id;
 }
-export function searchActions(
-  actions: readonly SearchAction[],
+export function searchActions<
+  T extends { label: MessageValue; terms: MessageValue },
+>(
+  actions: readonly T[],
   query: string,
-): SearchAction[] {
+  language: AppLocale = getLocale(),
+): T[] {
   const terms = query
     .trim()
-    .toLocaleLowerCase("de")
+    .toLocaleLowerCase(language)
     .split(/\s+/)
     .filter(Boolean);
   return actions.filter((action) => {
-    const text = `${action.label} ${action.terms}`.toLocaleLowerCase("de");
+    const text =
+      `${formatMessage(language, action.label)} ${formatMessage(language, action.terms)}`.toLocaleLowerCase(
+        language,
+      );
     return terms.every((term) => text.includes(term));
   });
 }

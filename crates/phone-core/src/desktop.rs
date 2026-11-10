@@ -52,6 +52,18 @@ mod preferences_tests {
     use super::*;
 
     #[test]
+    fn legacy_preferences_default_language_and_serialize_a_required_choice() {
+        let mut value = serde_json::to_value(AppPreferences::default()).unwrap();
+        value.as_object_mut().unwrap().remove("language");
+        let preferences: AppPreferences = serde_json::from_value(value).unwrap();
+        assert_eq!(preferences.language, LanguagePreference::System);
+        assert_eq!(
+            serde_json::to_value(preferences).unwrap()["language"],
+            "system"
+        );
+    }
+
+    #[test]
     fn preferences_default_preserves_behavior_and_retention_is_bounded() {
         let defaults = AppPreferences::default();
         assert!(defaults.start_hidden);
@@ -91,6 +103,10 @@ mod preferences_tests {
 pub struct AppPreferences {
     /// Hide the phone window on login launches only; manual launches remain visible.
     pub start_hidden: bool,
+    /// Display-language preference. Omitted legacy input defaults to system; output is required.
+    #[serde(default)]
+    #[ts(optional = false)]
+    pub language: LanguagePreference,
     /// Include caller details in native notifications; false uses anonymous text.
     pub show_caller_in_notifications: bool,
     /// Contact list presentation; does not change contact authorization or records.
@@ -102,6 +118,7 @@ impl Default for AppPreferences {
     fn default() -> Self {
         Self {
             start_hidden: true,
+            language: LanguagePreference::System,
             show_caller_in_notifications: true,
             contacts: ContactsPreferences::default(),
             history: HistoryPreferences::default(),
@@ -167,4 +184,40 @@ impl HistoryPreferences {
         }
         Ok(())
     }
+}
+
+/// Saved language choice; system resolves the ordered OS preferred languages at startup or selection.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum LanguagePreference {
+    /// Follow the operating system's preferred language list.
+    #[default]
+    System,
+    /// Always use German.
+    De,
+    /// Always use English.
+    En,
+}
+
+/// Resolved language supported by the application catalogs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum AppLocale {
+    /// German.
+    De,
+    /// English, also the fallback for unsupported preferred languages.
+    En,
+}
+
+/// Password-free localization state shared by both windows and native surfaces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocalizationState {
+    /// Persisted choice, defaulting to system for older metadata.
+    pub preference: LanguagePreference,
+    /// Resolved catalog used by this process.
+    pub locale: AppLocale,
+    /// Monotonic process-local change revision; unchanged or failed saves do not increment it.
+    #[ts(type = "number")]
+    pub revision: u64,
 }

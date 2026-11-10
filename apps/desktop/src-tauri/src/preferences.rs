@@ -60,7 +60,8 @@ pub(crate) async fn save_preferences(
             }
         }
         crate::contacts::update_matching(&app, preferences.contacts.match_german_numbers);
-        Ok(preferences)
+        // Keep localization application ordered with full-object persistence.
+        crate::localization::saved(&app, Ok(preferences))
     })
     .await
     .map_err(|_| store::storage_error())?

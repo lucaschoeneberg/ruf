@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import type { AppPreferences } from "../generated/AppInfo";
   import { clearHistory } from "../history-api";
   import { errorMessage } from "../api";
@@ -19,14 +20,14 @@
   } = $props();
   let confirmClear = $state(false),
     clearing = $state(false),
-    feedback = $state("");
+    feedback = $state<MessageValue>("");
   async function clear() {
     if (!confirmClear || clearing) return;
     clearing = true;
     feedback = "";
     try {
       await clearHistory();
-      feedback = "Abgeschlossene Anrufe wurden aus dem Verlauf gelöscht.";
+      feedback = message("settings.history_cleared");
       confirmClear = false;
     } catch (e) {
       feedback = errorMessage(e);
@@ -38,18 +39,18 @@
 
 <div class="settings-title">
   <div>
-    <h1>Kontakte & Verlauf</h1>
-    <p>Anzeige und lokale Speicherung deiner Anrufe.</p>
+    <h1>{$t("settings.contacts_history")}</h1>
+    <p>{$t("settings.data_description")}</p>
   </div>
 </div>
 <h2 class="settings-group" id="contacts-display" tabindex="-1">
-  Kontaktanzeige
+  {$t("settings.contact_display")}
 </h2>
 <fieldset {disabled}>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="favorites-first">Favoriten zuerst</label>
-      <p>Favoriten vor den alphabetisch sortierten Kontakten anzeigen.</p>
+      <label for="favorites-first">{$t("settings.favorites_first")}</label>
+      <p>{$t("settings.favorites_first_help")}</p>
     </div>
     <input
       id="favorites-first"
@@ -59,8 +60,8 @@
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="show-organization">Firma anzeigen</label>
-      <p>Die Firma zusätzlich zum Kontaktnamen anzeigen, sofern vorhanden.</p>
+      <label for="show-organization">{$t("settings.show_company")}</label>
+      <p>{$t("settings.show_company_help")}</p>
     </div>
     <input
       id="show-organization"
@@ -70,10 +71,11 @@
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="match-german-numbers">Deutsche Vorwahlen zuordnen</label>
+      <label for="match-german-numbers"
+        >{$t("settings.match_german_numbers")}</label
+      >
       <p>
-        0…, +49… und 0049… bei Kontaktnamen gleich behandeln. Die gewählte
-        Nummer bleibt unverändert.
+        {$t("settings.match_german_numbers_help")}
       </p>
     </div>
     <input
@@ -82,13 +84,12 @@
       bind:checked={value.contacts.matchGermanNumbers}
     />
   </div>
-  <h2 class="settings-group sound-group">Anrufverlauf</h2>
+  <h2 class="settings-group sound-group">{$t("settings.call_history")}</h2>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="history-recording">Verlauf speichern</label>
+      <label for="history-recording">{$t("settings.record_history")}</label>
       <p>
-        Speichert Nummer, Zeitpunkt und Dauer künftiger Anrufe, kein Audio.
-        Bereits gespeicherte Einträge bleiben erhalten.
+        {$t("settings.record_history_help")}
       </p>
     </div>
     <input
@@ -99,30 +100,28 @@
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="history-retention">Aufbewahrung</label>
+      <label for="history-retention">{$t("settings.retention")}</label>
       <p>
-        Nur abgeschlossene Einträge werden automatisch gelöscht. Laufende Anrufe
-        bleiben geschützt.
+        {$t("settings.retention_help")}
       </p>
     </div>
     <select
       id="history-retention"
       bind:value={value.history.retentionDays}
       onchange={() => (confirmRetention = false)}
-      ><option value={null}>Unbegrenzt</option><option value={30}
-        >30 Tage</option
-      ><option value={90}>90 Tage</option><option value={365}>365 Tage</option
+      ><option value={null}>{$t("settings.unlimited")}</option><option
+        value={30}>{$t("settings.retention_30")}</option
+      ><option value={90}>{$t("settings.retention_90")}</option><option
+        value={365}>{$t("settings.retention_365")}</option
       ></select
     >
   </div>
   {#if value.history.retentionDays !== null}<div class="setting-row">
       <div class="setting-description">
-        <label for="confirm-retention"
-          >Löschung älterer Einträge bestätigen</label
+        <label for="confirm-retention">{$t("settings.confirm_retention")}</label
         >
         <p>
-          Beim Speichern können abgeschlossene Einträge außerhalb der gewählten
-          Frist dauerhaft gelöscht werden.
+          {$t("settings.confirm_retention_help")}
         </p>
       </div>
       <input
@@ -133,43 +132,41 @@
     </div>{/if}
   <div class="settings-form-actions settings-save-bar">
     <p>
-      {dirty
-        ? "Deine Änderungen sind noch nicht gespeichert."
-        : "Die Daten bleiben auf diesem Computer."}
+      {dirty ? $t("settings.unsaved_notice") : $t("settings.data_local")}
     </p>
     <div class="settings-actions">
       <button
         class="text-button"
         type="button"
         disabled={!dirty}
-        onclick={ondiscard}>Verwerfen</button
+        onclick={ondiscard}>{$t("settings.discard")}</button
       ><button
         class="primary-button"
         type="button"
         disabled={!dirty}
-        onclick={onsave}>Anzeige & Verlauf speichern</button
+        onclick={onsave}>{$t("settings.save_data")}</button
       >
     </div>
   </div>
 </fieldset>
-<h2 class="settings-group sound-group">Verlauf löschen</h2>
+<h2 class="settings-group sound-group">{$t("settings.clear_history")}</h2>
 <p class="settings-footnote">
-  Diese Aktion löscht abgeschlossene Anrufe dauerhaft. Sie verändert weder
-  Kontakte noch Konten.
+  {$t("settings.clear_history_help")}
 </p>
 {#if confirmClear}<div class="settings-feedback">
-    <p>Alle abgeschlossenen Anrufe aus dem Verlauf unwiderruflich löschen?</p>
+    <p>{$t("settings.clear_history_question")}</p>
     <div class="settings-actions">
       <button
         type="button"
         class="secondary-button"
         disabled={clearing}
-        onclick={() => (confirmClear = false)}>Abbrechen</button
+        onclick={() => (confirmClear = false)}>{$t("settings.cancel")}</button
       ><button
         type="button"
         class="danger-button"
         disabled={disabled || clearing}
-        onclick={() => void clear()}>Verlauf endgültig löschen</button
+        onclick={() => void clear()}
+        >{$t("settings.clear_history_confirm")}</button
       >
     </div>
   </div>{:else}<button
@@ -177,6 +174,9 @@
     type="button"
     class="secondary-button"
     disabled={disabled || clearing}
-    onclick={() => (confirmClear = true)}>Verlauf löschen …</button
+    onclick={() => (confirmClear = true)}
+    >{$t("settings.clear_history_action")}</button
   >{/if}
-{#if feedback}<p class="settings-feedback" role="status">{feedback}</p>{/if}
+{#if feedback}<p class="settings-feedback" role="status">
+    {$text(feedback)}
+  </p>{/if}

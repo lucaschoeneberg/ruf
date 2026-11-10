@@ -1,3 +1,4 @@
+import { formatMessage } from "../../apps/desktop/src/lib/i18n";
 import { expect, test } from "bun:test";
 import { compile } from "svelte/compiler";
 import { render } from "svelte/server";
@@ -9,7 +10,7 @@ import {
   normalizeAccount,
   validateAccount,
 } from "../../apps/desktop/src/lib/onboarding";
-import { errorMessage } from "../../apps/desktop/src/lib/api";
+import { errorMessage as errorReference } from "../../apps/desktop/src/lib/api";
 
 Bun.plugin({
   name: "call-controls-svelte",
@@ -247,3 +248,7 @@ test("attended transfer error is visible while consultation is selected", () => 
   const body = panel(child, [original, child]);
   expect(body).toContain("Vermittlung fehlgeschlagen");
 });
+
+function errorMessage(error: unknown): string {
+  return formatMessage("de", errorReference(error));
+}

@@ -3,11 +3,14 @@
 mod sbom_build;
 
 fn main() {
+    // rust-i18n reads the shared catalogs during macro expansion.
+    println!("cargo:rerun-if-changed=../../../locales");
     sbom_build::verify();
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "get_app_info",
             "get_preferences",
+            "get_localization",
             "save_preferences",
             "get_diagnostics",
             "copy_diagnostics",

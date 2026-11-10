@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../i18n";
   import { onMount } from "svelte";
   let {
     disabled,
@@ -32,15 +33,14 @@
 
 <div class="dtmf-panel">
   <p class="number-hint">
-    Ziffern, Stern und Raute für das aktuelle Gespräch. Auch direkt auf der
-    Tastatur.
+    {$t("phone.dtmf.hint")}
   </p>
-  <div class="keypad dtmf-keypad" aria-label="Gesprächstastatur">
+  <div class="keypad dtmf-keypad" aria-label={$t("phone.dtmf.keypad")}>
     {#each keys as digit}<button
         type="button"
         class="dial-key"
         {disabled}
-        aria-label={`Ton ${digit}`}
+        aria-label={$t("phone.dtmf.tone", { digit })}
         onclick={() => onsend(digit)}
         ><span class="key-digit">{digit}</span></button
       >{/each}

@@ -1,3 +1,4 @@
+use crate::localization::NativeMessage as Message;
 use crate::phone::{PhoneSession, PhoneState};
 use phone_core::{
     AccountConfig, AppInfo, AudioDevices, EngineSnapshot, ErrorCode, PhoneError, SoundSettings,
@@ -342,7 +343,7 @@ pub async fn open_settings(
         "settings",
         tauri::WebviewUrl::App(format!("index.html?window=settings&section={section}").into()),
     )
-    .title("Ruf · Einstellungen")
+    .title(crate::localization::text(&app, Message::SettingsTitle))
     .inner_size(900.0, 660.0)
     .min_inner_size(740.0, 540.0)
     .theme(Some(tauri::Theme::Dark))
@@ -520,7 +521,7 @@ static TEST_NOTICE_PENDING: std::sync::atomic::AtomicBool =
 /// Explicit anonymous test after five seconds. Never asks for access or changes SIP/call state.
 /// Completion means native submission, not proof that Focus/OS showed a banner.
 #[tauri::command]
-pub async fn test_notification() -> Result<(), PhoneError> {
+pub async fn test_notification(app: tauri::AppHandle) -> Result<(), PhoneError> {
     use std::sync::atomic::Ordering;
     if TEST_NOTICE_PENDING
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -549,7 +550,11 @@ pub async fn test_notification() -> Result<(), PhoneError> {
             ));
         }
         std::thread::sleep(std::time::Duration::from_secs(5));
-        baresip_adapter::show_test_notification()
+        let locale = crate::localization::state(&app).locale;
+        baresip_adapter::show_test_notification(
+            crate::localization::translate(locale, Message::TestTitle),
+            crate::localization::translate(locale, Message::TestBody),
+        )
     })
     .await
     .map_err(|_| window_error())?

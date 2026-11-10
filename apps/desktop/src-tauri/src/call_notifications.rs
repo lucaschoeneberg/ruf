@@ -1,6 +1,7 @@
 //! Actionable incoming-call notifications; native actions must revalidate live SIP state.
+use crate::localization::NativeMessage as Message;
 use baresip_adapter::{CallNotificationAction, NotificationPermission};
-use phone_core::{CallState, EngineSnapshot, ErrorCode, PhoneError};
+use phone_core::{AppLocale, CallState, EngineSnapshot, ErrorCode, PhoneError};
 use std::{
     sync::{
         Condvar, Mutex,
@@ -24,6 +25,7 @@ struct Offer {
     call_id: String,
     claimed: Option<Instant>,
     caption: (String, String),
+    locale: AppLocale,
     delivery_attempts: u8,
     retry_at: Option<Instant>,
     delivery_failed: bool,
@@ -73,6 +75,7 @@ impl NotificationState {
         snapshot: &EngineSnapshot,
         enabled: bool,
         show_details: bool,
+        locale: AppLocale,
         apply: impl FnOnce(Change),
     ) {
         let Ok(_delivery) = self.delivery.lock() else {
@@ -86,7 +89,14 @@ impl NotificationState {
             .lock()
             .map_err(|_| error())
             .and_then(|mut registry| {
-                registry.update(snapshot, enabled, show_details, Instant::now(), token)
+                registry.update(
+                    snapshot,
+                    enabled,
+                    show_details,
+                    locale,
+                    Instant::now(),
+                    token,
+                )
             });
         // Never hold the action registry or phone session while calling the OS.
         if let Ok(change) = change {
@@ -133,6 +143,7 @@ impl Registry {
         snapshot: &EngineSnapshot,
         enabled: bool,
         show_details: bool,
+        locale: AppLocale,
         now: Instant,
         make_token: impl FnOnce() -> Result<String, PhoneError>,
     ) -> Result<Change, PhoneError> {
@@ -155,9 +166,10 @@ impl Registry {
                 .claimed
                 .is_some_and(|at| now.saturating_duration_since(at) >= REOFFER_DELAY)
             {
-                let caption = banner_text(snapshot, show_details);
-                if offer.claimed.is_none() && offer.caption != caption {
+                let caption = banner_text(snapshot, show_details, locale);
+                if offer.claimed.is_none() && (offer.caption != caption || offer.locale != locale) {
                     offer.caption = caption.clone();
+                    offer.locale = locale;
                     change.show = Some(Banner {
                         token: offer.token.clone(),
                         title: caption.0,
@@ -182,13 +194,14 @@ impl Registry {
         }
         let token = make_token()?;
         change.dismiss = self.active.take().map(|offer| offer.token);
-        let (title, body) = banner_text(snapshot, show_details);
+        let (title, body) = banner_text(snapshot, show_details, locale);
         self.seen_call = Some(id.to_owned());
         self.active = Some(Offer {
             token: token.clone(),
             call_id: id.to_owned(),
             claimed: None,
             caption: (title.clone(), body.clone()),
+            locale,
             delivery_attempts: 0,
             retry_at: None,
             delivery_failed: false,
@@ -257,11 +270,15 @@ impl Registry {
 fn plain(value: &str) -> String {
     value.chars().filter(|c| !c.is_control() && !matches!(c, '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}')).collect::<String>().trim().to_owned()
 }
-fn banner_text(snapshot: &EngineSnapshot, show_details: bool) -> (String, String) {
+fn banner_text(
+    snapshot: &EngineSnapshot,
+    show_details: bool,
+    locale: AppLocale,
+) -> (String, String) {
     if !show_details {
         return (
-            "Eingehender Anruf".into(),
-            "Ruf öffnen, um den Anruf anzusehen.".into(),
+            crate::localization::translate(locale, Message::Incoming).into(),
+            crate::localization::translate(locale, Message::IncomingBody).into(),
         );
     }
     let caller = snapshot.caller.as_ref();
@@ -273,7 +290,17 @@ fn banner_text(snapshot: &EngineSnapshot, show_details: bool) -> (String, String
         .map(|name| {
             plain(name)
                 .chars()
-                .take(MAX_TITLE_CHARACTERS.saturating_sub(8))
+                .take(
+                    MAX_TITLE_CHARACTERS.saturating_sub(
+                        crate::localization::render(
+                            locale,
+                            Message::CallerTitle,
+                            &[("name", String::new())],
+                        )
+                        .chars()
+                        .count(),
+                    ),
+                )
                 .collect::<String>()
         })
         .filter(|v| !v.is_empty());
@@ -282,9 +309,9 @@ fn banner_text(snapshot: &EngineSnapshot, show_details: bool) -> (String, String
         .map(plain)
         .filter(|v| !v.is_empty());
     let title = name
-        .map(|name| format!("{name} ruft an"))
+        .map(|name| crate::localization::render(locale, Message::CallerTitle, &[("name", name)]))
         .or_else(|| number.clone())
-        .unwrap_or_else(|| "Unbekannter Anrufer".into());
+        .unwrap_or_else(|| crate::localization::translate(locale, Message::UnknownCaller).into());
     let account = snapshot
         .accounts
         .iter()
@@ -293,7 +320,7 @@ fn banner_text(snapshot: &EngineSnapshot, show_details: bool) -> (String, String
         .unwrap_or_default();
     let lead = number
         .filter(|number| *number != title)
-        .unwrap_or_else(|| "Eingehender Anruf".into());
+        .unwrap_or_else(|| crate::localization::translate(locale, Message::Incoming).into());
     let body = if account.is_empty() {
         lead
     } else {
@@ -378,13 +405,19 @@ fn deliver(app: &tauri::AppHandle, snapshot: &EngineSnapshot, enabled: bool) {
     let show_details = app
         .state::<crate::phone::PhoneState>()
         .notification_details_allowed();
-    state.deliver(snapshot, enabled, show_details, |change| {
+    let locale = crate::localization::state(app).locale;
+    state.deliver(snapshot, enabled, show_details, locale, |change| {
         if let Some(token) = change.dismiss {
             let _ = baresip_adapter::dismiss_call_notification(&token);
         }
         if let Some(banner) = change.show {
-            let result =
-                baresip_adapter::show_call_notification(&banner.token, &banner.title, &banner.body);
+            let result = baresip_adapter::show_call_notification(
+                &banner.token,
+                &banner.title,
+                &banner.body,
+                crate::localization::translate(locale, Message::Answer),
+                crate::localization::translate(locale, Message::Reject),
+            );
             if let Ok(mut registry) = state.registry.lock() {
                 registry.delivery_finished(&banner.token, result.is_ok(), Instant::now());
             }
@@ -518,7 +551,14 @@ mod tests {
         token: &str,
     ) -> Change {
         registry
-            .update(snapshot, true, true, now, || Ok(token.into()))
+            .update(
+                snapshot,
+                true,
+                true,
+                AppLocale::De,
+                now,
+                || Ok(token.into()),
+            )
             .unwrap()
     }
     #[test]
@@ -549,14 +589,16 @@ mod tests {
             name: "Private address book name".into(),
         });
         let first = registry
-            .update(&snapshot, true, true, now, || Ok("bound".into()))
+            .update(&snapshot, true, true, AppLocale::De, now, || {
+                Ok("bound".into())
+            })
             .unwrap()
             .show
             .unwrap();
         assert_eq!(first.title, "Private address book name ruft an");
         assert_eq!(first.body, "+4930123456 · Private account name");
         let private = registry
-            .update(&snapshot, true, false, now, || {
+            .update(&snapshot, true, false, AppLocale::De, now, || {
                 panic!("privacy keeps the call token")
             })
             .unwrap()
@@ -572,7 +614,7 @@ mod tests {
         );
         assert!(
             registry
-                .update(&snapshot, true, false, now, || panic!())
+                .update(&snapshot, true, false, AppLocale::De, now, || panic!())
                 .unwrap()
                 .show
                 .is_none()
@@ -859,7 +901,9 @@ mod tests {
         let s = incoming("1");
         assert!(
             registry
-                .update(&s, false, true, now, || panic!("no token while disabled"))
+                .update(&s, false, true, AppLocale::De, now, || panic!(
+                    "no token while disabled"
+                ))
                 .unwrap()
                 .show
                 .is_none()
@@ -867,7 +911,7 @@ mod tests {
         assert!(next(&mut registry, &s, now, "a").show.is_some());
         assert_eq!(
             registry
-                .update(&s, false, true, now, || panic!())
+                .update(&s, false, true, AppLocale::De, now, || panic!())
                 .unwrap()
                 .dismiss
                 .as_deref(),
@@ -882,7 +926,9 @@ mod tests {
         next(&mut registry, &incoming("1"), now, "old");
         assert!(
             registry
-                .update(&incoming("2"), true, true, now, || Err(error()))
+                .update(&incoming("2"), true, true, AppLocale::De, now, || Err(
+                    error()
+                ))
                 .is_err()
         );
         assert_eq!(
@@ -896,15 +942,64 @@ mod tests {
     fn caller_caption_is_plain_and_uses_number_or_unknown_fallback() {
         let mut s = incoming("1");
         assert_eq!(
-            banner_text(&s, true),
+            banner_text(&s, true, AppLocale::De),
             ("Ada Weber ruft an".into(), "+4930123456".into())
         );
         s.caller.as_mut().unwrap().name = None;
-        assert_eq!(banner_text(&s, true).0, "+4930123456");
+        assert_eq!(banner_text(&s, true, AppLocale::De).0, "+4930123456");
         s.caller = None;
-        assert_eq!(banner_text(&s, true).0, "Unbekannter Anrufer");
+        assert_eq!(
+            banner_text(&s, true, AppLocale::De).0,
+            "Unbekannter Anrufer"
+        );
         assert_eq!(plain(" Ada\n\u{202e} Weber "), "Ada Weber");
     }
+    #[test]
+    fn localized_caller_titles_preserve_the_display_bound_and_plain_text() {
+        let mut snapshot = incoming("private-call");
+        snapshot.caller.as_mut().unwrap().name = Some("🦊".repeat(180));
+        for locale in [AppLocale::De, AppLocale::En] {
+            let (title, _) = banner_text(&snapshot, true, locale);
+            assert_eq!(title.chars().count(), MAX_TITLE_CHARACTERS);
+            assert!(title.len() <= 512);
+        }
+    }
+
+    #[test]
+    fn language_changes_replace_banners_without_rotating_tokens_or_exposing_identity() {
+        let mut registry = Registry::default();
+        let snapshot = incoming("private-call");
+        let now = Instant::now();
+        let german = registry
+            .update(&snapshot, true, false, AppLocale::De, now, || {
+                Ok("bound".into())
+            })
+            .unwrap()
+            .show
+            .unwrap();
+        assert_eq!(german.title, "Eingehender Anruf");
+        let english = registry
+            .update(&snapshot, true, false, AppLocale::En, now, || {
+                panic!("keep token")
+            })
+            .unwrap()
+            .show
+            .unwrap();
+        assert_eq!(english.token, "bound");
+        assert_eq!(english.title, "Incoming call");
+        assert_eq!(english.body, "Open Ruf to view the call.");
+        assert!(!english.body.contains("Ada"));
+        assert!(
+            registry
+                .claim(
+                    CallNotificationAction::Answer("bound".into()),
+                    &snapshot,
+                    now
+                )
+                .is_some()
+        );
+    }
+
     #[test]
     fn token_is_exactly_sixteen_hex_characters() {
         let a = token().unwrap();
@@ -940,7 +1035,7 @@ mod tests {
             let state = Arc::clone(&state);
             let visible = Arc::clone(&visible);
             std::thread::spawn(move || {
-                state.deliver(&incoming("1"), true, true, |change| {
+                state.deliver(&incoming("1"), true, true, AppLocale::De, |change| {
                     started.send(()).unwrap();
                     wait.recv().unwrap();
                     *visible.lock().unwrap() = change.show.map(|banner| banner.token);

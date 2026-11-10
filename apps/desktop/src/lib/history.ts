@@ -1,24 +1,29 @@
+import { getLocale, message, translate, type Message } from "./i18n";
+import type { AppLocale } from "./generated/AppInfo";
 import type { CallOutcome, HistoryEntry } from "./generated/AppInfo";
 import { normalizeDialNumber } from "./dialing";
 
-export const historyOutcomes: Record<CallOutcome, string> = {
-  inProgress: "Laufend",
-  completed: "Beendet",
-  missed: "Verpasst",
-  rejected: "Abgelehnt",
-  busy: "Besetzt",
-  cancelled: "Abgebrochen",
-  failed: "Fehlgeschlagen",
-  interrupted: "Unterbrochen",
+export const historyOutcomes: Record<CallOutcome, Message> = {
+  inProgress: message("history.outcome.inProgress"),
+  completed: message("history.outcome.completed"),
+  missed: message("history.outcome.missed"),
+  rejected: message("history.outcome.rejected"),
+  busy: message("history.outcome.busy"),
+  cancelled: message("history.outcome.cancelled"),
+  failed: message("history.outcome.failed"),
+  interrupted: message("history.outcome.interrupted"),
 };
 
 /** Current authorized contact names take precedence over historical SIP names. */
-export function historyTitle(entry: HistoryEntry): string {
+export function historyTitle(
+  entry: HistoryEntry,
+  language: AppLocale = getLocale(),
+): string {
   return (
     entry.contact?.name ||
     entry.remoteName ||
     entry.number ||
-    "Unbekannte Nummer"
+    translate(language, "history.unknown_number")
   );
 }
 
@@ -36,14 +41,14 @@ export function historyDuration(durationMs: number | null): string | null {
 export function callbackUnavailable(
   entry: HistoryEntry,
   canDial: boolean,
-): string | null {
-  if (!entry.number) return "Keine Nummer für den Rückruf vorhanden.";
+): Message | null {
+  if (!entry.number) return message("history.no_callback_number");
   if (normalizeDialNumber(entry.number) === null)
-    return "Diese Nummer ist nicht wählbar.";
+    return message("history.invalid_callback_number");
   if (entry.callbackAccountId === null)
-    return "Das ursprüngliche Konto ist nicht verbunden oder nicht mehr vorhanden.";
+    return message("history.callback_account_unavailable");
   if (!canDial || entry.outcome === "inProgress")
-    return "Rückruf erst möglich, wenn die Telefonie frei ist.";
+    return message("history.callback_busy");
   return null;
 }
 
@@ -51,14 +56,22 @@ export function callbackUnavailable(
 export function historyDayLabel(
   atMs: number,
   now = Date.now(),
-  locale = "de-DE",
+  locale = getLocale() as string,
 ): string {
   const date = new Date(atMs);
   const today = new Date(now);
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  if (date.toDateString() === today.toDateString()) return "Heute";
-  if (date.toDateString() === yesterday.toDateString()) return "Gestern";
+  if (date.toDateString() === today.toDateString())
+    return translate(
+      locale.toLowerCase().startsWith("de") ? "de" : "en",
+      "history.today",
+    );
+  if (date.toDateString() === yesterday.toDateString())
+    return translate(
+      locale.toLowerCase().startsWith("de") ? "de" : "en",
+      "history.yesterday",
+    );
   return new Intl.DateTimeFormat(locale, {
     day: "numeric",
     month: "long",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-localization"
+description = "Enables the get_localization command without any pre-configured scope."
+commands.allow = ["get_localization"]
+
+[[permission]]
+identifier = "deny-get-localization"
+description = "Denies the get_localization command without any pre-configured scope."
+commands.deny = ["get_localization"]

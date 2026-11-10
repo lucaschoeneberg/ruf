@@ -1,7 +1,8 @@
+import { formatMessage } from "../../apps/desktop/src/lib/i18n";
 import { describe, expect, test } from "bun:test";
 import type { HistoryEntry } from "../../apps/desktop/src/lib/generated/AppInfo";
 import {
-  callbackUnavailable,
+  callbackUnavailable as callbackUnavailableMessage,
   groupHistory,
   historyDayLabel,
   historyDuration,
@@ -48,8 +49,10 @@ describe("history presentation", () => {
     expect(historyDuration(59999)).toBe("0:59");
     expect(historyDuration(61000)).toBe("1:01");
     expect(historyDuration(3661000)).toBe("1:01:01");
-    expect(historyOutcomes.interrupted).toBe("Unterbrochen");
-    expect(historyOutcomes.missed).toBe("Verpasst");
+    expect(formatMessage("de", historyOutcomes.interrupted)).toBe(
+      "Unterbrochen",
+    );
+    expect(formatMessage("de", historyOutcomes.missed)).toBe("Verpasst");
   });
 
   test("callback requires a dialable number and its original registered account even when another is ready", () => {
@@ -95,3 +98,10 @@ describe("history presentation", () => {
     ).toContain("2025");
   });
 });
+
+function callbackUnavailable(
+  ...args: Parameters<typeof callbackUnavailableMessage>
+) {
+  const value = callbackUnavailableMessage(...args);
+  return value === null ? null : formatMessage("de", value);
+}

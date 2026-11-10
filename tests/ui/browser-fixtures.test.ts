@@ -5,7 +5,7 @@ import type { EngineSnapshot } from "../../apps/desktop/src/lib/generated/AppInf
 
 // Exercise the same closure-free serialized installer the CLI registers in the browser.
 function installedProjection() {
-  const context = { window: {} };
+  const context = { window: {}, navigator: {} };
   runInNewContext(`(${installDialogFixtures.toString()})();`, context);
   return (
     context.window as {

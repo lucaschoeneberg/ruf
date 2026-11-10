@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type {
   FixtureSnapshot,
@@ -9,6 +10,8 @@ import type {
 export default async function settingsRegressions(
   page: Page,
   baseUrl = new URL(page.url()).origin,
+  _capture = false,
+  englishSmoke?: EnglishSmoke,
 ) {
   await page.addInitScript(() => {
     window.isTauri = true;
@@ -101,6 +104,7 @@ export default async function settingsRegressions(
       snapshot,
       desktop,
       preferences: {
+        language: "system",
         startHidden: true,
         showCallerInNotifications: true,
         contacts: {
@@ -152,6 +156,12 @@ export default async function settingsRegressions(
         return id;
       },
       invoke: async (command, args) => {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         const state = window.__settingsTest;
         state.commands.push({ command, args });
         if (command === "plugin:event|listen") {
@@ -421,6 +431,7 @@ export default async function settingsRegressions(
     };
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   });
+  if (englishSmoke) return englishSmoke(page, "settings", baseUrl);
   const failures: string[] = [];
   const check = async (
     name: string,
@@ -1041,7 +1052,7 @@ export default async function settingsRegressions(
           .click();
         await page.getByText("Was ist neu?", { exact: true }).click();
         await page
-          .getByRole("heading", { name: "0.1.0 · Preview", exact: true })
+          .getByRole("heading", { name: "0.1.0 · Vorschau", exact: true })
           .waitFor();
         await page
           .getByText("Online-Änderungen konnten nicht geladen werden.", {

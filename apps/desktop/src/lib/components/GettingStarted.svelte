@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../i18n";
   import type { RegistrationState } from "../generated/AppInfo";
   import Icon from "./Icon.svelte";
   let {
@@ -23,49 +24,50 @@
   <div class="start-symbol"><Icon name="phone" size={22} /></div>
   <h1 id="start-title">
     {runtime === "browser"
-      ? "Lerne dein Telefon kennen"
+      ? $t("phone.start.browser_title")
       : runtime === "unlinked"
-        ? "Telefonie ist noch nicht verfügbar"
+        ? $t("phone.start.unlinked_title")
         : runtime === "unavailable"
-          ? "Telefonstatus nicht verfügbar"
+          ? $t("phone.start.unavailable_title")
           : audioUnknown
-            ? "Audioquelle nicht bekannt"
+            ? $t("phone.start.audio_title")
             : ready
-              ? "Dein SIP-Konto ist angemeldet"
+              ? $t("phone.start.ready_title")
               : registration === "registering"
-                ? "Dein SIP-Konto wird angemeldet"
+                ? $t("phone.start.registering_title")
                 : registration === "failed"
-                  ? "Dein SIP-Konto ist nicht angemeldet"
+                  ? $t("phone.start.failed_title")
                   : hasAccount
-                    ? "Dein SIP-Konto ist gespeichert"
-                    : "Verbinde dein SIP-Konto"}
+                    ? $t("phone.start.saved_title")
+                    : $t("phone.start.connect_title")}
   </h1>
   <p class="start-description">
     {runtime === "browser"
-      ? "Hier kannst du Tastatur und Navigation ausprobieren. Zum Telefonieren brauchst du die Desktop-App."
+      ? $t("phone.start.browser_hint")
       : runtime === "unlinked"
-        ? "Diese App-Version kann keine Anrufe starten oder annehmen. Nutze eine Ruf-Version mit eingebundener Telefonie."
+        ? $t("phone.start.unlinked_hint")
         : runtime === "unavailable"
-          ? "Der Verbindungsstatus konnte nicht geladen werden. Prüfe die Meldung oben und versuche es erneut."
+          ? $t("phone.start.unavailable_hint")
           : audioUnknown
-            ? "Die Telefonie läuft bereits. Beende ein laufendes Gespräch und starte die App neu, damit du die Audioquelle vor dem nächsten Anruf sicher wählen kannst."
+            ? $t("phone.start.audio_hint")
             : ready
-              ? "Wähle eine Nummer oder Nebenstelle. Mit Anrufen oder der Eingabetaste startest du einen Anruf."
+              ? $t("phone.start.ready_hint")
               : registration === "registering"
-                ? "Die Anmeldung an deiner Telefonanlage läuft. Der Status oben zeigt dir das Ergebnis. Deine Angaben kannst du in den Kontoeinstellungen prüfen."
+                ? $t("phone.start.registering_hint")
                 : registration === "failed"
-                  ? "Die Anmeldung ist fehlgeschlagen. Prüfe die Verbindung und deine Zugangsdaten in den Kontoeinstellungen."
+                  ? $t("phone.start.failed_hint")
                   : hasAccount
-                    ? "Dein gespeichertes Konto ist noch nicht angemeldet. Öffne die Kontoeinstellungen, prüfe deine Angaben und speichere sie, um die Verbindung zu starten."
-                    : "Verbinde deine Telefonanlage, um Nummern und Nebenstellen anzurufen."}
+                    ? $t("phone.start.saved_hint")
+                    : $t("phone.start.connect_hint")}
   </p>
   {#if runtime === "desktop" && !ready && !audioUnknown && !hasAccount}
     <p class="start-requirements">
-      <strong>Du brauchst:</strong> SIP-Server, Benutzername und Passwort deiner Telefonanlage.
+      <strong>{$t("phone.start.requirements_title")}</strong>
+      {$t("phone.start.requirements")}
     </p>
   {:else if ready}
     <p class="start-note">
-      Für eine internationale Nummer: 0 gedrückt halten, um ein Plus einzugeben.
+      {$t("phone.start.international_hint")}
     </p>
   {/if}
   <div class="start-actions">
@@ -73,22 +75,22 @@
         class="primary-button"
         onclick={onsetup}
         >{registration === "failed"
-          ? "Verbindung prüfen"
+          ? $t("phone.start.check_connection")
           : hasAccount
-            ? "Kontoeinstellungen öffnen"
-            : "SIP-Konto einrichten"}</button
+            ? $t("phone.start.account_settings")
+            : $t("phone.start.setup")}</button
       ><button class="text-button" onclick={onexplore}
-        >Erst die Tastatur ansehen</button
+        >{$t("phone.start.explore_first")}</button
       >
     {:else}<button class="primary-button" onclick={onexplore}
         >{audioUnknown
-          ? "Zur Tastatur"
+          ? $t("phone.start.keypad")
           : ready
-            ? "Nummer wählen"
-            : "Tastatur ausprobieren"}</button
+            ? $t("phone.start.dial")
+            : $t("phone.start.explore")}</button
       ><button class="text-button" onclick={onsetup}
-        >Kontoeinstellungen öffnen</button
+        >{$t("phone.start.account_settings")}</button
       >{/if}
   </div>
-  <p class="start-note">Starthilfe jederzeit oben öffnen.</p>
+  <p class="start-note">{$t("phone.start.reopen")}</p>
 </section>

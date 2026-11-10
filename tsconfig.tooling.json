@@ -20,6 +20,7 @@
     "native/*.ts",
     "tests/ui/**/*.ts",
     "apps/desktop/build/**/*.ts",
-    "apps/desktop/src-tauri/icons/generate.ts"
+    "apps/desktop/src-tauri/icons/generate.ts",
+    "apps/desktop/src-tauri/dmg/generate.ts"
   ]
 }

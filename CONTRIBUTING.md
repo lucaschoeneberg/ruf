@@ -6,6 +6,12 @@ Read the [Code of Conduct](CODE_OF_CONDUCT.md) and
 reporting a planned feature as a regression: this app is currently a development
 preview. The [release checklist](docs/release-checklist.md) records distribution gaps.
 
+For a first contribution, follow the [preview tester guide](docs/testing-preview.md)
+or submit the [compatibility report form](https://github.com/mardu-systems/ruf/issues/new?template=compatibility_report.yml).
+Windows 11 audio, FreeSWITCH interoperability and fresh-Mac setup are specific
+areas where observed results help. Prepared issue scopes are in the
+[unpublished launch package](docs/releases/0.1.0-launch.md#issue-drafts).
+
 ## Before starting
 
 Search existing issues and PRs. Small fixes can go straight to a PR. Discuss larger

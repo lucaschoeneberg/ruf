@@ -26,6 +26,10 @@ export type AppPreferences = {
  */
 startHidden: boolean,
 /**
+ * Display-language preference. Omitted legacy input defaults to system; output is required.
+ */
+language: LanguagePreference,
+/**
  * Include caller details in native notifications; false uses anonymous text.
  */
 showCallerInNotifications: boolean,
@@ -37,6 +41,24 @@ contacts: ContactsPreferences,
  * Local call-history collection and retention.
  */
 history: HistoryPreferences, };
+
+export type LanguagePreference = "system" | "de" | "en";
+
+export type AppLocale = "de" | "en";
+
+export type LocalizationState = {
+/**
+ * Persisted choice, defaulting to system for older metadata.
+ */
+preference: LanguagePreference,
+/**
+ * Resolved catalog used by this process.
+ */
+locale: AppLocale,
+/**
+ * Monotonic process-local change revision; unchanged or failed saves do not increment it.
+ */
+revision: number, };
 
 export type ContactsPreferences = {
 /**

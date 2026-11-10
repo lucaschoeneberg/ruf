@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import type {
     ContactsPermission,
     NotificationPermission,
@@ -10,7 +11,7 @@
     working = false,
     disabled = false,
     error = null,
-    requestLabel = "Zugriff anfordern",
+    requestLabel = message("settings.request_access"),
     oncheck,
     onrequest,
     onopen,
@@ -20,23 +21,23 @@
     checking?: boolean;
     working?: boolean;
     disabled?: boolean;
-    error?: string | null;
-    requestLabel?: string;
+    error?: MessageValue | null;
+    requestLabel?: MessageValue;
     oncheck: () => void;
     onrequest?: (() => void) | undefined;
     onopen?: (() => void) | undefined;
   } = $props();
   const labels = {
-    authorized: "Erlaubt",
-    notDetermined: "Noch nicht angefragt",
-    denied: "Im System blockiert",
-    restricted: "Durch Systemrichtlinie eingeschränkt",
-    unsupported: "Nicht verfügbar",
+    authorized: message("settings.permission_allowed"),
+    notDetermined: message("settings.permission_not_requested"),
+    denied: message("settings.permission_blocked"),
+    restricted: message("settings.permission_restricted"),
+    unsupported: message("settings.unavailable"),
   };
-  const statusLabel = $derived.by((): string => {
-    if (checking) return "Freigabe wird geprüft …";
-    if (error) return "Prüfung fehlgeschlagen";
-    return status ? labels[status] : "Noch nicht geprüft";
+  const statusLabel = $derived.by((): MessageValue => {
+    if (checking) return message("settings.permission_checking");
+    if (error) return message("settings.permission_check_failed");
+    return status ? labels[status] : message("settings.permission_unchecked");
   });
 </script>
 
@@ -49,9 +50,9 @@
       role="status"
       aria-live="polite"
     >
-      {statusLabel}
+      {$text(statusLabel)}
     </p>
-    {#if error}<p class="field-error" role="alert">{error}</p>{/if}
+    {#if error}<p class="field-error" role="alert">{$text(error)}</p>{/if}
   </div>
   <div class="permission-actions">
     {#if status === "notDetermined" && !error && onrequest}<button
@@ -59,20 +60,24 @@
         class="primary-button"
         disabled={disabled || checking || working}
         onclick={onrequest}
-        >{working ? "Bitte Systemabfrage bestätigen …" : requestLabel}</button
+        >{working
+          ? $t("settings.confirm_system_prompt")
+          : $text(requestLabel)}</button
       >{/if}
     {#if status && status !== "unsupported" && onopen}<button
         type="button"
         class="secondary-button"
         disabled={disabled || working}
-        onclick={onopen}>Systemeinstellungen öffnen</button
+        onclick={onopen}>{$t("settings.open_system_settings")}</button
       >{/if}
     <button
       type="button"
       class="text-button"
       disabled={disabled || checking || working}
       onclick={oncheck}
-      >{checking ? "Wird geprüft …" : "Freigabe erneut prüfen"}</button
+      >{checking
+        ? $t("settings.checking")
+        : $t("settings.check_permission_again")}</button
     >
   </div>
 </div>

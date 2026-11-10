@@ -1,4 +1,5 @@
 //! Native menus, background lifecycle and state delivery. No SIP/audio implementation.
+use crate::localization::{NativeMessage as Message, text};
 use crate::{desktop, phone::PhoneState, shell_policy};
 use phone_core::{CallState, EngineSnapshot, RegistrationState};
 use std::sync::{
@@ -21,13 +22,13 @@ const REJECT: &str = "reject:";
 const HANGUP: &str = "hangup:";
 const ACCOUNT: &str = "account:";
 // Payload-free navigation requests; call requests carry the captured opaque call token.
-const NAVIGATION: &[(&str, &str, &str)] = &[
-    ("dialer", "Tastatur", "CmdOrCtrl+1"),
-    ("contacts", "Kontakte", "CmdOrCtrl+2"),
-    ("history", "Verlauf", "CmdOrCtrl+3"),
-    ("number", "Nummer eingeben", "CmdOrCtrl+L"),
-    ("find", "Suchen …", "CmdOrCtrl+F"),
-    ("search", "Ruf durchsuchen …", "CmdOrCtrl+K"),
+const NAVIGATION: &[(&str, Message, &str)] = &[
+    ("dialer", Message::Dialer, "CmdOrCtrl+1"),
+    ("contacts", Message::Contacts, "CmdOrCtrl+2"),
+    ("history", Message::History, "CmdOrCtrl+3"),
+    ("number", Message::Number, "CmdOrCtrl+L"),
+    ("find", Message::Find, "CmdOrCtrl+F"),
+    ("search", Message::Search, "CmdOrCtrl+K"),
 ];
 const CALL_ACTIONS: &[(&str, &str)] = &[
     ("mute", "CmdOrCtrl+Shift+M"),
@@ -43,6 +44,7 @@ pub(crate) struct ShellState {
     quit_prompt: AtomicBool,
     settings_guard_ready: AtomicBool,
     pending_snapshot: Mutex<shell_policy::PendingSnapshot>,
+    displayed_snapshot: Mutex<EngineSnapshot>,
 }
 
 pub(crate) fn setup(app: &mut tauri::App) -> tauri::Result<()> {
@@ -52,7 +54,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(status_icon(initial.call, false))
         .icon_as_template(cfg!(target_os = "macos"))
-        .tooltip("Ruf · Telefonie wird geladen")
+        .tooltip(text(handle, Message::Loading))
         .menu(&tray_menu(handle, &initial)?)
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_tray_icon_event(|tray, event| {
@@ -164,8 +166,10 @@ fn request_quit(app: &tauri::AppHandle) {
                 .emit_to("settings", "settings-quit-requested", ())
                 .is_err()
         {
-            app.dialog().message("Die Einstellungen konnten nicht erreicht werden. Öffne sie erneut, um deine Änderungen vor dem Beenden zu prüfen.")
-                .title("Ruf beenden").show(|_| {});
+            app.dialog()
+                .message(text(app, Message::QuitSettingsFailure))
+                .title(text(app, Message::Quit))
+                .show(|_| {});
         }
         return;
     }
@@ -200,11 +204,11 @@ fn confirm_quit(app: &tauri::AppHandle, active: bool) {
     if active {
         let handle = app.clone();
         app.dialog()
-            .message("Ein Gespräch läuft oder wird aufgebaut. Gespräch beenden und Ruf schließen?")
-            .title("Ruf beenden")
+            .message(text(app, Message::QuitActive))
+            .title(text(app, Message::Quit))
             .buttons(MessageDialogButtons::OkCancelCustom(
-                "Gespräch beenden und schließen".into(),
-                "Zurück".into(),
+                text(app, Message::QuitActiveConfirm).into(),
+                text(app, Message::Back).into(),
             ))
             .show(move |confirmed| {
                 handle
@@ -319,12 +323,16 @@ fn account_menu(
     app: &tauri::AppHandle,
     state: &EngineSnapshot,
 ) -> tauri::Result<Submenu<tauri::Wry>> {
-    let accounts = Submenu::new(app, "Ausgehendes Konto", !state.accounts.is_empty())?;
+    let accounts = Submenu::new(
+        app,
+        text(app, Message::OutgoingAccount),
+        !state.accounts.is_empty(),
+    )?;
     for account in &state.accounts {
         let status = if account.registration == RegistrationState::Registered {
-            "Verbunden"
+            text(app, Message::Connected)
         } else {
-            "Nicht verbunden"
+            text(app, Message::Disconnected)
         };
         accounts.append(&CheckMenuItem::with_id(
             app,
@@ -342,11 +350,11 @@ fn call_menu(
     state: &EngineSnapshot,
     shortcuts: bool,
 ) -> tauri::Result<Submenu<tauri::Wry>> {
-    let call = Submenu::new(app, "Gespräch", true)?;
+    let call = Submenu::new(app, text(app, Message::Call), true)?;
     call.append(&item(
         app,
         &format!("{ANSWER}{}", state.call_id.as_deref().unwrap_or("")),
-        "Annehmen",
+        text(app, Message::Answer),
         shell_policy::can_answer(state.call) && state.call_id.is_some(),
         shortcuts.then_some("CmdOrCtrl+Enter"),
     )?)?;
@@ -362,9 +370,9 @@ fn call_menu(
             state.call_id.as_deref().unwrap_or("")
         ),
         if state.call == CallState::Incoming {
-            "Ablehnen"
+            text(app, Message::Reject)
         } else {
-            "Auflegen"
+            text(app, Message::Hangup)
         },
         shell_policy::can_hangup(state.call) && state.call_id.is_some(),
         shortcuts.then_some("CmdOrCtrl+."),
@@ -384,25 +392,25 @@ fn call_menu(
         let (label, enabled) = match *action {
             "mute" => (
                 if selected.is_some_and(|call| call.muted) {
-                    "Mikrofon einschalten"
+                    text(app, Message::Unmute)
                 } else {
-                    "Stummschalten"
+                    text(app, Message::Mute)
                 },
                 established,
             ),
             "hold" => (
                 if selected.is_some_and(|call| call.local_held) {
-                    "Fortsetzen"
+                    text(app, Message::Resume)
                 } else {
-                    "Halten"
+                    text(app, Message::Hold)
                 },
                 established && !pending,
             ),
             "transfer" => (
-                "Vermitteln / Rückfrage …",
+                text(app, Message::Transfer),
                 established && !pending && state.calls.len() == 1,
             ),
-            _ => ("Gesprächstastatur ein-/ausblenden", established),
+            _ => (text(app, Message::Tones), established),
         };
         call.append(&item(
             app,
@@ -414,14 +422,14 @@ fn call_menu(
     }
     Ok(call)
 }
-fn status_text(state: &EngineSnapshot) -> String {
+fn status_text(app: &tauri::AppHandle, state: &EngineSnapshot) -> String {
     match state.call {
-        CallState::Incoming => "Ruf · Eingehender Anruf".into(),
-        CallState::Answering => "Ruf · Wird angenommen …".into(),
-        CallState::Active => "Ruf · Gespräch läuft".into(),
-        CallState::Held => "Ruf · Gespräch gehalten".into(),
-        CallState::EarlyMedia => "Ruf · Frühe Medien".into(),
-        CallState::Calling | CallState::Ringing => "Ruf · Verbindungsaufbau".into(),
+        CallState::Incoming => text(app, Message::IncomingStatus).into(),
+        CallState::Answering => text(app, Message::AnsweringStatus).into(),
+        CallState::Active => text(app, Message::ActiveStatus).into(),
+        CallState::Held => text(app, Message::HeldStatus).into(),
+        CallState::EarlyMedia => text(app, Message::EarlyMediaStatus).into(),
+        CallState::Calling | CallState::Ringing => text(app, Message::ConnectingStatus).into(),
         CallState::Idle => {
             let ready = state
                 .accounts
@@ -429,11 +437,18 @@ fn status_text(state: &EngineSnapshot) -> String {
                 .filter(|a| a.registration == RegistrationState::Registered && !a.removing)
                 .count();
             if state.last_error.is_some() {
-                "Ruf · Verbindung oder Einstellungen prüfen".into()
+                text(app, Message::ErrorStatus).into()
             } else if state.accounts.is_empty() {
-                "Ruf · Kein Konto eingerichtet".into()
+                text(app, Message::NoAccountStatus).into()
             } else {
-                format!("Ruf · {ready}/{} Konten verbunden", state.accounts.len())
+                crate::localization::format(
+                    app,
+                    Message::AccountsStatus,
+                    &[
+                        ("ready", ready.to_string()),
+                        ("total", state.accounts.len().to_string()),
+                    ],
+                )
             }
         }
     }
@@ -442,17 +457,29 @@ fn tray_menu(app: &tauri::AppHandle, state: &EngineSnapshot) -> tauri::Result<Me
     Menu::with_items(
         app,
         &[
-            &item(app, "status", &status_text(state), false, None)?,
-            &item(app, OPEN, "Ruf öffnen", true, None)?,
+            &item(app, "status", &status_text(app, state), false, None)?,
+            &item(app, OPEN, text(app, Message::Open), true, None)?,
             &PredefinedMenuItem::separator(app)?,
             &call_menu(app, state, false)?,
             &account_menu(app, state)?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, "settings:accounts", "SIP-Konten …", true, None)?,
-            &item(app, "settings:audio", "Ton …", true, None)?,
-            &item(app, "settings:general", "Einstellungen …", true, None)?,
+            &item(
+                app,
+                "settings:accounts",
+                text(app, Message::Accounts),
+                true,
+                None,
+            )?,
+            &item(app, "settings:audio", text(app, Message::Audio), true, None)?,
+            &item(
+                app,
+                "settings:general",
+                text(app, Message::Settings),
+                true,
+                None,
+            )?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, QUIT, "Ruf beenden", true, None)?,
+            &item(app, QUIT, text(app, Message::Quit), true, None)?,
         ],
     )
 }
@@ -465,43 +492,67 @@ pub(crate) fn app_menu(
         if cfg!(target_os = "macos") {
             "Ruf"
         } else {
-            "Datei"
+            text(app, Message::File)
         },
         true,
     )?;
-    application.append(&item(app, "settings:about", "Über Ruf …", true, None)?)?;
+    application.append(&item(
+        app,
+        "settings:about",
+        text(app, Message::About),
+        true,
+        None,
+    )?)?;
     application.append(&item(
         app,
         "settings:general",
-        "Einstellungen …",
+        text(app, Message::Settings),
         true,
         Some("CmdOrCtrl+,"),
     )?)?;
     #[cfg(target_os = "macos")]
     {
-        application.append(&PredefinedMenuItem::services(app, None)?)?;
+        application.append(&PredefinedMenuItem::services(
+            app,
+            Some(text(app, Message::Services)),
+        )?)?;
         application.append(&PredefinedMenuItem::separator(app)?)?;
-        application.append(&PredefinedMenuItem::hide(app, None)?)?;
-        application.append(&PredefinedMenuItem::hide_others(app, None)?)?;
-        application.append(&PredefinedMenuItem::show_all(app, None)?)?;
+        application.append(&PredefinedMenuItem::hide(
+            app,
+            Some(text(app, Message::Hide)),
+        )?)?;
+        application.append(&PredefinedMenuItem::hide_others(
+            app,
+            Some(text(app, Message::HideOthers)),
+        )?)?;
+        application.append(&PredefinedMenuItem::show_all(
+            app,
+            Some(text(app, Message::ShowAll)),
+        )?)?;
     }
     application.append(&PredefinedMenuItem::separator(app)?)?;
-    application.append(&item(app, QUIT, "Ruf beenden", true, Some("CmdOrCtrl+Q"))?)?;
+    application.append(&item(
+        app,
+        QUIT,
+        text(app, Message::Quit),
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?)?;
     let edit = Submenu::with_items(
         app,
-        "Bearbeiten",
+        text(app, Message::Edit),
         true,
         &[
-            &PredefinedMenuItem::undo(app, None)?,
-            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::undo(app, Some(text(app, Message::Undo)))?,
+            &PredefinedMenuItem::redo(app, Some(text(app, Message::Redo)))?,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::cut(app, None)?,
-            &PredefinedMenuItem::copy(app, None)?,
-            &PredefinedMenuItem::paste(app, None)?,
-            &PredefinedMenuItem::select_all(app, None)?,
+            &PredefinedMenuItem::cut(app, Some(text(app, Message::Cut)))?,
+            &PredefinedMenuItem::copy(app, Some(text(app, Message::Copy)))?,
+            &PredefinedMenuItem::paste(app, Some(text(app, Message::Paste)))?,
+            &PredefinedMenuItem::select_all(app, Some(text(app, Message::SelectAll)))?,
         ],
     )?;
-    let view = Submenu::new(app, "Ansicht", true)?;
+    let view = Submenu::new(app, text(app, Message::View), true)?;
     for (action, label, key) in NAVIGATION {
         if *action == "number" || *action == "search" {
             view.append(&PredefinedMenuItem::separator(app)?)?;
@@ -509,39 +560,51 @@ pub(crate) fn app_menu(
         view.append(&item(
             app,
             &format!("phone:{action}"),
-            label,
+            text(app, *label),
             *action != "number" || state.call == CallState::Idle,
             Some(key),
         )?)?;
     }
     let windows = Submenu::with_items(
         app,
-        "Fenster",
+        text(app, Message::Window),
         true,
         &[
-            &item(app, OPEN, "Telefon öffnen", true, None)?,
-            &PredefinedMenuItem::minimize(app, None)?,
-            &PredefinedMenuItem::close_window(app, None)?,
+            &item(app, OPEN, text(app, Message::OpenPhone), true, None)?,
+            &PredefinedMenuItem::minimize(app, Some(text(app, Message::Minimize)))?,
+            &PredefinedMenuItem::close_window(app, Some(text(app, Message::CloseWindow)))?,
         ],
     )?;
     // Tauri registers this ID with NSApplication: macOS supplies the native menu search.
     let help = Submenu::with_id_and_items(
         app,
         HELP_SUBMENU_ID,
-        "Hilfe",
+        text(app, Message::Help),
         true,
         &[
-            &item(app, "phone:search", "Tastenkombinationen …", true, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &item(app, "phone:start", "Starthilfe", true, None)?,
             &item(
                 app,
-                "settings:diagnostics",
-                "Diagnose & Hilfe …",
+                "phone:search",
+                text(app, Message::Shortcuts),
                 true,
                 None,
             )?,
-            &item(app, "settings:about", "Über Ruf …", true, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &item(
+                app,
+                "phone:start",
+                text(app, Message::GettingStarted),
+                true,
+                None,
+            )?,
+            &item(
+                app,
+                "settings:diagnostics",
+                text(app, Message::Diagnostics),
+                true,
+                None,
+            )?,
+            &item(app, "settings:about", text(app, Message::About), true, None)?,
         ],
     )?;
     Menu::with_items(
@@ -630,8 +693,11 @@ fn queue_snapshot(app: &tauri::AppHandle, snapshot: EngineSnapshot) -> tauri::Re
         let Some(snapshot) = snapshot else {
             return;
         };
+        if let Ok(mut displayed) = handle.state::<ShellState>().displayed_snapshot.lock() {
+            *displayed = snapshot.clone();
+        }
         if let Some(tray) = handle.tray_by_id(TRAY_ID) {
-            let _ = tray.set_tooltip(Some(status_text(&snapshot)));
+            let _ = tray.set_tooltip(Some(status_text(&handle, &snapshot)));
             let ready = snapshot
                 .accounts
                 .iter()
@@ -658,6 +724,31 @@ fn queue_snapshot(app: &tauri::AppHandle, snapshot: EngineSnapshot) -> tauri::Re
         pending.take();
     }
     result
+}
+
+/// Refresh native text independently of engine snapshot publication.
+pub(crate) fn refresh_localization(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let snapshot = handle
+            .state::<ShellState>()
+            .displayed_snapshot
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default();
+        if let Some(tray) = handle.tray_by_id(TRAY_ID) {
+            let _ = tray.set_tooltip(Some(status_text(&handle, &snapshot)));
+            if let Ok(menu) = tray_menu(&handle, &snapshot) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        }
+        if let Ok(menu) = app_menu(&handle, &snapshot) {
+            let _ = handle.set_menu(menu);
+        }
+        if let Some(window) = handle.get_webview_window("settings") {
+            let _ = window.set_title(text(&handle, Message::SettingsTitle));
+        }
+    });
 }
 
 fn status_icon(call: CallState, ready: bool) -> tauri::image::Image<'static> {
@@ -729,12 +820,15 @@ mod tests {
     }
 
     #[test]
-    fn status_identifies_ruf_and_the_current_call() {
-        let mut snapshot = EngineSnapshot::default();
-        assert_eq!(status_text(&snapshot), "Ruf · Kein Konto eingerichtet");
-        snapshot.call = CallState::Incoming;
-        assert_eq!(status_text(&snapshot), "Ruf · Eingehender Anruf");
-        snapshot.call = CallState::Active;
-        assert_eq!(status_text(&snapshot), "Ruf · Gespräch läuft");
+    fn native_status_catalogs_cover_call_states() {
+        for locale in [phone_core::AppLocale::De, phone_core::AppLocale::En] {
+            for key in [
+                Message::IncomingStatus,
+                Message::ActiveStatus,
+                Message::NoAccountStatus,
+            ] {
+                assert!(crate::localization::translate(locale, key).starts_with("Ruf · "));
+            }
+        }
     }
 }

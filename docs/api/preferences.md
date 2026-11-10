@@ -18,15 +18,16 @@ present and nullable in output. The UI sends the complete generated contract.
 Missing metadata returns the defaults below. Corrupt or unsupported metadata
 returns `storageFailure` and is preserved.
 
-| Output field                  | Default | Meaning                                                                                                                                                                      |
-| ----------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `startHidden`                 | `true`  | Keep the phone hidden on login launches only. Manual launches stay visible.                                                                                                  |
-| `showCallerInNotifications`   | `true`  | Include caller name/number in native notifications; false uses anonymous text. Does not change OS authorization or native ringing.                                           |
-| `contacts.favoritesFirst`     | `true`  | Sort existing favorite contacts first.                                                                                                                                       |
-| `contacts.matchGermanNumbers` | `true`  | Match German national 0… with +49…/0049… for contact identity, search and history scope. Does not rewrite dialing. May be omitted in legacy input; always present in output. |
-| `contacts.showOrganization`   | `true`  | Show organization labels in contact lists. Does not fetch or change contacts.                                                                                                |
-| `history.recordingEnabled`    | `true`  | Collect metadata for future calls. This is not audio recording. Changes require an idle phone and preserve existing rows.                                                    |
-| `history.retentionDays`       | `null`  | Unlimited, or exactly `30`, `90`, `365` days. Completed records are removed by start timestamp strictly before the UTC cutoff; in-progress records are always preserved.     |
+| Output field                  | Default  | Meaning                                                                                                                                                                                             |
+| ----------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `language`                    | `system` | `system`, `de` or `en`; omitted legacy input defaults to `system`, always present in output. Applies to both windows and native texts after successful saving. See [localization](localization.md). |
+| `startHidden`                 | `true`   | Keep the phone hidden on login launches only. Manual launches stay visible.                                                                                                                         |
+| `showCallerInNotifications`   | `true`   | Include caller name/number in native notifications; false uses anonymous text. Does not change OS authorization or native ringing.                                                                  |
+| `contacts.favoritesFirst`     | `true`   | Sort existing favorite contacts first.                                                                                                                                                              |
+| `contacts.matchGermanNumbers` | `true`   | Match German national 0… with +49…/0049… for contact identity, search and history scope. Does not rewrite dialing. May be omitted in legacy input; always present in output.                        |
+| `contacts.showOrganization`   | `true`   | Show organization labels in contact lists. Does not fetch or change contacts.                                                                                                                       |
+| `history.recordingEnabled`    | `true`   | Collect metadata for future calls. This is not audio recording. Changes require an idle phone and preserve existing rows.                                                                           |
+| `history.retentionDays`       | `null`   | Unlimited, or exactly `30`, `90`, `365` days. Completed records are removed by start timestamp strictly before the UTC cutoff; in-progress records are always preserved.                            |
 
 Invalid retention values and shortening retention that would delete existing
 completed records without `confirmHistoryDeletion: true` return `invalidInput`.

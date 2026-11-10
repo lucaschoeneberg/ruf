@@ -19,6 +19,18 @@ subprocess calls with specific timeout/stdio behavior remain supported Bun
 APIs. Browser regression functions are serialized into the Playwright CLI;
 keep their runtime bodies independent of module imports and closures.
 
+German and English app messages live in `locales/de.json` and `locales/en.json`.
+Add the same keys/placeholders to both. Use standard i18next JSON V4
+`_one`/`_other` string keys with numeric `count` for plurals and shared `%{name}`
+placeholders (`%{count, number}` for frontend count formatting). i18next handles
+frontend interpolation, plural rules and fallback; rust-i18n compiles the same
+resources and handles native lookup/interpolation. `bun run i18n:check` validates catalogs as part of
+`bun run check`. Components use the reactive `t`/`text` stores; store message
+references for feedback that must survive language changes, rather than a
+translated string captured earlier. Do not translate personal/protocol data.
+See [localization contracts](api/localization.md) and the locale-specific
+[changelog source configuration](api/about.md#consumer-changelog).
+
 On macOS install Xcode/Command Line Tools. On Windows install MSVC C++ Build Tools,
 the Windows SDK and WebView2 as described in the
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
@@ -180,6 +192,10 @@ Pass arguments directly: `bun run desktop:build --features native --bundles app,
 on macOS, or `--bundles nsis` on Windows. Requesting both `app,dmg` retains Ruf.app
 for the signature/permission checks; a DMG-only build removes its temporary app
 after packaging. Do not insert npm's argument separator.
+
+The macOS DMG uses the existing Ruf logo, bundled fonts and an English
+drag-to-Applications background. Its source, Retina regeneration command and
+Finder/CI requirements are documented in the [DMG artwork guide](../apps/desktop/src-tauri/dmg/README.md).
 
 References: [Bun formatter](https://bun.com/docs/format),
 [lockfile migration](https://bun.sh/docs/pm/lockfile),

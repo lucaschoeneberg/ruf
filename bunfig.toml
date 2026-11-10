@@ -4,6 +4,9 @@ exact = true
 [run]
 bun = true
 
+[test]
+preload = ["./tests/ui/setup.ts"]
+
 [fmt]
 ignorePatterns = [
   "**/gen/",

@@ -1534,6 +1534,7 @@ mod credential_tests {
         };
         let mut next = session.preferences();
         next.contacts.show_organization = false;
+        next.language = phone_core::LanguagePreference::De;
         session.save_preferences(next.clone()).unwrap();
         assert_eq!(session.preferences(), next);
         assert_eq!(

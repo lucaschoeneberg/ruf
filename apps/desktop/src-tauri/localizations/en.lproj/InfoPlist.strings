@@ -1,0 +1,2 @@
+"NSContactsUsageDescription" = "Ruf needs access to your contacts so you can find names and phone numbers and call them directly. Your address book is not changed.";
+"NSMicrophoneUsageDescription" = "Ruf needs microphone access so the person you call can hear you.";

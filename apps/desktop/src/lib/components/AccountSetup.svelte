@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import { tick } from "svelte";
   import type { AccountConfig, AccountSnapshot } from "../generated/AppInfo";
   import {
@@ -32,7 +33,7 @@
     onreconnect: () => void;
   } = $props();
   let errors = $state<AccountErrors>({});
-  let nameError = $state("");
+  let nameError = $state<MessageValue>("");
   let form: HTMLFormElement;
   let confirmRemove = $state(false);
   const missingCredential = $derived(
@@ -56,7 +57,7 @@
       !name.trim() ||
       [...name.trim()].length > 64 ||
       /[\u0000-\u001f\u007f]/u.test(name)
-        ? "Gib einen Namen mit 1–64 Zeichen an."
+        ? message("settings.name_invalid")
         : "";
     const first = nameError
       ? "name"
@@ -72,19 +73,19 @@
     }
     await onconfigure(normalized, name.trim());
   }
-  const status = $derived.by((): string => {
-    if (existing?.enabledChanging) return "Wird geändert …";
-    if (existing?.enabled === false) return "Deaktiviert";
-    if (existing?.removing) return "Wird entfernt …";
+  const status = $derived.by((): MessageValue => {
+    if (existing?.enabledChanging) return message("settings.changing");
+    if (existing?.enabled === false) return message("settings.disabled");
+    if (existing?.removing) return message("settings.removing");
     switch (existing?.registration) {
       case "registered":
-        return "Angemeldet";
+        return message("settings.registered");
       case "registering":
-        return "Wird angemeldet …";
+        return message("settings.registering");
       case "failed":
-        return "Anmeldung fehlgeschlagen";
+        return message("settings.registration_failed");
       default:
-        return "Noch nicht angemeldet";
+        return message("settings.not_registered_yet");
     }
   });
 </script>
@@ -93,17 +94,17 @@
   <div>
     <svelte:element this={embedded ? "h2" : "h1"}>
       {removed
-        ? "Konto entfernt"
+        ? $t("settings.account_removed")
         : existing
           ? existing.name
-          : "Konto hinzufügen"}
+          : $t("settings.add_account")}
     </svelte:element>
     <p>
       {removed
         ? `${account.username}@${account.registrar}`
         : existing
           ? `${existing.username}@${existing.registrar}`
-          : "SIP-Server, Benutzername und Passwort erhältst du von deiner Telefonanlage oder deinem SIP-Anbieter. Wähle außerdem einen Namen für das Konto."}
+          : $t("settings.account_intro")}
     </p>
   </div>
   {#if existing}<span
@@ -111,50 +112,50 @@
       class:connected={existing.registration === "registered"}
       class:failed={existing.registration === "failed"}
       role="status"
-      ><span class="status-dot" aria-hidden="true"></span>{status}</span
+      ><span class="status-dot" aria-hidden="true"></span>{$text(status)}</span
     >{/if}
 </div>
 {#if existing?.lastError}<p class="settings-feedback error" role="status">
-    {errorMessage(existing.lastError)}
+    {$text(errorMessage(existing.lastError))}
   </p>{/if}
 {#if canReconnect}<button
     class="secondary-button"
     type="button"
     disabled={disabled || busy || removed || existing?.removing}
-    onclick={onreconnect}>Erneut verbinden</button
+    onclick={onreconnect}>{$t("settings.reconnect")}</button
   >{/if}
 
 <form bind:this={form} onsubmit={submit} novalidate>
   <fieldset disabled={disabled || busy || removed || existing?.removing}>
     <svelte:element this={embedded ? "h3" : "h2"} class="settings-group"
-      >Kontoinformationen</svelte:element
+      >{$t("settings.account_information")}</svelte:element
     >
     <div class="setting-row">
       <div class="setting-description">
-        <label for="name">Name</label>
-        <p id="name-help">Erforderlich: 1–64 Zeichen, z. B. Büro.</p>
+        <label for="name">{$t("settings.account_name")}</label>
+        <p id="name-help">{$t("settings.account_name_help")}</p>
       </div>
       <div class="setting-control">
         <input
           id="name"
           name="name"
           bind:value={name}
-          placeholder="z. B. Büro"
+          placeholder={$t("settings.account_name_placeholder")}
           maxlength="64"
           autocomplete="off"
           required
           aria-invalid={!!nameError}
           aria-describedby={nameError ? "name-error" : "name-help"}
         />{#if nameError}<p id="name-error" class="field-error">
-            {nameError}
+            {$text(nameError)}
           </p>{/if}
       </div>
     </div>
     <div class="setting-row">
       <div class="setting-description">
-        <label for="registrar">SIP-Server</label>
+        <label for="registrar">{$t("settings.sip_server")}</label>
         <p id="registrar-help">
-          Erforderlich: Serveradresse, optional mit Port. Ohne sip: oder Pfad.
+          {$t("settings.server_help")}
         </p>
       </div>
       <div class="setting-control">
@@ -162,7 +163,7 @@
           id="registrar"
           name="registrar"
           bind:value={account.registrar}
-          placeholder="pbx.firma.de:5060"
+          placeholder={$t("settings.server_placeholder")}
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
@@ -172,16 +173,15 @@
             ? "registrar-error"
             : "registrar-help"}
         />{#if errors.registrar}<p id="registrar-error" class="field-error">
-            {errors.registrar}
+            {$text(errors.registrar)}
           </p>{/if}
       </div>
     </div>
     <div class="setting-row">
       <div class="setting-description">
-        <label for="username">Benutzername</label>
+        <label for="username">{$t("settings.username")}</label>
         <p id="username-help">
-          Erforderlich: SIP-Benutzername aus deinen Zugangsdaten, häufig eine
-          Nebenstelle. Keine E-Mail-Adresse.
+          {$t("settings.username_help")}
         </p>
       </div>
       <div class="setting-control">
@@ -189,7 +189,7 @@
           id="username"
           name="username"
           bind:value={account.username}
-          placeholder="z. B. 1000"
+          placeholder={$t("settings.username_placeholder")}
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
@@ -199,19 +199,19 @@
             ? "username-error"
             : "username-help"}
         />{#if errors.username}<p id="username-error" class="field-error">
-            {errors.username}
+            {$text(errors.username)}
           </p>{/if}
       </div>
     </div>
     <div class="setting-row">
       <div class="setting-description">
-        <label for="password">Passwort</label>
+        <label for="password">{$t("settings.password")}</label>
         <p id="password-help">
           {missingCredential
-            ? "Gib das Passwort ein und speichere das Konto."
+            ? $t("settings.password_missing")
             : existing || removed
-              ? "Leer lassen, um das gespeicherte Passwort zu behalten."
-              : "Erforderlich. Wird im System-Schlüsselbund gespeichert."}
+              ? $t("settings.password_keep")
+              : $t("settings.password_help")}
         </p>
       </div>
       <div class="setting-control">
@@ -221,8 +221,8 @@
           bind:value={account.password}
           type="password"
           placeholder={(existing || removed) && !missingCredential
-            ? "Gespeichertes Passwort"
-            : "SIP-Passwort"}
+            ? $t("settings.password_saved")
+            : $t("settings.password_placeholder")}
           autocomplete="new-password"
           required={missingCredential || (!existing && !removed)}
           aria-invalid={!!errors.password}
@@ -230,19 +230,18 @@
             ? "password-error"
             : "password-help"}
         />{#if errors.password}<p id="password-error" class="field-error">
-            {errors.password}
+            {$text(errors.password)}
           </p>{/if}
       </div>
     </div>
     <svelte:element this={embedded ? "h3" : "h2"} class="settings-group"
-      >Verbindung & Sicherheit</svelte:element
+      >{$t("settings.connection_security")}</svelte:element
     >
     <div class="setting-row">
       <div class="setting-description">
-        <label for="transport">SIP-Transport</label>
+        <label for="transport">{$t("settings.sip_transport")}</label>
         <p id="transport-help">
-          TLS prüft das Zertifikat und den Servernamen. Ruf wechselt nicht
-          automatisch auf eine unverschlüsselte Verbindung.
+          {$t("settings.transport_help")}
         </p>
       </div>
       <div class="setting-control">
@@ -258,11 +257,9 @@
     </div>
     <div class="setting-row">
       <div class="setting-description">
-        <label for="media-security">Audioschutz</label>
+        <label for="media-security">{$t("settings.media_security")}</label>
         <p id="media-security-help">
-          Empfohlen: TLS mit erforderlichem SRTP, sofern deine Telefonanlage es
-          unterstützt. Schutz bis zur Anlage, keine Garantie für
-          Ende-zu-Ende-Verschlüsselung.
+          {$t("settings.media_security_help")}
         </p>
       </div>
       <div class="setting-control">
@@ -274,30 +271,27 @@
           aria-describedby={errors.mediaSecurity
             ? "media-security-error"
             : "media-security-help"}
-          ><option value="disabled">Deaktiviert</option><option value="required"
-            >SRTP erforderlich</option
+          ><option value="disabled">{$t("settings.disabled")}</option><option
+            value="required">{$t("settings.srtp_required")}</option
           ></select
         >{#if errors.mediaSecurity}<p
             id="media-security-error"
             class="field-error"
           >
-            {errors.mediaSecurity}
+            {$text(errors.mediaSecurity)}
           </p>{/if}
       </div>
     </div>
     <p class="settings-trust-note">
-      Private Telefonanlagen: Vertraue deren Zertifikaten bewusst über die
-      Vertrauenseinstellungen deines Betriebssystems. Ruf verwendet diese
-      Systemfreigaben; die Zertifikatsprüfung bleibt aktiv.
+      {$t("settings.certificate_help")}
     </p>
     <details class="account-advanced">
-      <summary>Weitere Verbindungsangaben</summary>
+      <summary>{$t("settings.advanced_connection")}</summary>
       <div class="setting-row">
         <div class="setting-description">
-          <label for="auth-username">Separate Anmeldekennung</label>
+          <label for="auth-username">{$t("settings.auth_username")}</label>
           <p id="auth-username-help">
-            Optional, falls dein Anbieter eine eigene Kennung für die Anmeldung
-            vorgibt. Ohne Angabe wird der SIP-Benutzername verwendet.
+            {$t("settings.auth_username_help")}
           </p>
         </div>
         <div class="setting-control">
@@ -319,16 +313,15 @@
               id="auth-username-error"
               class="field-error"
             >
-              {errors.authUsername}
+              {$text(errors.authUsername)}
             </p>{/if}
         </div>
       </div>
       <div class="setting-row">
         <div class="setting-description">
-          <label for="outbound-proxy">Outbound-Proxy</label>
+          <label for="outbound-proxy">{$t("settings.outbound_proxy")}</label>
           <p id="outbound-proxy-help">
-            Optional: Serveradresse mit optionalem Port. Ohne sip:, Pfad oder
-            Parameter.
+            {$t("settings.outbound_proxy_help")}
           </p>
         </div>
         <div class="setting-control">
@@ -338,7 +331,7 @@
             value={account.outboundProxy ?? ""}
             oninput={(event) =>
               (account.outboundProxy = event.currentTarget.value || null)}
-            placeholder="proxy.firma.de:5061"
+            placeholder={$t("settings.proxy_placeholder")}
             maxlength="255"
             autocomplete="off"
             autocapitalize="none"
@@ -351,46 +344,48 @@
               id="outbound-proxy-error"
               class="field-error"
             >
-              {errors.outboundProxy}
+              {$text(errors.outboundProxy)}
             </p>{/if}
         </div>
       </div>
     </details>
     <div class="settings-form-actions settings-save-bar">
-      <p>Änderungen werden mit dem Speichern übernommen.</p>
+      <p>{$t("settings.apply_on_save")}</p>
       <button class="primary-button" type="submit"
         >{removed
-          ? "Konto entfernt"
+          ? $t("settings.account_removed")
           : busy
-            ? "Wird gespeichert …"
+            ? $t("settings.saving")
             : existing
-              ? "Speichern & verbinden"
-              : "Konto hinzufügen"}</button
+              ? $t("settings.save_connect")
+              : $t("settings.add_account")}</button
       >
     </div>
   </fieldset>
 </form>
 {#if existing}<div class="account-removal">
     {#if confirmRemove}<p id="remove-question">
-        „{existing.name}“ und das gespeicherte Passwort entfernen?
+        {$t("settings.remove_account_question", { name: existing.name })}
       </p>
       <div class="removal-actions">
         <button
           class="secondary-button"
           type="button"
-          onclick={() => (confirmRemove = false)}>Abbrechen</button
+          onclick={() => (confirmRemove = false)}
+          >{$t("settings.cancel")}</button
         ><button
           class="danger-button"
           type="button"
           disabled={disabled || busy || existing.removing}
           aria-describedby="remove-question"
-          onclick={onremove}>Konto entfernen</button
+          onclick={onremove}>{$t("settings.remove_account")}</button
         >
       </div>
     {:else}<button
         class="text-button remove-link"
         type="button"
         disabled={disabled || busy || existing.removing}
-        onclick={() => (confirmRemove = true)}>Konto entfernen …</button
+        onclick={() => (confirmRemove = true)}
+        >{$t("settings.remove_account_action")}</button
       >{/if}
   </div>{/if}

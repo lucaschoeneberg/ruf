@@ -1,4 +1,12 @@
 <script lang="ts">
+  import {
+    t,
+    text,
+    message,
+    locale,
+    refreshLocalization,
+    type MessageValue,
+  } from "./lib/i18n";
   import { onMount, tick } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -54,8 +62,9 @@
   let loading = $state(true);
   let busy = $state(false);
   let browser = $state(false);
-  let error = $state<string | null>(null);
-  let feedback = $state("");
+  let error = $state<MessageValue | null>(null);
+  let audioError = $state<MessageValue | null>(null);
+  let feedback = $state<MessageValue>("");
   let editedId = $state<number | null>(null);
   let name = $state("");
   let account = $state<AccountConfig>({
@@ -80,6 +89,7 @@
   let soundBaseline = $state(JSON.stringify(defaultSound()));
   const soundDirty = $derived(JSON.stringify(sound) !== soundBaseline);
   const defaultPreferences = (): AppPreferences => ({
+    language: "system",
     startHidden: true,
     showCallerInNotifications: true,
     contacts: {
@@ -92,7 +102,7 @@
   let preferences = $state<AppPreferences | null>(null);
   let preferenceDraft = $state<AppPreferences>(defaultPreferences());
   let preferencesLoading = $state(false);
-  let preferencesError = $state<string | null>(null);
+  let preferencesError = $state<MessageValue | null>(null);
   let confirmRetention = $state(false);
   const preferencesDirty = $derived(
     preferences !== null &&
@@ -112,7 +122,7 @@
   );
   let devices = $state<AudioDevices | null>(null);
   let devicesLoading = $state(false);
-  let devicesError = $state<string | null>(null);
+  let devicesError = $state<MessageValue | null>(null);
   let baseline = $state("");
   type PendingAction =
     | {
@@ -165,14 +175,14 @@
         return false;
     }
   });
-  const needle = $derived(query.trim().toLocaleLowerCase("de"));
+  const needle = $derived(query.trim().toLocaleLowerCase($locale));
   const sections = settingsSections;
-  const searchResults = $derived(searchSettings(query));
+  const searchResults = $derived(searchSettings(query, $locale));
   const visibleSections = $derived(
     sections.filter(
       (s) =>
         !needle ||
-        s.label.toLocaleLowerCase("de").includes(needle) ||
+        $text(s.label).toLocaleLowerCase($locale).includes(needle) ||
         searchResults.some((result) => result.section === s.id),
     ),
   );
@@ -181,7 +191,7 @@
       (a) =>
         !needle ||
         `${a.name} ${a.username} ${a.registrar}`
-          .toLocaleLowerCase("de")
+          .toLocaleLowerCase($locale)
           .includes(needle) ||
         visibleSections.some((s) => s.id === "accounts"),
     ),
@@ -282,8 +292,7 @@
   }
   function requestWindowAction(kind: "close" | "quit") {
     if (busy) {
-      error =
-        "Eine Änderung wird noch gespeichert. Warte kurz und versuche es erneut.";
+      error = message("settings.save_pending");
     } else if (dirty) showDiscard({ kind });
     else void finishWindowAction(kind);
   }
@@ -386,10 +395,13 @@
       if (mounted && current === epoch) loading = false;
     }
   }
+  $effect(() => {
+    document.title = $t("settings.window_title");
+  });
   onMount(() => {
     mounted = true;
     void loadPreferences();
-    document.title = "Ruf · Einstellungen";
+
     browser = !isTauri();
     const requested = new URLSearchParams(window.location.search).get(
       "section",
@@ -537,8 +549,10 @@
         preferences = result;
         preferenceDraft = structuredClone(result);
         confirmRetention = false;
+        await refreshLocalization();
+        if (!mounted || current !== epoch) return;
       }
-      feedback = "Einstellungen gespeichert.";
+      feedback = message("settings.saved");
     } catch (reason) {
       if (mounted && current === epoch) error = errorMessage(reason);
     } finally {
@@ -569,8 +583,7 @@
       }
     } catch {
       if (mounted)
-        preferencesError =
-          "Die zusätzlichen Einstellungen konnten nicht geladen werden. Versuche es erneut.";
+        preferencesError = message("settings.preferences_load_failed");
     } finally {
       if (mounted) preferencesLoading = false;
     }
@@ -615,8 +628,7 @@
       const result = await getAudioDevices();
       if (mounted) devices = result;
     } catch {
-      if (mounted)
-        devicesError = "Die Audiogeräte konnten nicht geladen werden.";
+      if (mounted) devicesError = message("settings.devices_load_failed");
     } finally {
       if (mounted) devicesLoading = false;
     }
@@ -636,12 +648,13 @@
       applySnapshot(result);
       if (saved) {
         resetSound(snapshot?.soundSettings ?? result.soundSettings);
-        feedback =
-          "Ton-Einstellungen gespeichert. Sie gelten ab dem nächsten Gespräch.";
+        feedback = message("settings.sound_saved");
       }
     } catch (reason) {
-      if (mounted)
-        error = `${errorMessage(reason)} Prüfe bei Tonproblemen das ausgewählte Gerät.`;
+      if (mounted) {
+        error = errorMessage(reason);
+        audioError = error;
+      }
     } finally {
       if (mounted) busy = false;
     }
@@ -660,7 +673,7 @@
       edit(
         editedId ?? result.accounts.find((a) => !before.has(a.id))?.id ?? null,
       );
-      feedback = "Gespeichert. Die Anmeldung an der Telefonanlage läuft.";
+      feedback = message("settings.account_saved");
       if (result.lastError) error = errorMessage(result.lastError);
     } catch (reason) {
       if (mounted) error = errorMessage(reason);
@@ -692,7 +705,7 @@
       applySnapshot(result);
       const updated = snapshot?.accounts.find((item) => item.id === target.id);
       if (updated?.lastError) error = errorMessage(updated.lastError);
-      else feedback = "Die Anmeldung mit dem gespeicherten Passwort läuft.";
+      else feedback = message("settings.reconnecting");
     } catch (reason) {
       if (mounted && current === epoch) error = errorMessage(reason);
     } finally {
@@ -710,8 +723,8 @@
         applySnapshot(result);
         edit(accounts.find((a) => !a.removing)?.id ?? null);
         feedback = result.accounts.some((item) => item.removing)
-          ? "Das Konto wird entfernt …"
-          : "Konto entfernt.";
+          ? message("settings.account_removing")
+          : message("settings.account_removed_notice");
         if (result.lastError) error = errorMessage(result.lastError);
       }
     } catch (reason) {
@@ -734,43 +747,45 @@
 
 <svelte:window onkeydown={keyboard} />
 <div class="settings-shell">
-  <aside class="settings-sidebar" aria-label="Einstellungsnavigation">
+  <aside class="settings-sidebar" aria-label={$t("settings.navigation")}>
     <div class="settings-search">
       <Icon name="search" size={15} /><input
         id="settings-search"
-        aria-label="Konten und Bereiche suchen"
+        aria-label={$t("settings.search_accounts_sections")}
         bind:value={query}
-        placeholder="Einstellungen suchen …"
+        placeholder={$t("settings.search_placeholder")}
         autocomplete="off"
         spellcheck="false"
       />{#if query}<button
           class="icon-button"
           type="button"
-          aria-label="Suche leeren"
+          aria-label={$t("settings.clear_search")}
           onclick={() => (query = "")}><Icon name="close" size={13} /></button
         >{/if}
     </div>
     {#if query.trim() && searchResults.length}<nav
         class="settings-results"
-        aria-label="Gefundene Einstellungen"
+        aria-label={$t("settings.search_results")}
       >
         {#each searchResults as result}<button
             type="button"
             disabled={busy && !readOnlySections.includes(result.section)}
             onclick={() => navigate(result.section, editedId, result.target)}
             ><span>{result.label}</span><small
-              >{sections.find((s) => s.id === result.section)?.label}</small
+              >{$text(
+                sections.find((s) => s.id === result.section)?.label,
+              )}</small
             ></button
           >{/each}
       </nav>{/if}
-    <nav class="settings-navigation" aria-label="Bereiche">
+    <nav class="settings-navigation" aria-label={$t("settings.sections")}>
       {#each visibleSections as item}<button
           type="button"
           class:current={activeSection === item.id}
           aria-current={activeSection === item.id ? "page" : undefined}
           disabled={busy && !readOnlySections.includes(item.id)}
           onclick={() => navigate(item.id)}
-          ><Icon name={item.icon} size={16} /><span>{item.label}</span
+          ><Icon name={item.icon} size={16} /><span>{$text(item.label)}</span
           >{#if item.id === "accounts"}<span class="nav-count"
               >{accounts.length}</span
             >{/if}</button
@@ -779,20 +794,20 @@
     {#if visibleAccounts.length || visibleSections.some((s) => s.id === "accounts")}<div
         class="accounts-heading"
       >
-        <h2>Deine Konten</h2>
+        <h2>{$t("settings.your_accounts")}</h2>
         <button
           class="icon-button"
           type="button"
-          aria-label="SIP-Konto hinzufügen"
+          aria-label={$t("settings.add_sip_account")}
           title={accounts.length >= 8
-            ? "Maximal acht Konten"
-            : "Konto hinzufügen"}
+            ? $t("settings.account_limit")
+            : $t("settings.add_account")}
           disabled={busy || loading || accounts.length >= 8}
           onclick={() => navigate("accounts", null, "name")}
           ><Icon name="plus" size={16} /></button
         >
       </div>
-      <nav class="accounts-list" aria-label="SIP-Konten">
+      <nav class="accounts-list" aria-label={$t("settings.sip_accounts")}>
         {#each visibleAccounts as item}<button
             type="button"
             class:current={section === "accounts" && editedId === item.id}
@@ -811,32 +826,34 @@
             ><small>{item.username}@{item.registrar}</small><span
               class="sr-only"
               >{item.enabled === false
-                ? "Deaktiviert"
+                ? $t("settings.disabled")
                 : item.registration === "registered"
-                  ? "Angemeldet"
+                  ? $t("settings.registered")
                   : item.registration === "failed"
-                    ? "Anmeldung fehlgeschlagen"
-                    : "Nicht angemeldet"}</span
+                    ? $t("settings.registration_failed")
+                    : $t("settings.not_registered")}</span
             ></button
           >{/each}
         {#if !accounts.length}<p class="accounts-empty">
-            Noch keine Konten.<br />Füge dein erstes SIP-Konto hinzu.
+            {$t("settings.no_accounts")}<br />{$t("settings.first_account")}
           </p>{/if}
       </nav>
       {#if accounts.length >= 8}<p class="accounts-empty accounts-limit">
-          Maximal acht Konten.
+          {$t("settings.account_limit_notice")}
         </p>{/if}
     {:else if !visibleSections.length}<p class="accounts-empty" role="status">
-        Keine Treffer für „{query}“. Ändere die Suche oder leere das Suchfeld.
+        {$t("settings.no_search_results", { query })}
       </p>{/if}
     <div class="settings-sidebar-footer">
-      <span>Ruf</span><span>{info ? `v${info.version}` : "Einstellungen"}</span>
+      <span>Ruf</span><span
+        >{info ? `v${info.version}` : $t("settings.title")}</span
+      >
     </div>
   </aside>
   <main class="settings-main">
     <div class="settings-breadcrumb">
-      Einstellungen<span aria-hidden="true">/</span><span
-        >{sections.find((s) => s.id === activeSection)?.label}</span
+      {$t("settings.title")}<span aria-hidden="true">/</span><span
+        >{$text(sections.find((s) => s.id === activeSection)?.label)}</span
       >
     </div>
     <div
@@ -854,18 +871,21 @@
           class="settings-feedback"
         >
           {browser
-            ? "Browser-Vorschau · Konten lassen sich in der nativen Desktop-App verbinden."
-            : "Dieser Build enthält keine native Telefonie. Nutze den nativen Desktop-Build zum Einrichten."}
+            ? $t("settings.browser_preview")
+            : $t("settings.native_required")}
         </p>{/if}
       {#if loading}<p class="settings-feedback" role="status">
-          Einstellungen werden geladen …
+          {$t("settings.loading")}
         </p>{/if}
       {#if error}<div
           bind:this={errorNotice}
           class="settings-feedback error"
           role="alert"
         >
-          <p>{error}</p>
+          <p>
+            {$text(error)}{#if error === audioError}
+              {$t("settings.audio_error_help")}{/if}
+          </p>
           <button
             class="text-button"
             type="button"
@@ -873,18 +893,18 @@
             onclick={() => {
               void refresh();
               void loadPreferences();
-            }}>Status erneut laden</button
+            }}>{$t("settings.reload_status")}</button
           >
         </div>{/if}
       {#if preferencesError && ["general", "notifications", "contacts"].includes(activeSection)}
         <div class="settings-feedback error" role="alert">
-          <p>{preferencesError}</p>
+          <p>{$text(preferencesError)}</p>
           <button
             type="button"
             class="text-button"
             disabled={preferencesLoading}
             onclick={() => void loadPreferences()}
-            >Einstellungen erneut laden</button
+            >{$t("settings.reload_settings")}</button
           >
         </div>
       {/if}
@@ -892,37 +912,37 @@
           class="settings-feedback"
           role="status"
         >
-          Ein Gespräch läuft. Beende es im Telefonfenster, bevor du
-          Einstellungen änderst.
+          {$t("settings.call_active")}
         </p>{/if}
       {#if pendingNavigation}<div
           bind:this={discardNotice}
           class="settings-feedback discard-note"
           role="group"
-          aria-label="Ungespeicherte Änderungen"
+          aria-label={$t("settings.unsaved_changes")}
         >
-          <p>Deine Änderungen sind noch nicht gespeichert.</p>
+          <p>{$t("settings.unsaved_notice")}</p>
           <div>
             <button
               class="secondary-button"
               type="button"
               bind:this={keepEditing}
-              onclick={continueEditing}>Weiter bearbeiten</button
+              onclick={continueEditing}>{$t("settings.keep_editing")}</button
             ><button
               class="secondary-button"
               type="button"
               disabled={busy}
-              onclick={discardChanges}>Änderungen verwerfen</button
+              onclick={discardChanges}>{$t("settings.discard_changes")}</button
             >
           </div>
         </div>{/if}
       {#if feedback && !dirty}<p class="settings-feedback" role="status">
-          {feedback}
+          {$text(feedback)}
         </p>{/if}
       {#if activeSection === "general"}
         <GeneralSettings
           bind:autostart={autostartEnabled}
           bind:startHidden={preferenceDraft.startHidden}
+          bind:language={preferenceDraft.language}
           available={desktopSettings?.autostartAvailable ?? false}
           disabled={busy ||
             loading ||
@@ -957,14 +977,16 @@
       {:else if activeSection === "diagnostics"}
         <DiagnosticsSettings />
         <details class="settings-lab sound-developer">
-          <summary id="developer-audio">Audio für Entwicklung</summary>
+          <summary id="developer-audio"
+            >{$t("settings.developer_audio")}</summary
+          >
           <div class="setting-row">
             <div class="setting-description">
-              <label for="audio-mode">Audioquelle</label>
+              <label for="audio-mode">{$t("settings.audio_source")}</label>
               <p>
                 {snapshot?.audioMode
-                  ? "Für diese App-Sitzung festgelegt. Zum Ändern die App neu starten."
-                  : "Wird beim Start der Telefonie übernommen."}
+                  ? $t("settings.audio_session_fixed")
+                  : $t("settings.audio_start_applied")}
               </p>
             </div>
             <div class="setting-control">
@@ -972,24 +994,23 @@
                 id="audio-mode"
                 bind:value={account.audioMode}
                 disabled={!!snapshot?.audioMode || busy || loading}
-                ><option value="system">Mikrofon & Lautsprecher</option><option
-                  value="testTone">Testton für Entwicklung</option
+                ><option value="system"
+                  >{$t("settings.microphone_speaker")}</option
+                ><option value="testTone"
+                  >{$t("settings.developer_tone")}</option
                 ></select
               >
             </div>
           </div>
           <p>
-            Der Testton ersetzt das Mikrofon durch 440 Hz und zeichnet
-            empfangenes Audio als received.wav im App-Cache auf. Im Testmodus
-            klingeln Anrufe nicht automatisch. Für normale Telefonie Mikrofon &
-            Lautsprecher verwenden.
+            {$t("settings.developer_tone_description")}
           </p>
         </details>
       {:else if activeSection === "accounts"}
         <div class="settings-title">
           <div>
-            <h1>SIP-Konten</h1>
-            <p>Anmeldung, Standardkonto und gespeicherte Konten.</p>
+            <h1>{$t("settings.sip_accounts")}</h1>
+            <p>{$t("settings.accounts_description")}</p>
           </div>
         </div>
         {#if accounts.length}<section
@@ -997,7 +1018,7 @@
             aria-labelledby="accounts-overview-heading"
           >
             <h2 class="settings-group" id="accounts-overview-heading">
-              Gespeicherte Konten
+              {$t("settings.saved_accounts")}
             </h2>
             {#each accounts as item}<div
                 class="setting-row"
@@ -1008,20 +1029,20 @@
                   <h3 id={`overview-account-${item.id}`}>{item.name}</h3>
                   <p>
                     {item.enabled === false
-                      ? "Deaktiviert"
+                      ? $t("settings.disabled")
                       : item.registration === "registered"
-                        ? "Anmeldung bestätigt"
+                        ? $t("settings.registration_confirmed")
                         : item.registration === "registering"
-                          ? "Wird angemeldet …"
-                          : "Nicht angemeldet"}{snapshot?.selectedAccountId ===
-                    item.id
-                      ? " · Ausgehendes Standardkonto"
+                          ? $t("settings.registering")
+                          : $t(
+                              "settings.not_registered",
+                            )}{snapshot?.selectedAccountId === item.id
+                      ? $t("settings.outgoing_default_suffix")
                       : ""}
                   </p>
                   {#if item.registeredAtMs}<p>
-                      Zuletzt bestätigt: {new Date(
-                        item.registeredAtMs,
-                      ).toLocaleString("de-DE")}
+                      {$t("settings.last_confirmed")}
+                      {new Date(item.registeredAtMs).toLocaleString($locale)}
                     </p>{/if}
                 </div>
                 <div class="settings-actions">
@@ -1033,9 +1054,11 @@
                       !callIdle ||
                       item.removing ||
                       snapshot?.selectedAccountId === item.id}
-                    aria-label={`Als Standard festlegen · ${item.name}`}
+                    aria-label={$t("settings.make_default_named", {
+                      name: item.name,
+                    })}
                     onclick={() => void chooseAccount(item.id)}
-                    >Als Standard</button
+                    >{$t("settings.make_default")}</button
                   ><button
                     type="button"
                     class="secondary-button"
@@ -1044,26 +1067,30 @@
                       !callIdle ||
                       item.removing ||
                       item.enabledChanging}
-                    aria-label={`${item.enabled === false ? "Aktivieren" : "Deaktivieren"} · ${item.name}`}
+                    aria-label={$t(
+                      item.enabled === false
+                        ? "settings.enable_named"
+                        : "settings.disable_named",
+                      { name: item.name },
+                    )}
                     onclick={() =>
                       void toggleAccount(item.id, item.enabled === false)}
                     >{item.enabled === false
-                      ? "Aktivieren"
-                      : "Deaktivieren"}</button
+                      ? $t("settings.enable")
+                      : $t("settings.disable")}</button
                   >
                 </div>
               </div>{/each}
           </section>{/if}
         {#if removedDraft}<div class="settings-feedback error" role="alert">
             <p>
-              Dieses Konto wurde entfernt. Dein Entwurf bleibt sichtbar. Verwirf
-              ihn, um ein anderes Konto zu bearbeiten.
+              {$t("settings.removed_draft")}
             </p>
             <button
               class="text-button"
               type="button"
               onclick={() => navigate("accounts", accounts[0]?.id ?? null)}
-              >Anderes Konto wählen</button
+              >{$t("settings.choose_other_account")}</button
             >
           </div>{/if}
         {#key editedId}<AccountSetup
@@ -1083,9 +1110,7 @@
             }}
           />{/key}
         <p class="settings-footnote">
-          Bis zu acht Konten können gespeichert werden. Aktivierte Konten melden
-          sich unabhängig an. Das Konto für ausgehende Anrufe wählst du hier
-          oder im Telefonfenster.
+          {$t("settings.accounts_help")}
         </p>
       {:else if activeSection === "audio"}
         <SoundPanel

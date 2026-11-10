@@ -7,11 +7,11 @@
 **A compact SIP softphone for macOS and Windows.**
 
 [![CI](https://github.com/mardu-systems/ruf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mardu-systems/ruf/actions/workflows/ci.yml)
-[![Version: 0.1.0 Preview](https://img.shields.io/badge/Version-0.1.0%20Preview-3b82f6)](docs/releases/0.1.0.md)
+[![Version: 0.1.0 Developer Preview](https://img.shields.io/badge/Version-0.1.0%20Developer%20Preview-3b82f6)](docs/releases/0.1.0.md)
 [![Target platforms: macOS and Windows](https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows-64748b)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 
-[Screenshots](#screenshots) · [Features](#features) · [Run locally](#run-locally) · [Documentation](#documentation)
+[Get the preview](docs/testing-preview.md#get-the-preview) · [Watch the UI demo](#ui-demo) · [Report a bug](https://github.com/mardu-systems/ruf/issues/new?template=bug_report.yml) · [Help test compatibility](docs/testing-preview.md#help-test-compatibility)
 
 </div>
 
@@ -19,9 +19,21 @@ Ruf connects your desktop to a SIP telephone system. Dial numbers or extensions,
 manage multiple accounts, and keep contacts and recent calls in a clear interface.
 Mute, hold, the DTMF keypad and transfer controls stay within reach during a call.
 
-**Version 0.1.0 is a preview for isolated test networks.** The packages are not yet
-qualified for public production distribution. See the
-[release notes](docs/releases/0.1.0.md) for the current scope.
+**Ruf 0.1.0 Developer Preview is free and has no in-app purchases.** It is intended
+for isolated test networks and is not qualified for production use. The first
+release is being prepared; public installers appear in
+[GitHub Releases](https://github.com/mardu-systems/ruf/releases) only after publication.
+You can [build from source](#run-locally) now. Read the
+[tester guide](docs/testing-preview.md) and [release notes](docs/releases/0.1.0.md)
+before connecting a test account.
+
+## UI demo
+
+![Ruf UI walkthrough: dialer, contacts, call controls, history and audio settings](docs/screenshots/demo.gif)
+
+This 30-second walkthrough uses the real interface with synthetic IPC states,
+fictional contacts and no live SIP or audio. German and English are available;
+the captures show English. [Media provenance and regeneration](docs/screenshots/README.md).
 
 ## Screenshots
 
@@ -39,13 +51,13 @@ qualified for public production distribution. See the
 </table>
 
 <details>
-<summary>View SIP account settings</summary>
+<summary>View audio settings</summary>
 
-<img src="docs/screenshots/settings.png" alt="SIP account overview and account settings" width="900">
+<img src="docs/screenshots/settings.png" alt="Ruf microphone, speaker and ringtone output settings" width="900">
 
 </details>
 
-The screenshots show the current German interface with fictional demo accounts
+The screenshots show the current English interface with fictional demo accounts
 and contacts. They do not establish real calling or operating-system acceptance.
 
 ## Features
@@ -59,6 +71,7 @@ and contacts. They do not establish real calling or operating-system acceptance.
 | **Local history**     | Call outcomes and duration, callbacks through the original account, and configurable history storage and retention. |
 | **Audio**             | Select microphone, call speaker and ringtone outputs separately, and check them with short audio tests.             |
 | **Desktop**           | Tray menu, background operation, keyboard shortcuts and search with ⌘K or Ctrl+K; incoming notifications on macOS.  |
+| **Languages**         | German and English across the phone, settings and native presentation; follows the system or your saved selection.  |
 
 Rust and Tauri 2 power the desktop application, with Svelte for the interface.
 SIP and audio run natively through baresip. Original project code uses the
@@ -70,9 +83,11 @@ SIP and audio run natively through baresip. Original project code uses the
   A successful build does not replace testing on physical audio hardware or
   against your own telephone system. See the
   [verification records](docs/verification/README.md) for results and boundaries.
-- macOS packages currently use ad hoc signing; Windows installers are unsigned.
-  The [release checklist](docs/release-checklist.md) tracks the remaining
-  qualification steps.
+- Default direct-distribution builds use ad hoc signing on macOS; Windows
+  installers are unsigned. Local Developer ID signing is separately documented,
+  but it does not establish notarization or the identity of a future hosted
+  installer. Check each release's actual asset status. The
+  [release checklist](docs/release-checklist.md) tracks qualification steps.
 - Accounts support UDP, TCP and TLS, plus required SDES-SRTP with TLS.
   UDP/TCP and ordinary RTP are unencrypted. TLS verifies certificates and hosts
   through the operating system, with no automatic plaintext fallback. Call
@@ -167,6 +182,8 @@ check only the portable packages by default.
 - [Internal API and generated types](docs/api/README.md)
 - [GitHub, CI/CD and signing](docs/ci-cd.md)
 - [Verification records and limitations](docs/verification/README.md)
+- [Try the preview and report compatibility](docs/testing-preview.md)
+- [First release preparation and community task drafts](docs/releases/0.1.0-launch.md)
 - [Privacy policy draft](docs/privacy-policy-ruf.en.md)
 - [Contributing](CONTRIBUTING.md)
 - [Code of conduct](CODE_OF_CONDUCT.md), [security reports](SECURITY.md) and
@@ -176,3 +193,12 @@ GitHub workflows check source code, browser states, native builds and the Asteri
 lab. A matching version tag creates a draft prerelease with installers and
 SHA-256 checksums after successful checks. The
 [CI/CD guide](docs/ci-cd.md) covers repository rules and production qualification.
+
+## Help shape the first release
+
+We are looking for controlled Windows 11 headset tests, FreeSWITCH
+interoperability reports and first-run setup feedback from a fresh Mac.
+The [tester guide](docs/testing-preview.md#first-contributions) explains how to
+help; [CONTRIBUTING.md](CONTRIBUTING.md) covers focused code and documentation PRs.
+Only observed profiles will be described as tested. Please keep all reports free
+of credentials and personal contact/call data.

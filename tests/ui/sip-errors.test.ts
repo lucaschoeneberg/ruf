@@ -1,5 +1,6 @@
+import { formatMessage } from "../../apps/desktop/src/lib/i18n";
 import { expect, test } from "bun:test";
-import { errorMessage } from "../../apps/desktop/src/lib/api";
+import { errorMessage as errorReference } from "../../apps/desktop/src/lib/api";
 import type { ErrorCode } from "../../apps/desktop/src/lib/generated/AppInfo";
 
 const cases: [ErrorCode, RegExp][] = [
@@ -26,3 +27,7 @@ for (const [code, description] of cases)
     expect(message).not.toContain("password");
     expect(message).not.toContain("pbx.test");
   });
+
+function errorMessage(error: unknown): string {
+  return formatMessage("de", errorReference(error));
+}

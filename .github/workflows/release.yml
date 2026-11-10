@@ -81,5 +81,5 @@ jobs:
           done > artifacts/SHA256SUMS
           gh release create "$RELEASE_TAG" "${mac[@]}" "${windows[@]}" "${sbom[@]}" "${evidence[@]}" \
             artifacts/SHA256SUMS \
-            --verify-tag --draft --prerelease --title "Ruf $RELEASE_TAG" \
+            --verify-tag --draft --prerelease --title "Ruf ${RELEASE_TAG#v} Developer Preview" \
             --notes-file "docs/releases/${RELEASE_TAG#v}.md"

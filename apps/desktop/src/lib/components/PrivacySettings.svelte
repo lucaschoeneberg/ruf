@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import { onMount } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import type { MicrophonePermission } from "../generated/AppInfo";
@@ -10,8 +11,8 @@
   import ContactsSettings from "./ContactsSettings.svelte";
   import PermissionStatus from "./PermissionStatus.svelte";
   let status = $state<MicrophonePermission | null>(null),
-    permissionError = $state<string | null>(null),
-    actionError = $state<string | null>(null);
+    permissionError = $state<MessageValue | null>(null),
+    actionError = $state<MessageValue | null>(null);
   let checking = $state(false),
     requesting = $state(false),
     mounted = false,
@@ -29,8 +30,7 @@
     } catch {
       if (mounted && current === revision) {
         status = null;
-        permissionError =
-          "Die Mikrofonfreigabe konnte nicht geprüft werden. Versuche es erneut.";
+        permissionError = message("settings.microphone_check_failed");
       }
     } finally {
       if (mounted && current === revision) {
@@ -53,8 +53,7 @@
         requesting = false;
         await check();
         if (requestFailed && !permissionError)
-          actionError =
-            "Die Mikrofonfreigabe konnte nicht angefordert werden. Prüfe die Freigabe erneut oder öffne die Systemeinstellungen.";
+          actionError = message("settings.microphone_request_failed");
       }
     }
   }
@@ -63,9 +62,7 @@
     try {
       await openMicrophoneSettings();
     } catch {
-      if (mounted)
-        actionError =
-          "Die Systemeinstellungen konnten nicht geöffnet werden. Öffne dort den Bereich Datenschutz & Sicherheit → Mikrofon manuell.";
+      if (mounted) actionError = message("settings.microphone_settings_failed");
     }
   }
   onMount(() => {
@@ -87,57 +84,53 @@
 
 <div class="settings-title">
   <div>
-    <h1>Datenschutz</h1>
-    <p>Systemfreigaben und Daten auf deinem Computer.</p>
+    <h1>{$t("settings.privacy")}</h1>
+    <p>{$t("settings.privacy_description")}</p>
   </div>
 </div>
-<h2 class="settings-group" id="privacy-permissions" tabindex="-1">Mikrofon</h2>
+<h2 class="settings-group" id="privacy-permissions" tabindex="-1">
+  {$t("settings.microphone")}
+</h2>
 <PermissionStatus
-  title="Mikrofon für Gespräche und Tests"
+  title={$t("settings.microphone_calls_tests")}
   {status}
   {checking}
   working={requesting}
-  error={permissionError}
-  requestLabel="Mikrofon erlauben"
+  error={$text(permissionError)}
+  requestLabel={$t("settings.allow_microphone")}
   oncheck={() => void check()}
   onrequest={() => void request()}
   onopen={isTauri() ? () => void open() : undefined}
 />
 {#if actionError}<p class="settings-feedback error" role="alert">
-    {actionError}
+    {$text(actionError)}
   </p>{/if}
 <p class="settings-footnote">
-  Das Öffnen dieser Seite startet keine Mikrofonaufnahme. Zugriff wird nur bei
-  einem Gespräch oder einem ausdrücklich gestarteten Mikrofontest verwendet.
+  {$t("settings.microphone_access_help")}
 </p>
 <ContactsSettings embedded />
-<h2 class="settings-group sound-group">Lokale Daten</h2>
+<h2 class="settings-group sound-group">{$t("settings.local_data")}</h2>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Konten & Passwörter</h3>
+    <h3>{$t("settings.accounts_passwords")}</h3>
     <p>
-      Kontodaten und Einstellungen liegen im App-Datenordner. Passwörter bleiben
-      im System-Schlüsselbund und werden nicht an die Oberfläche zurückgegeben.
+      {$t("settings.accounts_storage_help")}
     </p>
   </div>
 </div>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Kontakte & Verlauf</h3>
+    <h3>{$t("settings.contacts_history")}</h3>
     <p>
-      Ruf verändert das Systemadressbuch nicht. Favoriten und Anrufverlauf
-      werden lokal gespeichert. Aufbewahrung und Löschung stellst du unter
-      Kontakte & Verlauf ein.
+      {$t("settings.contacts_storage_help")}
     </p>
   </div>
 </div>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Diagnose</h3>
+    <h3>{$t("settings.diagnostics")}</h3>
     <p>
-      Der Diagnosebericht enthält technische Zustände ohne Anruferdaten,
-      Kontoadressen oder Passwörter. Er wird nur auf deine ausdrückliche Aktion
-      kopiert.
+      {$t("settings.diagnostics_privacy_help")}
     </p>
   </div>
 </div>

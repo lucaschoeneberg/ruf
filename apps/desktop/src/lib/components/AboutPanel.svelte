@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import Changelog from "./Changelog.svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
@@ -11,7 +12,7 @@
   import fontLicense from "/fonts/IBM-Plex-Sans-LICENSE.txt?raw";
 
   let { info }: { info: AppInfo | null } = $props();
-  let linkError = $state<string | null>(null);
+  let linkError = $state<MessageValue | null>(null);
   let bill = $state<SoftwareBill>(initialBill);
   let billLoaded = $state(false);
   let billError = $state(false);
@@ -59,16 +60,20 @@
       });
     return () => controller.abort();
   });
-  const links: { id: AboutLink; label: string; href: string }[] = [
-    { id: "company", label: "Website", href: "https://www.mardu.de/" },
+  const links: { id: AboutLink; label: MessageValue; href: string }[] = [
+    {
+      id: "company",
+      label: message("settings.website"),
+      href: "https://www.mardu.de/",
+    },
     {
       id: "imprint",
-      label: "Impressum",
+      label: message("settings.imprint"),
       href: "https://www.mardu.de/publisher",
     },
     {
       id: "privacy",
-      label: "Datenschutz",
+      label: message("settings.privacy"),
       href: "https://www.mardu.de/privacy",
     },
   ];
@@ -76,37 +81,37 @@
     {
       name: "Svelte",
       package: "pkg:npm/svelte@",
-      role: "Oberfläche",
+      role: message("settings.ui_role"),
       license: "MIT",
     },
     {
       name: "Tauri",
       package: "pkg:cargo/tauri@",
-      role: "Desktop-App",
+      role: message("settings.desktop_role"),
       license: "MIT / Apache-2.0",
     },
     {
       name: "baresip",
       package: "pkg:github/baresip/baresip@",
-      role: "SIP & Audio",
+      role: message("settings.sip_audio_role"),
       license: "BSD-3-Clause",
     },
     {
       name: "libre",
       package: "pkg:github/baresip/re@",
-      role: "SIP-Bibliothek",
+      role: message("settings.sip_library_role"),
       license: "BSD-3-Clause",
     },
     {
       name: "rusqlite",
       package: "pkg:cargo/rusqlite@",
-      role: "Lokaler Anrufverlauf · SQLite",
+      role: message("settings.history_role"),
       license: "MIT · SQLite: Public Domain",
     },
     {
       name: "keyring",
       package: "pkg:cargo/keyring@",
-      role: "Passwörter im Systemschlüsselbund",
+      role: message("settings.keychain_role"),
       license: "MIT / Apache-2.0",
     },
   ];
@@ -125,8 +130,7 @@
     try {
       await openAboutLink(link);
     } catch {
-      linkError =
-        "Die Seite konnte nicht geöffnet werden. Öffne www.mardu.de in deinem Browser.";
+      linkError = message("settings.link_failed");
     }
   }
 </script>
@@ -135,36 +139,32 @@
   <div>
     <div class="about-heading">
       <img src="/ruf.svg" alt="" width="28" height="28" />
-      <h1 id="about-heading" tabindex="-1">Über Ruf</h1>
+      <h1 id="about-heading" tabindex="-1">{$t("settings.about_title")}</h1>
     </div>
-    <p>Ein kompaktes Telefon für deinen Desktop.</p>
+    <p>{$t("settings.about_description")}</p>
   </div>
 </div>
-<h2 class="settings-group">Diese Version</h2>
+<h2 class="settings-group">{$t("settings.this_version")}</h2>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Version</h3>
-    <p>Open Source · MIT-Lizenz</p>
+    <h3>{$t("settings.version")}</h3>
+    <p>{$t("settings.open_source_license")}</p>
   </div>
   <span>{info?.version ?? bill.metadata.component.version}</span>
 </div>
 <Changelog />
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Telefonie</h3>
+    <h3>{$t("settings.telephony")}</h3>
     <p>
-      G.711 mit SIP über UDP, TCP oder geprüftes TLS; erforderliches SRTP
-      benötigt TLS. UDP/TCP und normales RTP sind unverschlüsselt. Eine
-      Rückfrage erlaubt dir, zwischen beiden Gesprächen zu wechseln. Dabei ist
-      nur ein Gespräch hörbar. Nutze diese Vorschau im isolierten Testnetz;
-      Anbieter- und Plattformtests bleiben erforderlich.
+      {$t("settings.telephony_description")}
     </p>
   </div>
 </div>
 <details class="settings-lab">
-  <summary id="software-licenses">Software & Lizenzen</summary>
-  <p>Software Bill of Materials (SBOM)</p>
-  <ul class="about-components" aria-label="Zentrale Softwarekomponenten">
+  <summary id="software-licenses">{$t("settings.software_licenses")}</summary>
+  <p>{$t("settings.software_bill")}</p>
+  <ul class="about-components" aria-label={$t("settings.core_components")}>
     {#each primary as item}
       {@const component = bill.components.find((component) =>
         component.purl?.startsWith(item.package),
@@ -185,34 +185,36 @@
   </ul>
   <p>
     {native
-      ? "Dieser Build enthält native Telefonie mit baresip, libre und OpenSSL."
-      : "Dieser Build enthält keine native Telefonie."}
+      ? $t("settings.native_build_details")
+      : $t("settings.no_native_build")}
   </p>
   <details class="about-license-text">
-    <summary>Lizenztexte & Herkunftshinweise</summary>
+    <summary>{$t("settings.license_texts")}</summary>
     <p>
-      Die folgenden Texte werden mit Ruf ausgeliefert und sind auch offline
-      verfügbar.
+      {$t("settings.license_offline")}
     </p>
     <details class="about-license-text">
-      <summary>Ruf · MIT-Lizenz</summary>
-      <textarea readonly rows="12" aria-label="Ruf MIT-Lizenz" value={license}
-      ></textarea>
-    </details>
-    <details class="about-license-text">
-      <summary>Third-party notices · Herkunft & Verwendung</summary>
+      <summary>{$t("settings.ruf_license_heading")}</summary>
       <textarea
         readonly
         rows="12"
-        aria-label="Third-party notices"
+        aria-label={$t("settings.ruf_license_label")}
+        value={license}></textarea>
+    </details>
+    <details class="about-license-text">
+      <summary>{$t("settings.third_party_heading")}</summary>
+      <textarea
+        readonly
+        rows="12"
+        aria-label={$t("settings.third_party_label")}
         value={notices}></textarea>
     </details>
     <details class="about-license-text">
-      <summary>IBM Plex Sans · SIL Open Font License</summary>
+      <summary>{$t("settings.font_license_heading")}</summary>
       <textarea
         readonly
         rows="12"
-        aria-label="IBM Plex Sans Lizenz"
+        aria-label={$t("settings.font_license_label")}
         value={fontLicense}></textarea>
     </details>
     {#each licenseFiles as file}
@@ -225,37 +227,35 @@
   </details>
 
   <details class="about-license-text">
-    <summary id="software-inventory">Projektinventar (SBOM)</summary>
+    <summary id="software-inventory">{$t("settings.project_inventory")}</summary
+    >
     <p>
-      Komponenten und Abhängigkeitsbeziehungen für diesen Build. Reine
-      Build-Abhängigkeiten sind mit „excluded“ gekennzeichnet.
+      {$t("settings.inventory_description")}
     </p>
     {#if billLoaded}<textarea
         readonly
         rows="8"
-        aria-label="SBOM als CycloneDX-JSON"
+        aria-label={$t("settings.sbom_label")}
         value={JSON.stringify(bill, null, 2)}></textarea>
     {:else}<p role="status">
-        {billError
-          ? "Die SBOM konnte nicht geladen werden."
-          : "SBOM wird geladen …"}
+        {billError ? $t("settings.sbom_failed") : $t("settings.sbom_loading")}
       </p>{/if}
   </details>
 </details>
 <footer class="about-footer">
-  <p>Autor: Mardu GmbH</p>
+  <p>{$t("settings.author")}</p>
   <nav class="about-links" aria-label="Mardu GmbH">
     {#each links as link}
       <a
         href={link.href}
         target="_blank"
         rel="noopener noreferrer"
-        onclick={(event) => openLink(event, link.id)}>{link.label}</a
+        onclick={(event) => openLink(event, link.id)}>{$text(link.label)}</a
       >
     {/each}
   </nav>
 </footer>
-{#if linkError}<p class="about-error" role="alert">{linkError}</p>{/if}
+{#if linkError}<p class="about-error" role="alert">{$text(linkError)}</p>{/if}
 
 <style>
   .about-heading {

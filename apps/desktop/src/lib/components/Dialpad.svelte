@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, locale, type MessageValue } from "../i18n";
   import { onMount, tick } from "svelte";
   import { insertDigit, removeDigit, MAX_NUMBER_LENGTH } from "../dialing";
   import { dialSuggestions } from "../contacts";
@@ -24,12 +25,12 @@
     canCall: boolean;
     busy: boolean;
     registered: boolean;
-    connectionHint: string;
-    setupLabel: string;
+    connectionHint: MessageValue;
+    setupLabel: MessageValue;
     setupEnabled: boolean;
     contacts?: readonly Contact[];
     matchGermanNumbers?: boolean;
-    contactsHint?: string | null;
+    contactsHint?: MessageValue | null;
     oncall: () => void;
     onsetup: () => void;
   } = $props();
@@ -43,7 +44,7 @@
       normalizeDialNumber(value) === null,
   );
   const suggestions = $derived(
-    dialSuggestions(contacts, value, matchGermanNumbers),
+    dialSuggestions(contacts, value, matchGermanNumbers, $locale),
   );
   const keys = [
     "1",
@@ -109,18 +110,18 @@
     if (canCall && !busy) oncall();
   }}
 >
-  <h1 class="sr-only">Telefonnummer wählen</h1>
+  <h1 class="sr-only">{$t("phone.dial.title")}</h1>
   <div class="number-block">
     <div class="number-entry">
       <input
         bind:this={input}
         bind:value
-        aria-label="Nummer oder Nebenstelle"
+        aria-label={$t("phone.dial.number")}
         type="tel"
         inputmode="tel"
         autocomplete="off"
         spellcheck="false"
-        placeholder="Nummer eingeben"
+        placeholder={$t("phone.dial.placeholder")}
         maxlength={MAX_NUMBER_LENGTH * 2}
         onbeforeinput={(event) => {
           if (
@@ -137,16 +138,16 @@
       <button
         class="icon-button"
         type="button"
-        aria-label="Plus einfügen"
-        title="Plus einfügen"
+        aria-label={$t("phone.dial.plus")}
+        title={$t("phone.dial.plus")}
         disabled={busy}
         onclick={() => edit("+", true)}>+</button
       >
       <button
         class="icon-button erase-number"
         type="button"
-        aria-label="Ziffer löschen"
-        title="Ziffer löschen"
+        aria-label={$t("phone.dial.erase")}
+        title={$t("phone.dial.erase")}
         disabled={!value || busy}
         onclick={(event) => edit(null, event.detail > 0)}
         ><Icon name="backspace" size={19} /></button
@@ -154,15 +155,15 @@
     </div>
     <p id="number-hint" class="number-hint" aria-live="polite">
       {invalidNumber
-        ? "Ziffern und Leerzeichen; + nur am Anfang. Keine Buchstaben."
+        ? $t("phone.dial.invalid")
         : value
-          ? "Nummer oder Nebenstelle"
-          : "Direkt tippen oder Ziffern wählen"}
+          ? $t("phone.dial.number")
+          : $t("phone.dial.hint")}
     </p>
   </div>
   {#if suggestions.length}<ul
       class="dial-suggestions"
-      aria-label="Kontaktvorschläge"
+      aria-label={$t("phone.dial.suggestions")}
     >
       {#each suggestions as suggestion (`${suggestion.contact.id}:${suggestion.phone.destination}`)}<li
         >
@@ -180,15 +181,15 @@
           >
         </li>{/each}
     </ul>{:else if contactsHint && value}<p class="number-hint">
-      {contactsHint}
+      {$text(contactsHint)}
     </p>{/if}
-  <div class="keypad" aria-label="Wähltastatur">
+  <div class="keypad" aria-label={$t("phone.dial.keypad")}>
     {#each keys as digit}
       <button
         class="dial-key"
         class:symbol-key={digit === "*" || digit === "#"}
         type="button"
-        aria-label={digit === "0" ? "0, gedrückt halten für Plus" : digit}
+        aria-label={digit === "0" ? $t("phone.dial.zero") : digit}
         disabled={busy}
         onpointerdown={(event) => beginHold(event, digit)}
         onpointerup={cancelHold}
@@ -209,14 +210,15 @@
   <button
     class="primary-button call-button"
     type="submit"
-    disabled={!canCall || busy}><Icon name="phone" size={18} />Anrufen</button
+    disabled={!canCall || busy}
+    ><Icon name="phone" size={18} />{$t("phone.dial.call")}</button
   >
   <div class="dial-help">
     {#if !registered}<button
         type="button"
         class="text-button"
         disabled={!setupEnabled}
-        onclick={onsetup}>{setupLabel}</button
-      >{:else}<span role="status">{connectionHint}</span>{/if}
+        onclick={onsetup}>{$text(setupLabel)}</button
+      >{:else}<span role="status">{$text(connectionHint)}</span>{/if}
   </div>
 </form>

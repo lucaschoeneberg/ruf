@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type {
   FixtureSnapshot,
@@ -10,7 +11,12 @@ import type {
   FixtureResult,
 } from "./types";
 // Synthetic native contracts only; never read personal history or place SIP calls.
-export default async function historyRegressions(page: Page) {
+export default async function historyRegressions(
+  page: Page,
+  _baseUrl?: string,
+  _capture = false,
+  englishSmoke?: EnglishSmoke,
+) {
   const origin = new URL(page.url()).origin;
   page = await page.context().newPage();
   page.setDefaultTimeout(10000);
@@ -172,6 +178,12 @@ export default async function historyRegressions(page: Page) {
         callbacks.delete(id);
       },
       async invoke(command, args) {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         fixture.commands.push({ command, args });
         if (command === "plugin:event|listen") {
           const id = ++next;
@@ -282,6 +294,7 @@ export default async function historyRegressions(page: Page) {
       },
     };
   });
+  if (englishSmoke) return englishSmoke(page, "history", origin);
   const results: FixtureResult[] = [];
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

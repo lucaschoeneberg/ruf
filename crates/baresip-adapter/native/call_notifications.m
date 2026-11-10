@@ -86,13 +86,7 @@ int sip_call_notifications_init(const char *app_id, sip_call_notification_callba
                 notification_delegate = [[SIPCallNotificationDelegate alloc] init];
                 center = UNUserNotificationCenter.currentNotificationCenter;
                 center.delegate = notification_delegate;
-                NSArray<UNNotificationAction *> *actions = @[
-                    [UNNotificationAction actionWithIdentifier:accept_id title:@"Annehmen" options:0],
-                    [UNNotificationAction actionWithIdentifier:reject_id title:@"Ablehnen" options:0]
-                ];
-                UNNotificationCategory *category = [UNNotificationCategory categoryWithIdentifier:category_id
-                    actions:actions intentIdentifiers:@[] options:0];
-                [center setNotificationCategories:[NSSet setWithObject:category]];
+
             });
             return center && notification_delegate ? 0 : 1;
         } @catch (NSException *exception) {
@@ -151,14 +145,25 @@ int sip_call_notifications_permission(int request, int *permission) {
     }
 }
 
-int sip_call_notifications_show(const char *token_bytes, const char *title_bytes, const char *body_bytes) {
-    if (!center || NSThread.isMainThread || !title_bytes || !body_bytes) return 1;
+int sip_call_notifications_show(const char *token_bytes, const char *title_bytes, const char *body_bytes, const char *answer_bytes, const char *reject_bytes) {
+    if (!center || NSThread.isMainThread || !title_bytes || !body_bytes || !answer_bytes || !reject_bytes) return 1;
     @autoreleasepool {
         @try {
             NSString *token = token_value(token_bytes);
             NSString *title = [[NSString alloc] initWithUTF8String:title_bytes];
             NSString *body = [[NSString alloc] initWithUTF8String:body_bytes];
-            if (!token || !title.length || !body.length) return 1;
+            NSString *answer = [[NSString alloc] initWithUTF8String:answer_bytes];
+            NSString *reject = [[NSString alloc] initWithUTF8String:reject_bytes];
+            if (!token || !title.length || !body.length || !answer.length || !reject.length) return 1;
+            /* Replace categories on every delivery, including live language changes.
+             * dispatch_once owns the delegate, never the localized labels. */
+            NSArray<UNNotificationAction *> *actions = @[
+                [UNNotificationAction actionWithIdentifier:accept_id title:answer options:0],
+                [UNNotificationAction actionWithIdentifier:reject_id title:reject options:0]
+            ];
+            UNNotificationCategory *category = [UNNotificationCategory categoryWithIdentifier:category_id
+                actions:actions intentIdentifiers:@[] options:0];
+            [center setNotificationCategories:[NSSet setWithObject:category]];
             @synchronized(state_lock) { active_token = token; }
             int permission;
             if (read_permission(&permission) || permission != 2) return 1;
@@ -250,15 +255,16 @@ int sip_call_notifications_dismiss(const char *token_bytes) {
     }
 }
 
-int sip_test_notification_show(void) {
-    if (!center || NSThread.isMainThread) return 1;
+int sip_test_notification_show(const char *title_bytes, const char *body_bytes) {
+    if (!center || NSThread.isMainThread || !title_bytes || !body_bytes) return 1;
     @autoreleasepool {
         @try {
             int permission;
             if (read_permission(&permission) || permission != 2) return 1;
             UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
-            content.title = @"Testbenachrichtigung";
-            content.body = @"Benachrichtigungen von Ruf sind aktiviert.";
+            content.title = [[NSString alloc] initWithUTF8String:title_bytes];
+            content.body = [[NSString alloc] initWithUTF8String:body_bytes];
+            if (!content.title.length || !content.body.length) return 1;
             NSString *identifier = [test_identifier_prefix stringByAppendingString:NSUUID.UUID.UUIDString];
             UNNotificationRequest *notification = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil];
             dispatch_semaphore_t completed = dispatch_semaphore_create(0);

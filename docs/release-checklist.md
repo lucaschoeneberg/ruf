@@ -62,7 +62,7 @@ Use [development commands](development.md) and [CI/release behavior](ci-cd.md).
   [SBOM build evidence](verification/2026-11-05-sbom-build-fix.md) records corrected
   technical gaps and remaining inventory limits; recheck the current variant and
   [licensing documentation](licensing.md#about-page-and-project-sbom).
-- Connect the actual repository, enable branch protection and private security
+- Enable branch protection and private security
   reporting, and publish a maintained private reporting contact/support policy.
   Record hosted and Windows runtime results; local macOS checks cannot supply them.
 

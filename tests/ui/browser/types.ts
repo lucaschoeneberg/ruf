@@ -1,5 +1,6 @@
 import type {
   AccountConfig,
+  AppLocale,
   AccountSnapshot,
   AppPreferences,
   AudioTestKind,
@@ -218,6 +219,7 @@ export type DialogProjection = <
 };
 declare global {
   interface Window {
+    __rufTestLanguage: AppLocale;
     isTauri: boolean;
     __rufTestSyncDialogs: DialogProjection;
     __phoneFixture: PhoneFixture;

@@ -59,16 +59,19 @@ Existing `AppInfo` and generated IPC DTOs are unchanged.
 
 ## Consumer changelog
 
-The What's new view displays the bundled root `CHANGELOG.md`, written as user-facing
+The What's new view selects bundled `CHANGELOG.md` (English) or `CHANGELOG.de.md`
+(German) for the effective application language, written as user-facing
 release notes rather than commits or implementation details. The supported format
 is `## Version heading` followed by one or more single-line `- Change` bullets.
 An optional document title (`# ...`) and blank lines are ignored. Remote content
 is rendered as escaped text, never HTML. Empty/no-version documents, headings
 without bullets, and documents over 100,000 characters are rejected.
 
-Optional build configuration: `VITE_RUF_CHANGELOG_URL`, a public
+Optional build configuration: `VITE_RUF_CHANGELOG_URL` for English and
+`VITE_RUF_CHANGELOG_URL_DE` for German, each a public
 `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/CHANGELOG.md` URL.
-Builds without this setting show only bundled notes and perform no changelog
+Without a source for the current language, Ruf shows that language's bundled
+notes and performs no changelog
 requests; a Git remote does not configure this source automatically.
 Private repositories and authentication are unsupported. This value is public
 build configuration and must not contain credentials or query parameters.
@@ -79,4 +82,7 @@ Only HTTPS on `raw.githubusercontent.com`, no custom port, userinfo, query or
 fragment, and a `.md` path are accepted. CSP permits that host for fetching only.
 Non-2xx HTTP responses, network failures, timeout and invalid content retain the
 bundled notes with a short status message. Leaving the About page aborts a
-pending request. This is an optional frontend fetch, not a new IPC command or DTO.
+pending request. A language change aborts the previous request and resets notes
+to the new language's bundled copy. Late responses never replace notes for a
+different language, and no language falls back to another language's remote URL.
+This is an optional frontend fetch, not a new IPC command or DTO.

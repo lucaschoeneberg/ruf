@@ -1,12 +1,13 @@
 <script lang="ts">
+  import { t, text, message, locale, type MessageValue } from "../i18n";
   import { phoneActions, shortcutLabel } from "../shortcuts";
   import { onMount } from "svelte";
   import type { DiagnosticsReport } from "../generated/AppInfo";
   import { getDiagnostics, copyDiagnostics } from "../api";
   let report = $state<DiagnosticsReport | null>(null),
     loading = $state(false),
-    error = $state(""),
-    feedback = $state("");
+    error = $state<MessageValue>(""),
+    feedback = $state<MessageValue>("");
   let mounted = false;
   async function refresh() {
     if (loading) return;
@@ -16,9 +17,7 @@
       const value = await getDiagnostics();
       if (mounted) report = value;
     } catch {
-      if (mounted)
-        error =
-          "Der Diagnosebericht konnte nicht geladen werden. Versuche es erneut.";
+      if (mounted) error = message("settings.diagnostics_load_failed");
     } finally {
       if (mounted) loading = false;
     }
@@ -33,10 +32,9 @@
       } catch {
         await copyDiagnostics();
       }
-      if (mounted)
-        feedback = "Der Diagnosebericht ohne persönliche Daten wurde kopiert.";
+      if (mounted) feedback = message("settings.diagnostics_copied");
     } catch {
-      if (mounted) error = "Der Diagnosebericht konnte nicht kopiert werden.";
+      if (mounted) error = message("settings.diagnostics_copy_failed");
     }
   }
   onMount(() => {
@@ -50,110 +48,117 @@
 
 <div class="settings-title">
   <div>
-    <h1>Diagnose & Hilfe</h1>
-    <p>Technische Zustände prüfen und Probleme gezielt eingrenzen.</p>
+    <h1>{$t("settings.diagnostics_help")}</h1>
+    <p>{$t("settings.diagnostics_description")}</p>
   </div>
 </div>
 <h2 class="settings-group" id="diagnostics-status" tabindex="-1">
-  Aktueller Zustand
+  {$t("settings.current_status")}
 </h2>
-{#if loading}<p role="status">Diagnose wird geladen …</p>{/if}
-{#if error}<p class="settings-feedback error" role="alert">{error}</p>{/if}
+{#if loading}<p role="status">{$t("settings.diagnostics_loading")}</p>{/if}
+{#if error}<p class="settings-feedback error" role="alert">
+    {$text(error)}
+  </p>{/if}
 {#if report}
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Telefonie</h3>
+      <h3>{$t("settings.telephony")}</h3>
       <p>
         {report.telephony === "linked"
-          ? "Native Telefonie ist in diesem Build enthalten."
-          : "Dieser Build enthält keine native Telefonie."}
+          ? $t("settings.native_build")
+          : $t("settings.no_native_build")}
       </p>
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Konten</h3>
+      <h3>{$t("settings.accounts")}</h3>
       <p>
-        {report.accountsRegistered === null
-          ? "Kontozustand nicht verfügbar."
-          : `${report.accountsRegistered} von ${report.accountsTotal} Konten haben eine bestätigte Anmeldung.`}
+        {report.accountsRegistered === null || report.accountsTotal === null
+          ? $t("settings.account_status_unavailable")
+          : $t("settings.accounts_registered", {
+              count: report.accountsRegistered,
+              total: report.accountsTotal,
+            })}
       </p>
       <p>
-        Eine Anmeldung allein bestätigt nicht die Zustellung eines externen
-        Anrufs.
+        {$t("settings.registration_limit")}
       </p>
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Systemfreigaben</h3>
+      <h3>{$t("settings.system_permissions")}</h3>
       <p>
-        Mitteilungen: {report.notificationPermission === null
-          ? "Prüfung fehlgeschlagen"
+        {$t("settings.notifications_prefix")}
+        {report.notificationPermission === null
+          ? $t("settings.permission_check_failed")
           : report.notificationPermission === "authorized"
-            ? "Erlaubt"
+            ? $t("settings.permission_allowed")
             : report.notificationPermission === "denied"
-              ? "Im System blockiert"
+              ? $t("settings.permission_blocked")
               : report.notificationPermission === "notDetermined"
-                ? "Noch nicht angefragt"
-                : "Nicht verfügbar"}.
+                ? $t("settings.permission_not_requested")
+                : $t("settings.unavailable")}.
       </p>
       <p>
-        Mikrofon: {report.microphonePermission === null
-          ? "Prüfung fehlgeschlagen"
+        {$t("settings.microphone_prefix")}
+        {report.microphonePermission === null
+          ? $t("settings.permission_check_failed")
           : report.microphonePermission === "authorized"
-            ? "Erlaubt"
+            ? $t("settings.permission_allowed")
             : report.microphonePermission === "denied"
-              ? "Im System blockiert"
+              ? $t("settings.permission_blocked")
               : report.microphonePermission === "restricted"
-                ? "Durch Systemrichtlinie eingeschränkt"
+                ? $t("settings.permission_restricted")
                 : report.microphonePermission === "notDetermined"
-                  ? "Noch nicht angefragt"
-                  : "Nicht verfügbar"}.
+                  ? $t("settings.permission_not_requested")
+                  : $t("settings.unavailable")}.
       </p>
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Audiogeräte</h3>
+      <h3>{$t("settings.audio_devices")}</h3>
       <p>
         {report.audioDevicesAvailable === null
-          ? "Geräteliste konnte nicht gelesen werden."
+          ? $t("settings.device_list_failed")
           : report.audioDevicesAvailable
-            ? "Ein- und Ausgänge werden erkannt. Ton und Mikrofon lassen sich unter Ton ausdrücklich testen."
-            : "Nicht für beide Richtungen werden Audiogeräte erkannt. Prüfe die Auswahl unter Ton."}
+            ? $t("settings.devices_available")
+            : $t("settings.devices_missing")}
       </p>
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Schlüsselbund</h3>
+      <h3>{$t("settings.keychain")}</h3>
       <p>
         {report.credentialError === "credentialAccessRequired"
-          ? "Eine Freigabe für gespeicherte Zugangsdaten ist erforderlich."
+          ? $t("settings.keychain_permission_needed")
           : report.credentialError === "credentialMissing"
-            ? "Ein gespeichertes Passwort fehlt."
+            ? $t("settings.keychain_password_missing")
             : report.credentialError === "credentialFailure"
-              ? "Beim Zugriff auf gespeicherte Zugangsdaten wurde ein Fehler gemeldet."
-              : "Kein Zugriffsfehler gemeldet. Diese Prüfung liest keine Passwörter und bestätigt keinen Schlüsselbundzugriff."}
+              ? $t("settings.keychain_access_failed")
+              : $t("settings.keychain_no_error")}
       </p>
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Verlauf</h3>
+      <h3>{$t("settings.history")}</h3>
       <p>
         {report.historyAvailable
-          ? "Kein Speicherfehler gemeldet."
-          : "Die Verlaufsspeicherung meldet einen Fehler."}
+          ? $t("settings.history_no_error")
+          : $t("settings.history_storage_error")}
       </p>
     </div>
   </div>
   {#if report.lastError}<p class="settings-feedback" role="status">
-      Gemeldeter Fehler: {report.lastError}
+      {$t("settings.reported_error")}
+      {report.lastError}
     </p>{/if}
   <details class="settings-lab">
-    <summary>Diagnosebericht ohne persönliche Daten ansehen</summary>
+    <summary>{$t("settings.view_diagnostics")}</summary>
     <pre>{JSON.stringify(report, null, 2)}</pre>
   </details>
 {/if}
@@ -162,55 +167,53 @@
     class="secondary-button"
     type="button"
     disabled={loading}
-    onclick={() => void refresh()}>Status erneut prüfen</button
+    onclick={() => void refresh()}>{$t("settings.check_status_again")}</button
   ><button
     class="secondary-button"
     type="button"
     disabled={!report || loading}
-    onclick={() => void copy()}>Diagnosebericht kopieren</button
+    onclick={() => void copy()}>{$t("settings.copy_diagnostics")}</button
   >
 </div>
-{#if feedback}<p class="settings-feedback" role="status">{feedback}</p>{/if}
-<h2 class="settings-group sound-group">Wenn etwas nicht funktioniert</h2>
+{#if feedback}<p class="settings-feedback" role="status">
+    {$text(feedback)}
+  </p>{/if}
+<h2 class="settings-group sound-group">{$t("settings.troubleshooting")}</h2>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Konto nicht angemeldet</h3>
+    <h3>{$t("settings.account_unregistered")}</h3>
     <p>
-      Öffne das betroffene Konto in der linken Seitenleiste. „Erneut verbinden“
-      verwendet die gespeicherten Zugangsdaten. Eine ausstehende
-      Schlüsselbundfreigabe bestätigst du direkt im Systemdialog.
+      {$t("settings.account_unregistered_help")}
     </p>
   </div>
 </div>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Keine Mitteilung oder kein Ton</h3>
+    <h3>{$t("settings.no_notification_sound")}</h3>
     <p>
-      Prüfe unter Mitteilungen die Systemfreigabe und unter Ton die gewählten
-      Geräte. Ein aktiver Fokus kann Banner unterdrücken.
+      {$t("settings.no_notification_sound_help")}
     </p>
   </div>
 </div>
 <h2 id="keyboard-shortcuts" class="settings-group sound-group">
-  Tastenkombinationen
+  {$t("settings.keyboard_shortcuts")}
 </h2>
 <p class="shortcut-note">
-  Die Kürzel gelten, solange Ruf im Vordergrund ist. Gesprächsaktionen sind nur
-  im passenden Anrufstatus verfügbar.
+  {$t("settings.shortcuts_help")}
 </p>
 <dl class="shortcut-list">
   {#each phoneActions as action}
     <div>
-      <dt>{action.label}</dt>
-      <dd><kbd>{shortcutLabel(action)}</kbd></dd>
+      <dt>{$text(action.label)}</dt>
+      <dd><kbd>{shortcutLabel(action, $locale)}</kbd></dd>
     </div>
   {/each}
   <div>
-    <dt>Nummer im Nummernfeld anrufen</dt>
+    <dt>{$t("settings.dialpad_enter")}</dt>
     <dd><kbd>Enter</kbd></dd>
   </div>
   <div>
-    <dt>Suche schließen / Starthilfe verlassen</dt>
+    <dt>{$t("settings.close_search")}</dt>
     <dd><kbd>Esc</kbd></dd>
   </div>
 </dl>

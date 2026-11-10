@@ -1,5 +1,8 @@
 # Desktop IPC API
 
+Language detection, persisted selection, `get_localization` and the
+`localization-changed` event are documented in [application language](localization.md).
+
 Build/test CLI contracts are documented separately in [workspace tooling](tooling.md).
 
 The settings-only company links and compiled software-inventory commands are

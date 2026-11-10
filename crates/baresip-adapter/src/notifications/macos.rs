@@ -16,8 +16,10 @@ unsafe extern "C" {
         token: *const c_char,
         title: *const c_char,
         body: *const c_char,
+        answer: *const c_char,
+        reject: *const c_char,
     ) -> c_int;
-    fn sip_test_notification_show() -> c_int;
+    fn sip_test_notification_show(title: *const c_char, body: *const c_char) -> c_int;
     fn sip_call_notifications_dismiss(token: *const c_char) -> c_int;
 }
 
@@ -62,19 +64,35 @@ pub(super) fn permission(request: bool) -> Result<NotificationPermission, PhoneE
     }
 }
 
-pub(super) fn show(token: &str, title: &str, body: &str) -> Result<(), PhoneError> {
+pub(super) fn show(
+    token: &str,
+    title: &str,
+    body: &str,
+    answer: &str,
+    reject: &str,
+) -> Result<(), PhoneError> {
     let token = token_string(token).map_err(|()| native_error())?;
     let title = CString::new(title).map_err(|_| native_error())?;
     let body = CString::new(body).map_err(|_| native_error())?;
+    let answer = CString::new(answer).map_err(|_| native_error())?;
+    let reject = CString::new(reject).map_err(|_| native_error())?;
     // SAFETY: all buffers remain alive until the native bridge acknowledges the request.
     native_result(unsafe {
-        sip_call_notifications_show(token.as_ptr(), title.as_ptr(), body.as_ptr())
+        sip_call_notifications_show(
+            token.as_ptr(),
+            title.as_ptr(),
+            body.as_ptr(),
+            answer.as_ptr(),
+            reject.as_ptr(),
+        )
     })
 }
 
-pub(super) fn show_test() -> Result<(), PhoneError> {
-    // SAFETY: no borrowed buffers or callback context cross this synchronous call.
-    native_result(unsafe { sip_test_notification_show() })
+pub(super) fn show_test(title: &str, body: &str) -> Result<(), PhoneError> {
+    let title = CString::new(title).map_err(|_| native_error())?;
+    let body = CString::new(body).map_err(|_| native_error())?;
+    // SAFETY: owned NUL-terminated buffers live through the synchronous native copy.
+    native_result(unsafe { sip_test_notification_show(title.as_ptr(), body.as_ptr()) })
 }
 
 pub(super) fn dismiss(token: &str) -> Result<(), PhoneError> {

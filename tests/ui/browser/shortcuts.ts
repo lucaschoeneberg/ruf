@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 
 // Preview-only keyboard checks: no SIP, contacts, history or keychain access.
@@ -5,6 +6,7 @@ export default async function shortcuts(
   page: Page,
   baseUrl: string,
   capture = false,
+  englishSmoke?: EnglishSmoke,
 ) {
   const target = await page.context().newPage();
   target.setDefaultTimeout(10000);
@@ -13,6 +15,7 @@ export default async function shortcuts(
   await target.addInitScript(() =>
     localStorage.setItem("sip.introduction.v1", "seen"),
   );
+  if (englishSmoke) return englishSmoke(target, "shortcuts", baseUrl);
   const assert = (ok: unknown, message: string) => {
     if (!ok) throw new Error(message);
   };

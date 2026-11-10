@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import { onMount } from "svelte";
   import type { AudioDevices, SoundSettings } from "../generated/AppInfo";
   let {
@@ -21,7 +22,7 @@
     value: SoundSettings;
     devices: AudioDevices | null;
     devicesLoading: boolean;
-    devicesError: string | null;
+    devicesError: MessageValue | null;
     disabled: boolean;
     nativeAvailable: boolean;
     busy: boolean;
@@ -38,21 +39,20 @@
   const rows = [
     {
       key: "inputDevice",
-      label: "Mikrofon",
-      description: "Für deine Stimme im Gespräch.",
+      label: message("settings.microphone"),
+      description: message("settings.microphone_device_help"),
       direction: "inputs",
     },
     {
       key: "outputDevice",
-      label: "Lautsprecher",
-      description: "Für die Stimme deines Gegenübers.",
+      label: message("settings.speaker"),
+      description: message("settings.speaker_device_help"),
       direction: "outputs",
     },
     {
       key: "ringDevice",
-      label: "Klingelton-Ausgabe",
-      description:
-        "Kann unabhängig vom Gespräch auf einem anderen Gerät klingeln.",
+      label: message("settings.ringtone_output"),
+      description: message("settings.ringtone_device_help"),
       direction: "outputs",
     },
   ] as const;
@@ -60,25 +60,23 @@
 
 <div class="settings-title">
   <div>
-    <h1>Ton</h1>
-    <p>Mikrofon, Gesprächston und Klingelton für alle Konten.</p>
+    <h1>{$t("settings.sound")}</h1>
+    <p>{$t("settings.sound_description")}</p>
   </div>
 </div>
 {#if testAudio}<p class="settings-feedback">
-    Der Entwicklungs-Testton ist aktiv und ersetzt das Mikrofon. Die
-    Geräteauswahl gilt für normale Gespräche mit Mikrofon und Lautsprecher.
+    {$t("settings.test_tone_active")}
   </p>{/if}
 {#if devicesError}<p class="settings-feedback error" role="alert">
-    {devicesError} Du kannst die Liste erneut laden oder „Systemstandard“ wählen.
+    {$text(devicesError)}
+    {$t("settings.devices_retry_help")}
   </p>{/if}
 {#if devices && [...devices.inputs, ...devices.outputs].some((device) => !device.selectable)}<p
     class="settings-feedback"
   >
-    Gleichnamige Geräte lassen sich nicht eindeutig auswählen. Benenne sie in
-    den Audioeinstellungen deines Betriebssystems um oder verwende
-    Systemstandard.
+    {$t("settings.duplicate_devices_help")}
   </p>{/if}
-<h2 class="settings-group">Audiogeräte</h2>
+<h2 class="settings-group">{$t("settings.audio_devices")}</h2>
 <fieldset disabled={disabled || busy}>
   {#each rows as row}
     {@const available = devices?.[row.direction] ?? []}
@@ -87,8 +85,8 @@
       !available.some((device) => device.id === value[row.key])}
     <div class="setting-row">
       <div class="setting-description">
-        <label for={row.key}>{row.label}</label>
-        <p id={`${row.key}-help`}>{row.description}</p>
+        <label for={row.key}>{$text(row.label)}</label>
+        <p id={`${row.key}-help`}>{$text(row.description)}</p>
       </div>
       <div class="setting-control">
         <select
@@ -96,47 +94,47 @@
           bind:value={value[row.key]}
           aria-describedby={`${row.key}-help${missing && devices ? ` ${row.key}-missing` : ""}`}
           disabled={disabled || busy || devicesLoading}
-          ><option value="">Systemstandard</option
+          ><option value="">{$t("settings.system_default")}</option
           >{#each available as device}<option
               value={device.id}
               disabled={!device.selectable}
               >{device.selectable
                 ? device.name
-                : `${device.name} (Name mehrfach vorhanden)`}</option
+                : $t("settings.duplicate_device", {
+                    name: device.name,
+                  })}</option
             >{/each}{#if missing}<option value={value[row.key]} disabled
-              >{devices ? "Nicht verfügbar" : "Gespeichertes Gerät"}: {value[
-                row.key
-              ]}</option
+              >{devices
+                ? $t("settings.unavailable")
+                : $t("settings.saved_device")}: {value[row.key]}</option
             >{/if}</select
         >{#if missing && devices}<p
             id={`${row.key}-missing`}
             class="field-error"
           >
-            Gespeichertes Gerät nicht verfügbar. Verbinde es erneut oder wähle
-            ein anderes Gerät.
+            {$t("settings.missing_device_help")}
           </p>{/if}
       </div>
     </div>
   {/each}
   <div class="sound-device-actions">
-    <p>Systemstandard folgt der Auswahl deines Betriebssystems.</p>
+    <p>{$t("settings.system_default_help")}</p>
     <button
       class="text-button"
       type="button"
       disabled={!nativeAvailable || busy || devicesLoading}
       onclick={onrefresh}
       >{devicesLoading
-        ? "Geräte werden geladen …"
-        : "Geräte aktualisieren"}</button
+        ? $t("settings.devices_loading")
+        : $t("settings.refresh_devices")}</button
     >
   </div>
-  <h2 class="settings-group sound-group">Klingelton</h2>
+  <h2 class="settings-group sound-group">{$t("settings.ringtone")}</h2>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="ringtone-enabled">Bei Anrufen klingeln</label>
+      <label for="ringtone-enabled">{$t("settings.ring_on_calls")}</label>
       <p id="ringtone-help">
-        Ein akustischer Hinweis für eingehende Anrufe. Die Anrufanzeige bleibt
-        auch bei ausgeschaltetem Ton sichtbar.
+        {$t("settings.ring_on_calls_help")}
       </p>
     </div>
     <div class="setting-control sound-toggle">
@@ -145,24 +143,26 @@
         type="checkbox"
         bind:checked={value.ringtoneEnabled}
         aria-describedby="ringtone-help"
-      /><span aria-hidden="true">{value.ringtoneEnabled ? "Ein" : "Aus"}</span>
+      /><span aria-hidden="true"
+        >{value.ringtoneEnabled ? $t("settings.on") : $t("settings.off")}</span
+      >
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="ringtone-style">Klingelton</label>
-      <p>Ein integrierter Ton für eingehende Anrufe.</p>
+      <label for="ringtone-style">{$t("settings.ringtone")}</label>
+      <p>{$t("settings.ringtone_help")}</p>
     </div>
     <select id="ringtone-style" bind:value={value.ringtone}
-      ><option value="classic">Klassisch</option><option value="soft"
-        >Sanft</option
-      ><option value="short">Kurz</option></select
+      ><option value="classic">{$t("settings.ringtone_classic")}</option><option
+        value="soft">{$t("settings.ringtone_soft")}</option
+      ><option value="short">{$t("settings.ringtone_short")}</option></select
     >
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="ringtone-volume">Klingellautstärke</label>
-      <p>Gilt nur für den Klingelton in Ruf, nicht für Gespräche.</p>
+      <label for="ringtone-volume">{$t("settings.ringtone_volume")}</label>
+      <p>{$t("settings.ringtone_volume_help")}</p>
     </div>
     <div class="setting-control">
       <input
@@ -177,11 +177,9 @@
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Klingelton anhören</h3>
+      <h3>{$t("settings.preview_ringtone")}</h3>
       <p>
-        Zwei Sekunden auf der gewählten Klingelton-Ausgabe. Ton und Lautstärke
-        entsprechen den gespeicherten Einstellungen; speichere Änderungen daran
-        vor der Hörprobe.
+        {$t("settings.preview_ringtone_help")}
       </p>
     </div>
     <div class="setting-control sound-preview">
@@ -190,29 +188,32 @@
         type="button"
         disabled={disabled || busy || devicesLoading}
         onclick={playing ? onstop : onpreview}
-        >{playing ? "Hörprobe stoppen" : "Klingelton anhören"}</button
+        >{playing
+          ? $t("settings.stop_preview")
+          : $t("settings.preview_ringtone")}</button
       ><span class="sound-preview-status" role="status"
-        >{playing ? "Hörprobe läuft …" : ""}</span
+        >{playing ? $t("settings.preview_running") : ""}</span
       >
     </div>
   </div>
   <div class="settings-form-actions settings-save-bar">
     <p>
       {dirty
-        ? "Deine Änderungen sind noch nicht gespeichert."
-        : "Die Auswahl gilt für alle SIP-Konten."}
+        ? $t("settings.unsaved_notice")
+        : $t("settings.all_accounts_scope")}
     </p>
     <div class="settings-actions">
       <button
         type="button"
         class="text-button"
         disabled={disabled || busy || !dirty}
-        onclick={ondiscard}>Verwerfen</button
+        onclick={ondiscard}>{$t("settings.discard")}</button
       ><button
         class="primary-button"
         type="button"
         disabled={disabled || busy || !dirty}
-        onclick={onsave}>{busy ? "Bitte warten …" : "Ton speichern"}</button
+        onclick={onsave}
+        >{busy ? $t("settings.please_wait") : $t("settings.save_sound")}</button
       >
     </div>
   </div>

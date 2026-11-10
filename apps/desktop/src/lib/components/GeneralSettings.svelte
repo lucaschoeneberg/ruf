@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { t, text } from "../i18n";
+  import type { LanguagePreference } from "../generated/AppInfo";
   let {
     autostart = $bindable(),
     startHidden = $bindable(),
+    language = $bindable("system"),
     available,
     disabled,
     dirty,
@@ -10,6 +13,7 @@
   }: {
     autostart: boolean;
     startHidden: boolean;
+    language: LanguagePreference;
     available: boolean;
     disabled: boolean;
     dirty: boolean;
@@ -20,19 +24,35 @@
 
 <div class="settings-title">
   <div>
-    <h1>Allgemein</h1>
-    <p>Start und Hintergrundbetrieb auf deinem Computer.</p>
+    <h1>{$t("settings.general")}</h1>
+    <p>{$t("settings.general_description")}</p>
   </div>
 </div>
-<h2 class="settings-group">Start & Hintergrund</h2>
+<h2 class="settings-group">{$t("settings.startup_background")}</h2>
 <fieldset {disabled}>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="autostart-enabled">Bei der Anmeldung starten</label>
-      <p>Ruf beim Anmelden am Computer öffnen.</p>
+      <label for="language-preference">{$t("settings.language")}</label>
+      <p id="language-help">{$t("settings.language_help")}</p>
+    </div>
+    <div class="setting-control">
+      <select
+        id="language-preference"
+        bind:value={language}
+        aria-describedby="language-help"
+      >
+        <option value="system">{$t("settings.language_system")}</option>
+        <option value="de">Deutsch</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+  </div>
+  <div class="setting-row">
+    <div class="setting-description">
+      <label for="autostart-enabled">{$t("settings.autostart")}</label>
+      <p>{$t("settings.autostart_help")}</p>
       {#if !available}<p>
-          Installiere Ruf an einem festen Ort. In Entwicklungs-Builds ist der
-          automatische Start nicht verfügbar.
+          {$t("settings.autostart_unavailable")}
         </p>{/if}
     </div>
     <div class="setting-control sound-toggle">
@@ -41,15 +61,16 @@
         type="checkbox"
         bind:checked={autostart}
         disabled={!available}
-      /><span aria-hidden="true">{autostart ? "Ein" : "Aus"}</span>
+      /><span aria-hidden="true"
+        >{autostart ? $t("settings.on") : $t("settings.off")}</span
+      >
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="start-hidden">Bei der Anmeldung im Hintergrund starten</label>
+      <label for="start-hidden">{$t("settings.start_hidden")}</label>
       <p>
-        Gilt für den automatischen Start: Das Telefonfenster bleibt geschlossen.
-        Wenn du Ruf manuell öffnest, wird es angezeigt.
+        {$t("settings.start_hidden_help")}
       </p>
     </div>
     <div class="setting-control sound-toggle">
@@ -57,35 +78,34 @@
         id="start-hidden"
         type="checkbox"
         bind:checked={startHidden}
-      /><span aria-hidden="true">{startHidden ? "Ein" : "Aus"}</span>
+      /><span aria-hidden="true"
+        >{startHidden ? $t("settings.on") : $t("settings.off")}</span
+      >
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <h3>Beim Schließen erreichbar bleiben</h3>
+      <h3>{$t("settings.stay_available")}</h3>
       <p>
-        Schließt du das Telefonfenster, läuft Ruf weiter. Über das Ruf-Symbol
-        öffnest du es wieder. „Ruf beenden“ beendet auch die Telefonie.
+        {$t("settings.stay_available_help")}
       </p>
     </div>
   </div>
   <div class="settings-form-actions settings-save-bar">
     <p>
-      {dirty
-        ? "Deine Änderungen sind noch nicht gespeichert."
-        : "Gilt für Ruf auf deinem Computer."}
+      {dirty ? $t("settings.unsaved_notice") : $t("settings.computer_scope")}
     </p>
     <div class="settings-actions">
       <button
         class="text-button"
         type="button"
         disabled={!dirty}
-        onclick={ondiscard}>Verwerfen</button
+        onclick={ondiscard}>{$t("settings.discard")}</button
       ><button
         class="primary-button"
         type="button"
         disabled={!dirty}
-        onclick={onsave}>Allgemein speichern</button
+        onclick={onsave}>{$t("settings.save_general")}</button
       >
     </div>
   </div>

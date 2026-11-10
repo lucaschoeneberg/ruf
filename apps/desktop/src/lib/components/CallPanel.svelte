@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, locale, type MessageValue } from "../i18n";
   import { onMount, tick } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -63,16 +64,16 @@
     oncancelconsult: (id: string) => void;
     oncompletetransfer: (id: string) => void;
   } = $props();
-  const labels: Record<CallState, string> = {
-    idle: "Kein Gespräch",
-    calling: "Verbindung wird aufgebaut …",
-    ringing: "Es klingelt …",
-    earlyMedia: "Verbindung wird vorbereitet …",
-    incoming: "Eingehender Anruf",
-    answering: "Wird angenommen …",
-    active: "Gespräch läuft",
-    held: "Gegenstelle hält das Gespräch",
-  };
+  const labels = $derived<Record<CallState, string>>({
+    idle: $t("phone.call.idle"),
+    calling: $t("phone.call.calling"),
+    ringing: $t("phone.call.ringing"),
+    earlyMedia: $t("phone.call.early_media"),
+    incoming: $t("phone.call.incoming"),
+    answering: $t("phone.call.answering"),
+    active: $t("phone.call.active"),
+    held: $t("phone.call.remote_held"),
+  });
   const established = (item: CallSnapshot) =>
     item.state === "active" || item.state === "held";
   const peer = (item: CallSnapshot) =>
@@ -80,7 +81,7 @@
     item.destination ??
     item.caller?.name ??
     item.caller?.number ??
-    "Unbekannter Anrufer";
+    $t("phone.call.unknown_caller");
   const selectedPeer = $derived(
     call.contact?.name ?? callerContact?.name ?? peer(call),
   );
@@ -91,15 +92,17 @@
   const canChange = $derived(!busy && !audioUnknown && !pending);
   const securityLabel = $derived.by(() => {
     const security = call.security;
-    if (!security.signalingTransport) return "Sicherheit noch nicht bestätigt";
+    if (!security.signalingTransport)
+      return $t("phone.call.security_unconfirmed");
     let signaling = security.signalingTransport.toUpperCase();
     if (security.signalingTransport === "tls")
       signaling = security.tlsPeerVerified
-        ? "TLS geprüft"
-        : "TLS nicht bestätigt";
-    let media = "Audioschutz unbekannt";
+        ? $t("phone.call.tls_verified")
+        : $t("phone.call.tls_unconfirmed");
+    let media = $t("phone.call.media_unknown");
     if (security.media === "sdesSrtp") media = "SRTP";
-    else if (security.media === "unprotected") media = "Audio unverschlüsselt";
+    else if (security.media === "unprotected")
+      media = $t("phone.call.media_unprotected");
     return `${signaling} · ${media}`;
   });
   let muteRequest = $state<{
@@ -151,13 +154,13 @@
   );
   let transferOpen = $state(false);
   let target = $state("");
-  let targetError = $state("");
+  let targetError = $state<MessageValue>("");
   let targetInput = $state<HTMLInputElement>();
   let transferButton = $state<HTMLButtonElement>();
   let contactsOpen = $state(false);
   let contacts = $state<ContactsSnapshot | null>(null);
   let contactsLoading = $state(false);
-  let contactsError = $state("");
+  let contactsError = $state<MessageValue>("");
   let query = $state("");
   let mounted = false;
   let contactsRequest = 0;
@@ -168,6 +171,7 @@
       false,
       true,
       matchGermanNumbers,
+      $locale,
     ).slice(0, 30),
   );
   async function refreshContacts() {
@@ -182,8 +186,7 @@
     } catch {
       if (mounted && request === contactsRequest) {
         contacts = null;
-        contactsError =
-          "Kontakte konnten nicht gelesen werden. Gib die Zielnummer ein.";
+        contactsError = message("phone.call.contacts_error");
       }
     } finally {
       if (mounted && request === contactsRequest) contactsLoading = false;
@@ -263,7 +266,7 @@
     if (!canChange || !established(call) || calls.length !== 1) return;
     const normalized = normalizeDialNumber(target);
     if (!normalized) {
-      targetError = "Gib 1–64 Ziffern oder + * # ein. Keine SIP-Adresse.";
+      targetError = message("phone.call.target_invalid");
       targetInput?.focus();
       return;
     }
@@ -277,10 +280,10 @@
   class="call-panel"
   class:compact-call={compact}
   class:has-controls={established(call) || calls.length > 1}
-  aria-label="Aktuelles Gespräch"
+  aria-label={$t("phone.call.current")}
 >
   {#if calls.length > 1}
-    <div class="conversation-list" aria-label="Gespräche">
+    <div class="conversation-list" aria-label={$t("phone.call.conversations")}>
       {#each calls as item (item.id)}
         <div
           class="conversation-row"
@@ -292,31 +295,32 @@
                 >{item.destination ?? item.caller?.number}</span
               >{/if}
             <span
-              >{item.consultation ? "Rückfrage" : "Ursprüngliches Gespräch"} · {accounts.find(
+              >{item.consultation
+                ? $t("phone.call.consultation")
+                : $t("phone.call.original")} · {accounts.find(
                 (account) => account.id === item.accountId,
-              )?.name ?? "SIP-Konto"}</span
+              )?.name ?? $t("phone.call.account")}</span
             >
             <span
               >{item.id === call.id
-                ? "Aktuelles Gespräch"
+                ? $t("phone.call.current")
                 : labels[item.state]}{item.localHeld
-                ? " · Von dir gehalten"
+                ? ` · ${$t("phone.call.local_held")}`
                 : ""}{item.remoteHeld
-                ? " · Gegenstelle hält das Gespräch"
+                ? ` · ${$t("phone.call.remote_held")}`
                 : ""}</span
             >
             {#if item.id !== call.id && item.transfer === "failed"}<p
                 class="call-error"
                 role="alert"
               >
-                Vermittlung fehlgeschlagen. Das ursprüngliche Gespräch bleibt
-                bestehen.
-                {#if item.lastError}{errorMessage(item.lastError)}{/if}
+                {$t("phone.call.transfer_original_failed")}
+                {#if item.lastError}{$text(errorMessage(item.lastError))}{/if}
               </p>{:else if item.id !== call.id && item.lastError}<p
                 class="call-error"
                 role="alert"
               >
-                {errorMessage(item.lastError)}
+                {$text(errorMessage(item.lastError))}
               </p>{/if}
           </div>
           {#if item.id !== call.id}<button
@@ -324,7 +328,8 @@
               type="button"
               disabled={!canChange || !established(item)}
               onclick={() => onswitch(item.id)}
-              aria-label={`Zu ${peer(item)} wechseln`}>Wechseln</button
+              aria-label={$t("phone.call.switch_to", { name: peer(item) })}
+              >{$t("phone.call.switch")}</button
             >{/if}
         </div>
       {/each}
@@ -349,52 +354,57 @@
         </p>{/if}
     </div>
   {/if}
-  {#if established(call)}<p class="call-timer" aria-label="Gesprächsdauer">
+  {#if established(call)}<p
+      class="call-timer"
+      aria-label={$t("phone.call.duration")}
+    >
       {elapsed}
     </p>{/if}
   <div class="call-status" role="status" aria-live="polite">
-    {#if call.localHeld && calls.length === 1}<p>Von dir gehalten</p>{/if}
+    {#if call.localHeld && calls.length === 1}<p>
+        {$t("phone.call.local_held")}
+      </p>{/if}
     {#if call.remoteHeld && call.state !== "held" && calls.length === 1}<p>
-        Gegenstelle hält das Gespräch
+        {$t("phone.call.remote_held")}
       </p>{/if}
     {#if pending}<p>
         {calls.some((item) => item.transfer === "pending")
-          ? "Vermittlung läuft …"
-          : "Gesprächsänderung wird abgestimmt …"}
+          ? $t("phone.call.transfer_pending")
+          : $t("phone.call.change_pending")}
       </p>{/if}
-    {#if mutePending}<p>Stummschaltung wird bestätigt …</p>{/if}
+    {#if mutePending}<p>{$t("phone.call.mute_pending")}</p>{/if}
     {#if call.transfer === "failed"}<p>
-        Vermittlung fehlgeschlagen. Das Gespräch bleibt bestehen.
+        {$t("phone.call.transfer_failed")}
       </p>{/if}
-    {#if call.transfer === "succeeded"}<p>Vermittlung bestätigt.</p>{/if}
+    {#if call.transfer === "succeeded"}<p>
+        {$t("phone.call.transfer_succeeded")}
+      </p>{/if}
     {#if call.lastError}<p class="call-error">
-        {errorMessage(call.lastError)}
+        {$text(errorMessage(call.lastError))}
       </p>{/if}
   </div>
   <details class="call-security">
     <summary>{securityLabel}</summary>
     <p>
-      Schutz bis zur Telefonanlage; keine Garantie für
-      Ende-zu-Ende-Verschlüsselung. Die Anzeige folgt den nativen Beobachtungen.
+      {$t("phone.call.security_hint")}
     </p>
   </details>
   {#if receivedDtmf}<p class="call-test-note">
-      Empfangene Wähltaste: {receivedDtmf}
+      {$t("phone.call.received_dtmf", { digit: receivedDtmf })}
     </p>{/if}
   {#if audioUnknown}<p class="call-test-note">
-      Audioquelle unbekannt. Es kann ein Testton mit Aufzeichnung aktiv sein.
-      Beende das Gespräch und starte die App neu.
+      {$t("phone.call.audio_unknown")}
     </p>{/if}
   {#if testAudio}<p class="call-test-note">
-      Testton · empfangenes Audio wird aufgezeichnet
+      {$t("phone.call.test_audio")}
     </p>{/if}
   <div class="call-actions">
     {#if call.state === "incoming"}<button
         class="primary-button"
         disabled={busy || audioUnknown}
-        title={`Annehmen (${hint("answer")})`}
+        title={$t("phone.call.answer_shortcut", { shortcut: hint("answer") })}
         onclick={() => onanswer(call.id)}
-        ><Icon name="phone" size={18} />Annehmen</button
+        ><Icon name="phone" size={18} />{$t("phone.call.answer")}</button
       >{/if}
     {#if established(call)}
       <button
@@ -403,18 +413,20 @@
         disabled={busy || audioUnknown || mutePending}
         aria-pressed={call.muted}
         aria-busy={mutePending}
-        title={`Mikrofon ein-/ausschalten (${hint("mute")})`}
+        title={$t("phone.call.mute_shortcut", { shortcut: hint("mute") })}
         onclick={toggleMute}
-        >{call.muted ? "Mikrofon einschalten" : "Stummschalten"}</button
+        >{call.muted ? $t("phone.call.unmute") : $t("phone.call.mute")}</button
       >
       <button
         class="secondary-button"
         type="button"
         disabled={!canChange}
         aria-pressed={call.localHeld}
-        title={`Halten / Fortsetzen (${hint("hold")})`}
+        title={$t("phone.call.hold_shortcut", { shortcut: hint("hold") })}
         onclick={() => onhold(call.id, !call.localHeld)}
-        >{call.localHeld ? "Fortsetzen" : "Halten"}</button
+        >{call.localHeld
+          ? $t("phone.call.resume")
+          : $t("phone.call.hold")}</button
       >
       {#if calls.length === 1}<button
           bind:this={transferButton}
@@ -422,18 +434,20 @@
           type="button"
           disabled={!canChange}
           aria-expanded={transferOpen}
-          title={`Vermitteln (${hint("transfer")})`}
-          onclick={openTransfer}>Vermitteln …</button
+          title={$t("phone.call.transfer_shortcut", {
+            shortcut: hint("transfer"),
+          })}
+          onclick={openTransfer}>{$t("phone.call.transfer")}</button
         >{/if}
     {/if}
     <button
       class="danger-button"
       disabled={busy}
-      title={`Beenden / Ablehnen (${hint("end")})`}
+      title={$t("phone.call.end_shortcut", { shortcut: hint("end") })}
       onclick={() => onhangup(call.id)}
       ><Icon name="endCall" size={20} />{call.state === "incoming"
-        ? "Ablehnen"
-        : "Auflegen"}</button
+        ? $t("phone.call.reject")
+        : $t("phone.call.hang_up")}</button
     >
   </div>
   {#if established(call)}
@@ -441,11 +455,11 @@
       class="secondary-button tone-toggle"
       type="button"
       aria-expanded={tonesOpen}
-      title={`Gesprächstastatur (${hint("tones")})`}
+      title={$t("phone.call.tones_shortcut", { shortcut: hint("tones") })}
       onclick={toggleTones}
       ><Icon name="keypad" size={16} />{tonesOpen
-        ? "Gesprächstastatur ausblenden"
-        : "Gesprächstastatur einblenden"}</button
+        ? $t("phone.call.hide_tones")
+        : $t("phone.call.show_tones")}</button
     >
     {#if tonesOpen}<DtmfPad
         disabled={!canSendTone}
@@ -459,20 +473,20 @@
         type="button"
         disabled={!canChange}
         onclick={() => oncancelconsult(child.id)}
-        >Rückfrage abbrechen & zurück</button
+        >{$t("phone.call.cancel_consultation")}</button
       >
       <button
         class="primary-button"
         type="button"
         disabled={!canChange || !calls.every(established)}
         onclick={() => oncompletetransfer(child.id)}
-        >Vermittlung abschließen</button
+        >{$t("phone.call.complete_transfer")}</button
       >
     </div>
   {/if}
   {#if transferOpen && calls.length === 1}
     <form class="transfer-form" onsubmit={(event) => event.preventDefault()}>
-      <label for="transfer-target">Zielnummer</label>
+      <label for="transfer-target">{$t("phone.call.target")}</label>
       <input
         bind:this={targetInput}
         id="transfer-target"
@@ -487,11 +501,10 @@
         disabled={!canChange}
       />
       <p id="transfer-help">
-        Direkt vermitteln übergibt das Gespräch ohne Rückfrage. Eine Rückfrage
-        hält dein Gespräch, während du mit dem Ziel sprichst.
+        {$t("phone.call.transfer_hint")}
       </p>
       {#if targetError}<p id="transfer-error" class="field-error">
-          {targetError}
+          {$text(targetError)}
         </p>{/if}
       <button
         class="text-button"
@@ -500,24 +513,25 @@
         onclick={() => {
           contactsOpen = !contactsOpen;
           if (contactsOpen) void refreshContacts();
-        }}>Kontakt auswählen</button
+        }}>{$t("phone.call.choose_contact")}</button
       >
       {#if contactsOpen}
         <div class="transfer-contacts">
-          {#if contactsLoading}<p role="status">Kontakte werden gelesen …</p>
-          {:else if contactsError}<p role="status">{contactsError}</p>
+          {#if contactsLoading}<p role="status">
+              {$t("phone.call.contacts_loading")}
+            </p>
+          {:else if contactsError}<p role="status">{$text(contactsError)}</p>
           {:else if contacts?.permission !== "authorized"}<p>
-              Kontakte sind nicht freigegeben. Gib die Zielnummer ein; Freigaben
-              findest du in den Einstellungen.
+              {$t("phone.call.contacts_denied")}
             </p>
           {:else}
             <label class="sr-only" for="transfer-contact-search"
-              >Kontakt suchen</label
+              >{$t("phone.call.search_contact")}</label
             >
             <input
               id="transfer-contact-search"
               type="search"
-              placeholder="Name oder Nummer suchen"
+              placeholder={$t("phone.call.search_placeholder")}
               bind:value={query}
             />
             <ul>
@@ -537,7 +551,7 @@
                     >
                   </li>{/each}{/each}
             </ul>
-            {#if !results.length}<p>Kein passender Kontakt.</p>{/if}
+            {#if !results.length}<p>{$t("phone.call.no_contact")}</p>{/if}
           {/if}
         </div>
       {/if}
@@ -546,16 +560,18 @@
           class="secondary-button"
           type="button"
           disabled={!canChange}
-          onclick={() => submitTarget(false)}>Direkt vermitteln</button
+          onclick={() => submitTarget(false)}
+          >{$t("phone.call.direct_transfer")}</button
         >
         <button
           class="primary-button"
           type="button"
           disabled={!canChange}
-          onclick={() => submitTarget(true)}>Rückfrage starten</button
+          onclick={() => submitTarget(true)}
+          >{$t("phone.call.start_consultation")}</button
         >
         <button class="text-button" type="button" onclick={closeTransfer}
-          >Vermittlungsziel schließen</button
+          >{$t("phone.call.close_transfer")}</button
         >
       </div>
     </form>

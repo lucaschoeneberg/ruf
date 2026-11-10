@@ -2,9 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array><string>de</string><string>en</string></array>
   <key>NSContactsUsageDescription</key>
-  <string>Ruf benötigt Zugriff auf deine Kontakte, damit du Namen und Telefonnummern suchen und direkt anrufen kannst. Dein Adressbuch wird nicht verändert.</string>
+  <string>Ruf needs access to your contacts so you can find names and phone numbers and call them directly. Your address book is not changed.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Ruf benötigt das Mikrofon, damit dein Gesprächspartner dich hören kann.</string>
+  <string>Ruf needs microphone access so the person you call can hear you.</string>
 </dict>
 </plist>

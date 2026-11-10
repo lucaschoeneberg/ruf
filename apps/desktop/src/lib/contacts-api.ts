@@ -1,3 +1,4 @@
+import { message } from "./i18n";
 import { desktopInvoke } from "./api";
 import type { ContactsPermission, ContactsSnapshot } from "./generated/AppInfo";
 
@@ -5,11 +6,7 @@ function desktop<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  return desktopInvoke<T>(
-    command,
-    args,
-    "Kontakte sind nur in der macOS-App verfügbar.",
-  );
+  return desktopInvoke<T>(command, args, message("errors.contactsOnly"));
 }
 
 export const getContacts = () => desktop<ContactsSnapshot>("get_contacts");

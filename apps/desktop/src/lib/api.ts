@@ -1,3 +1,4 @@
+import { LocalizedError, message, type Message } from "./i18n";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   AccountConfig,
@@ -18,9 +19,9 @@ import type {
 export async function desktopInvoke<T>(
   command: string,
   args?: Record<string, unknown>,
-  unavailableMessage = "Der native Status ist nur in der Desktop-App verfügbar.",
+  unavailableMessage: Message = message("errors.desktopOnly"),
 ): Promise<T> {
-  if (!isTauri()) throw new Error(unavailableMessage);
+  if (!isTauri()) throw new LocalizedError(unavailableMessage);
   return invoke<T>(command, args);
 }
 
@@ -103,67 +104,61 @@ export const cancelConsultation = (callId: string) =>
 export const completeTransfer = (callId: string) =>
   desktopInvoke<EngineSnapshot>("complete_transfer", { callId });
 
-export function errorMessage(error: unknown): string {
+export function errorMessage(error: unknown): Message {
+  if (error instanceof LocalizedError) return error.translated;
   if (typeof error === "object" && error !== null && "code" in error) {
     switch (error.code) {
       case "invalidInput":
-        return "Bitte prüfe deine Eingaben und versuche es erneut.";
+        return message("errors.invalidInput");
       case "notRegistered":
-        return "Dein Konto ist nicht verbunden. Prüfe es in den Kontoeinstellungen.";
+        return message("errors.notRegistered");
       case "busy":
-        return "Die Telefonie ist gerade belegt. Beende ein laufendes Gespräch oder versuche es erneut.";
+        return message("errors.busy");
       case "invalidState":
-        return "Die Aktion passt nicht zum aktuellen Gesprächsstatus. Prüfe den Status und versuche es erneut.";
+        return message("errors.invalidState");
       case "engineUnavailable":
-        return "Telefonieren ist hier nicht verfügbar. Nutze die Desktop-App mit nativer Telefonie.";
+        return message("errors.engineUnavailable");
       case "credentialAccessRequired":
-        return "Ruf benötigt Zugriff auf das gespeicherte Passwort im System-Schlüsselbund. Wähle „Erneut verbinden“ und bestätige bei Bedarf die Systemabfrage.";
+        return message("errors.credentialAccessRequired");
       case "credentialMissing":
-        return "Für dieses Konto ist kein Passwort im System-Schlüsselbund gespeichert. Gib das Passwort ein und wähle „Speichern & verbinden“.";
+        return message("errors.credentialMissing");
       case "credentialFailure":
-        return "Das gespeicherte Passwort im System-Schlüsselbund konnte nicht verwendet werden. Wähle „Erneut verbinden“ oder gib das Passwort erneut ein und speichere das Konto.";
+        return message("errors.credentialFailure");
       case "credentialCleanupPending":
-        return "Die Kontoänderung ist gespeichert. Ein altes Passwort konnte noch nicht aus dem Schlüsselbund gelöscht werden. Erlaube den Zugriff und starte die App erneut, damit die Löschung wiederholt wird.";
+        return message("errors.credentialCleanupPending");
       case "storageFailure":
-        return "Die Einstellungen konnten nicht gespeichert oder geladen werden. Prüfe den Zugriff auf den App-Datenordner und versuche es erneut.";
+        return message("errors.storageFailure");
       case "certificateRejected":
-        return "Das TLS-Zertifikat oder der Servername wurde nicht bestätigt. Prüfe SIP-Server und Proxy. Private Telefonanlagen-Zertifikate müssen bewusst in den Vertrauenseinstellungen des Betriebssystems freigegeben sein.";
+        return message("errors.certificateRejected");
       case "transportFailure":
-        return "Der gewählte SIP-Transport konnte nicht sicher verbunden werden. Prüfe Server, Port und Transport beim Anbieter. Ruf wechselt nicht automatisch auf eine unverschlüsselte Verbindung.";
+        return message("errors.transportFailure");
       case "mediaSecurityRequired":
-        return "Die erforderliche SRTP-Audioverschlüsselung konnte nicht bestätigt werden. Prüfe TLS und die SRTP-Unterstützung der Telefonanlage. Ruf lässt kein unverschlüsseltes Audio zu.";
+        return message("errors.mediaSecurityRequired");
       case "sipRedirect":
-        return "Der Anruf soll umgeleitet werden. Ruf wählt das neue Ziel nicht automatisch. Prüfe die Zielnummer.";
+        return message("errors.sipRedirect");
       case "sipAuthenticationFailed":
-        return "Die SIP-Anmeldung wurde abgelehnt. Prüfe die Zugangsdaten in den Kontoeinstellungen.";
+        return message("errors.sipAuthenticationFailed");
       case "sipForbidden":
-        return "Diese SIP-Aktion ist für dein Konto nicht erlaubt. Prüfe die Freigaben beim Anbieter.";
+        return message("errors.sipForbidden");
       case "sipNotFound":
-        return "Die Rufnummer oder das SIP-Konto wurde nicht gefunden. Prüfe die Angaben.";
+        return message("errors.sipNotFound");
       case "sipTimeout":
-        return "Die SIP-Gegenstelle hat nicht rechtzeitig geantwortet. Versuche es erneut.";
+        return message("errors.sipTimeout");
       case "sipUnavailable":
-        return "Die SIP-Gegenstelle ist gerade nicht erreichbar. Versuche es später erneut.";
+        return message("errors.sipUnavailable");
       case "sipBusy":
-        return "Die Gegenstelle ist besetzt. Versuche es später erneut.";
+        return message("errors.sipBusy");
       case "sipNotAcceptable":
-        return "Die Gegenstelle akzeptiert die angebotenen Audioformate oder Sicherheitseinstellungen nicht. Prüfe Audio, TLS und SRTP beim SIP-Anbieter.";
+        return message("errors.sipNotAcceptable");
       case "sipRejected":
-        return "Der Anruf wurde von der Gegenstelle abgelehnt.";
+        return message("errors.sipRejected");
       case "sipFailure":
-        return "Die SIP-Verbindung ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.";
+        return message("errors.sipFailure");
       case "nativeFailure":
-        return "Die Telefonie-Aktion ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.";
+        return message("errors.nativeFailure");
     }
   }
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  )
-    return error.message;
-  return "Die Telefonie-Aktion konnte nicht abgeschlossen werden.";
+  return message("errors.unknown");
 }
 
 /** Exact CycloneDX JSON embedded by the selected desktop build. */

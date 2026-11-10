@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import { onMount } from "svelte";
   import { isTauri } from "@tauri-apps/api/core";
   import type { NotificationPermission } from "../generated/AppInfo";
@@ -30,10 +31,10 @@
   let checking = $state(false),
     requesting = $state(false),
     testing = $state(false);
-  let permissionError = $state<string | null>(null),
-    actionError = $state<string | null>(null),
-    testError = $state<string | null>(null),
-    feedback = $state("");
+  let permissionError = $state<MessageValue | null>(null),
+    actionError = $state<MessageValue | null>(null),
+    testError = $state<MessageValue | null>(null),
+    feedback = $state<MessageValue>("");
   let mounted = false,
     revision = 0;
   async function check() {
@@ -49,8 +50,7 @@
     } catch {
       if (mounted && current === revision) {
         permission = null;
-        permissionError =
-          "Die Systemfreigabe konnte nicht geprüft werden. Versuche es erneut.";
+        permissionError = message("settings.notifications_check_failed");
       }
     } finally {
       if (mounted && current === revision) checking = false;
@@ -73,11 +73,9 @@
         requesting = false;
         await check();
         if ((permission as NotificationPermission | null) === "authorized")
-          feedback =
-            "Mitteilungen sind erlaubt. Änderungen an den App-Einstellungen werden erst beim Speichern übernommen.";
+          feedback = message("settings.notifications_granted_feedback");
         else if (requestFailed && !permissionError)
-          actionError =
-            "Die Anfrage konnte nicht abgeschlossen werden. Prüfe die Systemfreigabe erneut.";
+          actionError = message("settings.notifications_request_failed");
       }
     }
   }
@@ -87,26 +85,21 @@
       await openNotificationSettings();
     } catch {
       if (mounted)
-        actionError =
-          "Die Systemeinstellungen konnten nicht geöffnet werden. Öffne dort den Bereich Mitteilungen für Ruf.";
+        actionError = message("settings.notifications_settings_failed");
     }
   }
   async function test() {
     if (permission !== "authorized" || testing) return;
     testing = true;
     testError = null;
-    feedback =
-      "Die Testmitteilung wird in fünf Sekunden angefordert. Du kannst Ruf jetzt in den Hintergrund legen.";
+    feedback = message("settings.test_notification_wait");
     try {
       await testNotification();
-      if (mounted)
-        feedback =
-          "Testmitteilung angefordert. Fokus und Systemregeln können ihre Anzeige unterdrücken.";
+      if (mounted) feedback = message("settings.test_notification_requested");
     } catch {
       if (mounted) {
         feedback = "";
-        testError =
-          "Die Testmitteilung konnte nicht angefordert werden. Versuche es erneut. Bleibt der Fehler bestehen, prüfe die Systemfreigabe.";
+        testError = message("settings.test_notification_failed");
       }
     } finally {
       if (mounted) testing = false;
@@ -131,18 +124,19 @@
 
 <div class="settings-title">
   <div>
-    <h1>Mitteilungen</h1>
-    <p>App-Einstellung und Systemfreigabe für eingehende Anrufe.</p>
+    <h1>{$t("settings.notifications")}</h1>
+    <p>{$t("settings.notifications_description")}</p>
   </div>
 </div>
-<h2 class="settings-group">In Ruf</h2>
+<h2 class="settings-group">{$t("settings.in_ruf")}</h2>
 <fieldset disabled={busy || !canSave}>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="notifications-enabled">Eingehende Anrufe anzeigen</label>
+      <label for="notifications-enabled"
+        >{$t("settings.show_incoming_calls")}</label
+      >
       <p id="notifications-help">
-        Zeigt eine Systemmitteilung mit Annehmen und Ablehnen. Der Klingelton
-        wird unter Ton eingestellt.
+        {$t("settings.show_incoming_calls_help")}
       </p>
     </div>
     <div class="setting-control sound-toggle">
@@ -151,15 +145,16 @@
         type="checkbox"
         bind:checked={enabled}
         aria-describedby="notifications-help"
-      /><span aria-hidden="true">{enabled ? "Ein" : "Aus"}</span>
+      /><span aria-hidden="true"
+        >{enabled ? $t("settings.on") : $t("settings.off")}</span
+      >
     </div>
   </div>
   <div class="setting-row">
     <div class="setting-description">
-      <label for="notification-caller">Anruferdetails anzeigen</label>
+      <label for="notification-caller">{$t("settings.show_caller")}</label>
       <p>
-        Name und Rufnummer in Systemmitteilungen. Ausgeschaltet erscheint ein
-        neutraler Hinweis.
+        {$t("settings.show_caller_help")}
       </p>
     </div>
     <div class="setting-control sound-toggle">
@@ -167,43 +162,41 @@
         id="notification-caller"
         type="checkbox"
         bind:checked={showCaller}
-      /><span aria-hidden="true">{showCaller ? "Ein" : "Aus"}</span>
+      /><span aria-hidden="true"
+        >{showCaller ? $t("settings.on") : $t("settings.off")}</span
+      >
     </div>
   </div>
 </fieldset>
 <h2 class="settings-group" id="notification-permission" tabindex="-1">
-  Systemfreigabe
+  {$t("settings.system_permission")}
 </h2>
 <PermissionStatus
-  title="Mitteilungen für Ruf"
+  title={$t("settings.notifications_for_ruf")}
   status={permission}
   {checking}
   working={requesting}
-  error={permissionError}
-  requestLabel="Mitteilungen erlauben"
+  error={$text(permissionError)}
+  requestLabel={$t("settings.allow_notifications")}
   oncheck={() => void check()}
   onrequest={() => void request()}
   onopen={isTauri() ? () => void open() : undefined}
 />
 {#if actionError}<p class="settings-feedback error" role="alert">
-    {actionError}
+    {$text(actionError)}
   </p>{/if}
 {#if permission === "denied"}<p class="settings-feedback">
-    Mitteilungen sind in den Systemeinstellungen für Ruf deaktiviert. Erlaube
-    sie dort. Anrufe bleiben im Telefonfenster sichtbar.
+    {$t("settings.notifications_denied")}
   </p>{:else if permission === "authorized"}<p class="settings-footnote">
-    Mitteilungen sind erlaubt. Fokus, Banner-Einstellungen und andere
-    Systemregeln können die Anzeige weiterhin unterdrücken.
+    {$t("settings.notifications_allowed")}
   </p>{:else if permission === "unsupported"}<p class="settings-footnote">
-    Systemmitteilungen sind in diesem Startmodus nicht verfügbar. Nutze die
-    installierte App.
+    {$t("settings.notifications_unavailable")}
   </p>{/if}
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Testmitteilung</h3>
+    <h3>{$t("settings.test_notification")}</h3>
     <p>
-      Nach fünf Sekunden, ohne Anruf oder Anruferdaten. Fordert keine neue
-      Systemfreigabe an.
+      {$t("settings.test_notification_help")}
     </p>
   </div>
   <button
@@ -213,32 +206,34 @@
     disabled={permission !== "authorized" || testing || requesting}
     onclick={() => void test()}
     >{testing
-      ? "Testmitteilung wird angefordert …"
-      : "Testmitteilung senden"}</button
+      ? $t("settings.test_notification_requesting")
+      : $t("settings.send_test_notification")}</button
   >
 </div>
 {#if testError}<p class="settings-feedback error" role="alert">
-    {testError}
+    {$text(testError)}
   </p>{/if}
-{#if feedback}<p role="status" class="settings-feedback">{feedback}</p>{/if}
+{#if feedback}<p role="status" class="settings-feedback">
+    {$text(feedback)}
+  </p>{/if}
 <div class="settings-form-actions settings-save-bar">
   <p>
-    {dirty
-      ? "Deine Änderungen sind noch nicht gespeichert."
-      : "Gilt für Ruf auf diesem Computer."}
+    {dirty ? $t("settings.unsaved_notice") : $t("settings.this_computer_scope")}
   </p>
   <div class="settings-actions">
     <button
       type="button"
       class="text-button"
       disabled={!dirty || busy}
-      onclick={ondiscard}>Verwerfen</button
+      onclick={ondiscard}>{$t("settings.discard")}</button
     ><button
       type="button"
       class="primary-button"
       disabled={!canSave || !dirty || busy}
       onclick={onsave}
-      >{busy ? "Wird gespeichert …" : "Mitteilungen speichern"}</button
+      >{busy
+        ? $t("settings.saving")
+        : $t("settings.save_notifications")}</button
     >
   </div>
 </div>

@@ -18,16 +18,28 @@ pub(super) fn parse_activation(arguments: &str) -> Option<CallNotificationAction
     }
 }
 
-pub(super) fn toast_xml(token: &str, title: &str, body: &str) -> String {
+pub(super) fn toast_xml(
+    token: &str,
+    title: &str,
+    body: &str,
+    answer: &str,
+    reject: &str,
+) -> String {
     format!(
-        "<toast launch=\"open:{token}\" scenario=\"incomingCall\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual><actions><action content=\"Annehmen\" arguments=\"answer:{token}\" activationType=\"foreground\"/><action content=\"Ablehnen\" arguments=\"reject:{token}\" activationType=\"foreground\"/></actions><audio silent=\"true\"/></toast>",
+        "<toast launch=\"open:{token}\" scenario=\"incomingCall\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual><actions><action content=\"{}\" arguments=\"answer:{token}\" activationType=\"foreground\"/><action content=\"{}\" arguments=\"reject:{token}\" activationType=\"foreground\"/></actions><audio silent=\"true\"/></toast>",
         escape_text(title),
         escape_text(body),
+        escape_text(answer),
+        escape_text(reject),
     )
 }
 
-pub(super) fn test_toast_xml() -> String {
-    "<toast launch=\"settings-test\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\"><text>Testbenachrichtigung</text><text>Benachrichtigungen von Ruf sind aktiviert.</text></binding></visual><audio silent=\"true\"/></toast>".into()
+pub(super) fn test_toast_xml(title: &str, body: &str) -> String {
+    format!(
+        "<toast launch=\"settings-test\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual><audio silent=\"true\"/></toast>",
+        escape_text(title),
+        escape_text(body)
+    )
 }
 
 fn escape_text(value: &str) -> String {
@@ -55,8 +67,8 @@ mod tests {
 
     #[test]
     fn settings_test_payload_is_anonymous_and_never_routes_call_actions() {
-        let xml = test_toast_xml();
-        assert!(xml.contains("Testbenachrichtigung"));
+        let xml = test_toast_xml("Test notification", "Ruf notifications are enabled.");
+        assert!(xml.contains("Test notification"));
         assert!(xml.contains("<audio silent=\"true\"/>"));
         for forbidden in [
             "<actions>",
@@ -109,9 +121,16 @@ mod tests {
 
     #[test]
     fn payload_escapes_caller_text_and_disables_duplicate_audio() {
-        let xml = toast_xml("call_1", "A & <B> \"C\"", "O'Connor\u{0} +49");
+        let xml = toast_xml(
+            "call_1",
+            "A & <B> \"C\"",
+            "O'Connor\u{0} +49",
+            "Answer & \"yes\"",
+            "Reject",
+        );
         assert!(xml.contains("A &amp; &lt;B&gt; &quot;C&quot;"));
         assert!(xml.contains("O&apos;Connor +49"));
+        assert!(xml.contains("content=\"Answer &amp; &quot;yes&quot;\""));
         assert!(xml.contains("arguments=\"answer:call_1\""));
         assert!(xml.contains("arguments=\"reject:call_1\""));
         assert!(xml.contains("launch=\"open:call_1\""));

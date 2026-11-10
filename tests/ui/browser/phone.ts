@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type {
   FixtureSnapshot,
@@ -7,7 +8,12 @@ import type {
   FixtureCommand,
   FixtureResult,
 } from "./types";
-export default async function phoneRegressions(page: Page) {
+export default async function phoneRegressions(
+  page: Page,
+  _baseUrl?: string,
+  _capture = false,
+  englishSmoke?: EnglishSmoke,
+) {
   const origin = new URL(page.url()).origin;
   page = await page.context().newPage();
   page.setDefaultTimeout(10000);
@@ -110,6 +116,12 @@ export default async function phoneRegressions(page: Page) {
         return id;
       },
       async invoke(command, args) {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         fixture.commands.push({ command, args });
         if (command === "get_desktop_settings")
           return {
@@ -142,6 +154,7 @@ export default async function phoneRegressions(page: Page) {
           return { permission: "authorized", contacts: [] };
         if (command === "get_preferences")
           return {
+            language: "system",
             startHidden: true,
             showCallerInNotifications: true,
             contacts: {
@@ -224,6 +237,7 @@ export default async function phoneRegressions(page: Page) {
     };
     localStorage.setItem("sip.introduction.v1", "seen");
   });
+  if (englishSmoke) return englishSmoke(page, "phone", origin);
   const results: FixtureResult[] = [];
   async function check(name: string, test: () => Promise<void>) {
     try {

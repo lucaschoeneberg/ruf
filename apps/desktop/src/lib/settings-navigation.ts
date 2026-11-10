@@ -1,13 +1,31 @@
+import { formatMessage, getLocale, message, type MessageValue } from "./i18n";
+import type { AppLocale } from "./generated/AppInfo";
 import type { SettingsSection } from "./api";
 export const settingsSections = [
-  { id: "general", label: "Allgemein", icon: "settings" },
-  { id: "accounts", label: "SIP-Konten", icon: "contacts" },
-  { id: "audio", label: "Ton", icon: "audio" },
-  { id: "notifications", label: "Mitteilungen", icon: "info" },
-  { id: "contacts", label: "Kontakte & Verlauf", icon: "contacts" },
-  { id: "privacy", label: "Datenschutz", icon: "info" },
-  { id: "diagnostics", label: "Diagnose & Hilfe", icon: "settings" },
-  { id: "about", label: "Über Ruf", icon: "info" },
+  { id: "general", label: message("navigation.general"), icon: "settings" },
+  {
+    id: "accounts",
+    label: message("navigation.sip_accounts"),
+    icon: "contacts",
+  },
+  { id: "audio", label: message("navigation.sound"), icon: "audio" },
+  {
+    id: "notifications",
+    label: message("navigation.notifications"),
+    icon: "info",
+  },
+  {
+    id: "contacts",
+    label: message("navigation.contacts_history"),
+    icon: "contacts",
+  },
+  { id: "privacy", label: message("navigation.privacy"), icon: "info" },
+  {
+    id: "diagnostics",
+    label: message("navigation.diagnostics_help"),
+    icon: "settings",
+  },
+  { id: "about", label: message("navigation.about_ruf"), icon: "info" },
 ] as const;
 export type SettingResult = {
   section: SettingsSection;
@@ -15,235 +33,264 @@ export type SettingResult = {
   label: string;
   terms: string;
 };
-const fields: SettingResult[] = [
+type LocalizedSettingResult = Omit<SettingResult, "label" | "terms"> & {
+  label: MessageValue;
+  terms: MessageValue;
+};
+const fields: LocalizedSettingResult[] = [
+  {
+    section: "general",
+    target: "language-preference",
+    label: message("navigation.language"),
+    terms: message("navigation.language_terms"),
+  },
   {
     section: "diagnostics",
     target: "keyboard-shortcuts",
-    label: "Tastenkombinationen",
-    terms: "tastatur kürzel shortcuts befehle aktionen suche",
+    label: message("navigation.keyboard_shortcuts"),
+    terms: message("navigation.keyboard_shortcuts_commands_actions_search"),
   },
   {
     section: "general",
     target: "autostart-enabled",
-    label: "Bei der Anmeldung starten",
-    terms: "autostart login start schließen",
+    label: message("navigation.start_at_login"),
+    terms: message("navigation.autostart_login_start_close"),
   },
   {
     section: "general",
     target: "start-hidden",
-    label: "Bei der Anmeldung im Hintergrund starten",
-    terms: "autostart login hintergrund fenster",
+    label: message("navigation.start_in_the_background_at_login"),
+    terms: message("navigation.autostart_login_background_window"),
   },
   {
     section: "accounts",
     target: "name",
-    label: "SIP-Konto bearbeiten",
-    terms: "konten konto name verbindung standardkonto",
+    label: message("navigation.edit_sip_account"),
+    terms: message("navigation.accounts_account_name_connection_default"),
   },
   {
     section: "accounts",
     target: "registrar",
-    label: "SIP-Server",
-    terms: "server registrar host domain anmeldung verbinden",
+    label: message("navigation.sip_server"),
+    terms: message("navigation.server_registrar_host_domain_register_connect"),
   },
   {
     section: "accounts",
     target: "username",
-    label: "Benutzername",
-    terms: "anmeldekennung nebenstelle username",
+    label: message("navigation.username"),
+    terms: message("navigation.login_extension_username"),
   },
   {
     section: "accounts",
     target: "password",
-    label: "Passwort",
-    terms: "zugangsdaten schlüsselbund kennwort passwort",
+    label: message("navigation.password"),
+    terms: message("navigation.credentials_keychain_password"),
   },
   {
     section: "accounts",
     target: "transport",
-    label: "SIP-Transport",
-    terms: "udp tcp tls verschlüsselung zertifikat verbindung",
+    label: message("navigation.sip_transport"),
+    terms: message("navigation.udp_tcp_tls_encryption_certificate_connection"),
   },
   {
     section: "accounts",
     target: "media-security",
-    label: "Audioschutz",
-    terms: "srtp sdes sicherheit verschlüsselung tls",
+    label: message("navigation.audio_security"),
+    terms: message("navigation.srtp_sdes_security_encryption_tls"),
   },
   {
     section: "accounts",
     target: "auth-username",
-    label: "Separate Anmeldekennung",
-    terms: "auth username digest authentifizierung benutzername",
+    label: message("navigation.separate_authentication_username"),
+    terms: message("navigation.auth_username_digest_authentication"),
   },
   {
     section: "accounts",
     target: "outbound-proxy",
-    label: "Outbound-Proxy",
-    terms: "proxy server routing verbindung",
+    label: message("navigation.outbound_proxy"),
+    terms: message("navigation.proxy_server_routing_connection"),
   },
   {
     section: "audio",
     target: "inputDevice",
-    label: "Mikrofon",
-    terms: "audio ton eingang",
+    label: message("navigation.microphone"),
+    terms: message("navigation.audio_sound_input"),
   },
   {
     section: "audio",
     target: "outputDevice",
-    label: "Lautsprecher",
-    terms: "audio ton ausgang gespräch",
+    label: message("navigation.speaker"),
+    terms: message("navigation.audio_sound_output_call"),
   },
   {
     section: "audio",
     target: "ringDevice",
-    label: "Klingelton-Ausgabe",
-    terms: "klingeln gerät ausgabe",
+    label: message("navigation.ringtone_output"),
+    terms: message("navigation.ring_device_output"),
   },
   {
     section: "audio",
     target: "ringtone-enabled",
-    label: "Bei Anrufen klingeln",
-    terms: "klingelton klingeln ein aus",
+    label: message("navigation.ring_for_incoming_calls"),
+    terms: message("navigation.ringtone_ring_on_off"),
   },
   {
     section: "audio",
     target: "ringtone-style",
-    label: "Klingelton",
-    terms: "klassisch sanft kurz ringtone",
+    label: message("navigation.ringtone"),
+    terms: message("navigation.classic_soft_short_ringtone"),
   },
   {
     section: "audio",
     target: "ringtone-volume",
-    label: "Klingellautstärke",
-    terms: "klingelton lautstärke leise laut volumen",
+    label: message("navigation.ringtone_volume"),
+    terms: message("navigation.ringtone_volume_quiet_loud"),
   },
   {
     section: "audio",
     target: "audio-tests",
-    label: "Audiotests",
-    terms: "mikrofon testen pegel lautsprecher testen hörprobe",
+    label: message("navigation.audio_tests"),
+    terms: message("navigation.microphone_test_level_speaker_listen"),
   },
   {
     section: "notifications",
     target: "notification-permission",
-    label: "Mitteilungsfreigabe",
-    terms: "benachrichtigungen erlauben permission berechtigung systemfreigabe",
+    label: message("navigation.notification_permission"),
+    terms: message("navigation.notifications_allow_permission_system"),
   },
   {
     section: "notifications",
     target: "notifications-enabled",
-    label: "Eingehende Anrufe anzeigen",
-    terms: "mitteilungen benachrichtigungen aktivieren",
+    label: message("navigation.show_incoming_calls"),
+    terms: message("navigation.notifications_enable"),
   },
   {
     section: "notifications",
     target: "notification-caller",
-    label: "Anruferdetails anzeigen",
-    terms: "name rufnummer privatsphäre mitteilungen",
+    label: message("navigation.show_caller_details"),
+    terms: message("navigation.name_number_privacy_notifications"),
   },
   {
     section: "notifications",
     target: "test-notification",
-    label: "Testmitteilung senden",
-    terms: "benachrichtigung testen",
+    label: message("navigation.send_test_notification"),
+    terms: message("navigation.notification_test"),
   },
   {
     section: "contacts",
     target: "contacts-display",
-    label: "Kontaktanzeige",
-    terms: "kontakte adressbuch anzeige",
+    label: message("navigation.contact_display"),
+    terms: message("navigation.contacts_address_book_display"),
   },
   {
     section: "contacts",
     target: "favorites-first",
-    label: "Favoriten zuerst",
-    terms: "favoriten sortieren reihenfolge",
+    label: message("navigation.favorites_first"),
+    terms: message("navigation.favorites_sort_order"),
   },
   {
     section: "contacts",
     target: "match-german-numbers",
-    label: "Deutsche Vorwahlen zuordnen",
-    terms: "ländervorwahl deutschland +49 0049 nummer kontakt erkennen",
+    label: message("navigation.match_german_dialing_prefixes"),
+    terms: message(
+      "navigation.country_code_germany_49_0049_number_contact_match",
+    ),
   },
   {
     section: "contacts",
     target: "show-organization",
-    label: "Firma anzeigen",
-    terms: "organisation kontakt firma",
+    label: message("navigation.show_organization"),
+    terms: message("navigation.organization_contact_company"),
   },
   {
     section: "contacts",
     target: "history-recording",
-    label: "Verlauf speichern",
-    terms: "historie anrufverlauf aufzeichnen metadaten",
+    label: message("navigation.save_call_history"),
+    terms: message("navigation.history_calls_record_metadata"),
   },
   {
     section: "contacts",
     target: "history-retention",
-    label: "Aufbewahrung",
-    terms: "verlauf frist unbegrenzt 30 90 365 tage retention",
+    label: message("navigation.retention"),
+    terms: message("navigation.history_unlimited_30_90_365_days_retention"),
   },
   {
     section: "contacts",
     target: "clear-history",
-    label: "Verlauf löschen",
-    terms: "anrufverlauf leeren entfernen löschen",
+    label: message("navigation.clear_history"),
+    terms: message("navigation.history_clear_remove_delete"),
   },
   {
     section: "privacy",
     target: "privacy-permissions",
-    label: "Berechtigungen",
-    terms: "mikrofon freigabe datenschutz zugriff schlüsselbund speicherung",
+    label: message("navigation.permissions"),
+    terms: message(
+      "navigation.microphone_permission_privacy_access_keychain_storage",
+    ),
   },
   {
     section: "privacy",
     target: "contacts-permission",
-    label: "Kontakte freigeben",
-    terms: "macos adressbuch freigabe datenschutz zugriff",
+    label: message("navigation.allow_contacts"),
+    terms: message("navigation.macos_address_book_permission_privacy_access"),
   },
   {
     section: "diagnostics",
     target: "diagnostics-status",
-    label: "Verbindung und Hilfe",
-    terms: "diagnose fehler verbindung status export tastenkürzel",
+    label: message("navigation.connection_and_help"),
+    terms: message(
+      "navigation.diagnostics_error_connection_status_export_shortcuts",
+    ),
   },
   {
     section: "diagnostics",
     target: "developer-audio",
-    label: "Audio für Entwicklung",
-    terms: "audioquelle testton entwicklung aufzeichnung",
+    label: message("navigation.developer_audio"),
+    terms: message("navigation.audio_source_test_tone_development_recording"),
   },
   {
     section: "about",
     target: "about-heading",
-    label: "Version und Software",
-    terms:
-      "über ruf changelog neuerungen änderungen autor mardu firma impressum",
+    label: message("navigation.version_and_software"),
+    terms: message(
+      "navigation.about_ruf_changelog_changes_author_mardu_company_imprint",
+    ),
   },
   {
     section: "about",
     target: "software-licenses",
-    label: "Software & Lizenzen",
-    terms: "open source lizenztexte herkunft",
+    label: message("navigation.software_licenses"),
+    terms: message("navigation.open_source_licenses_origin"),
   },
   {
     section: "about",
     target: "software-inventory",
-    label: "Projektinventar (SBOM)",
-    terms: "software bill of materials sbom komponenten",
+    label: message("navigation.project_inventory_sbom"),
+    terms: message("navigation.software_bill_of_materials_sbom_components"),
   },
 ];
 
-export function searchSettings(query: string): SettingResult[] {
+export function searchSettings(
+  query: string,
+  language: AppLocale = getLocale(),
+): SettingResult[] {
   const words = query
     .trim()
-    .toLocaleLowerCase("de")
+    .toLocaleLowerCase(language)
     .split(/\s+/)
     .filter(Boolean);
   if (!words.length) return [];
-  return fields.filter((field) => {
-    const text = `${field.label} ${field.terms}`.toLocaleLowerCase("de");
-    return words.every((word) => text.includes(word));
-  });
+  return fields
+    .map((field) => ({
+      ...field,
+      label: formatMessage(language, field.label),
+      terms: formatMessage(language, field.terms),
+    }))
+    .filter((field) => {
+      const text =
+        `${formatMessage(language, field.label)} ${formatMessage(language, field.terms)}`.toLocaleLowerCase(
+          language,
+        );
+      return words.every((word) => text.includes(word));
+    });
 }

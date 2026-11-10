@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, text, message, type MessageValue } from "../i18n";
   import { onMount } from "svelte";
   import type { AudioTestKind, SoundSettings } from "../generated/AppInfo";
   import {
@@ -17,8 +18,8 @@
     kind = $state<AudioTestKind | null>(null),
     level = $state(0),
     pending = $state(false),
-    error = $state(""),
-    feedback = $state("");
+    error = $state<MessageValue>(""),
+    feedback = $state<MessageValue>("");
   let mounted = false,
     revision = 0,
     polling = false;
@@ -35,7 +36,7 @@
         const permission = await getMicrophonePermission();
         if (!mounted || current !== revision) return;
         if (permission !== "authorized" && permission !== "unsupported") {
-          error = "Erlaube Ruf zuerst den Mikrofonzugriff unter Datenschutz.";
+          error = message("settings.microphone_permission_required");
           return;
         }
       }
@@ -49,12 +50,11 @@
       kind = value;
       feedback =
         value === "microphone"
-          ? "Mikrofontest läuft, höchstens zehn Sekunden."
-          : "Lautsprechertest läuft, zwei Sekunden.";
+          ? message("settings.microphone_test_running")
+          : message("settings.speaker_test_running");
     } catch {
       if (mounted && current === revision)
-        error =
-          "Der Audiotest konnte nicht gestartet werden. Prüfe Gerät und Freigabe.";
+        error = message("settings.audio_test_start_failed");
     } finally {
       if (mounted && current === revision) pending = false;
     }
@@ -70,7 +70,7 @@
       try {
         await stopAudioTest(id);
       } catch {
-        if (mounted) error = "Der Audiotest konnte nicht gestoppt werden.";
+        if (mounted) error = message("settings.audio_test_stop_failed");
       }
   }
   async function poll() {
@@ -87,13 +87,13 @@
         level = 0;
         feedback =
           state.call !== "idle"
-            ? "Audiotest für einen Anruf beendet."
-            : "Audiotest beendet.";
+            ? message("settings.audio_test_ended_for_call")
+            : message("settings.audio_test_ended");
         if (state.audioTestError)
-          error = "Der Audiotest wurde vom Audiogerät beendet.";
+          error = message("settings.audio_test_device_ended");
       }
     } catch {
-      if (mounted) error = "Der Audioteststatus konnte nicht gelesen werden.";
+      if (mounted) error = message("settings.audio_test_status_failed");
     } finally {
       polling = false;
     }
@@ -110,17 +110,16 @@
 </script>
 
 <h2 class="settings-group sound-group" id="audio-tests" tabindex="-1">
-  Audiotests
+  {$t("settings.audio_tests")}
 </h2>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Mikrofon testen</h3>
+    <h3>{$t("settings.test_microphone")}</h3>
     <p>
-      Zeigt den Eingangspegel für höchstens zehn Sekunden. Es wird keine
-      Aufnahme gespeichert.
+      {$t("settings.microphone_test_help")}
     </p>
     {#if kind === "microphone"}<meter
-        aria-label="Mikrofonpegel"
+        aria-label={$t("settings.microphone_level")}
         min="0"
         max="1"
         value={level}
@@ -130,30 +129,33 @@
     type="button"
     class="secondary-button"
     disabled={disabled || pending || !!owner}
-    onclick={() => void start("microphone")}>Mikrofon testen</button
+    onclick={() => void start("microphone")}
+    >{$t("settings.test_microphone")}</button
   >
 </div>
 <div class="setting-row">
   <div class="setting-description">
-    <h3>Lautsprecher testen</h3>
-    <p>Zwei Sekunden auf dem gewählten Gesprächsausgang.</p>
+    <h3>{$t("settings.test_speaker")}</h3>
+    <p>{$t("settings.speaker_test_help")}</p>
   </div>
   <button
     type="button"
     class="secondary-button"
     disabled={disabled || pending || !!owner}
-    onclick={() => void start("speaker")}>Lautsprecher testen</button
+    onclick={() => void start("speaker")}>{$t("settings.test_speaker")}</button
   >
 </div>
 {#if owner || pending}<button
     type="button"
     class="secondary-button"
-    onclick={() => void stop()}>Audiotest stoppen</button
+    onclick={() => void stop()}>{$t("settings.stop_audio_test")}</button
   >{/if}
-{#if feedback}<p class="settings-footnote" role="status">{feedback}</p>{/if}
-{#if error}<p class="settings-feedback error" role="alert">{error}</p>
+{#if feedback}<p class="settings-footnote" role="status">
+    {$text(feedback)}
+  </p>{/if}
+{#if error}<p class="settings-feedback error" role="alert">{$text(error)}</p>
   <button type="button" class="text-button" onclick={onprivacy}
-    >Freigaben prüfen</button
+    >{$t("settings.check_permissions")}</button
   >{/if}
 
 <style>

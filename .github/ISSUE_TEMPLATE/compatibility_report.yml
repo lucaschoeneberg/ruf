@@ -1,0 +1,77 @@
+name: Compatibility report
+description: Share observed results from a controlled PBX, platform and audio test.
+title: "compatibility: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ruf is a Developer Preview for isolated test networks. Report only what you observed.
+        This report is public. Do not include passwords, real numbers, contact lists,
+        identifying addresses or raw SIP/SDP captures. Use synthetic examples.
+        Security-sensitive findings belong through SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: Ruf version and source revision
+      description: Include the release tag or commit and the installer filename, if available.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: "macOS 14.7, Apple Silicon; or Windows 11 24H2, x64"
+    validations:
+      required: true
+  - type: input
+    id: pbx
+    attributes:
+      label: PBX or provider product and version
+      placeholder: "Asterisk 22.x or FreeSWITCH 1.10.x; no account identifiers"
+    validations:
+      required: true
+  - type: input
+    id: transport
+    attributes:
+      label: Transport, codec and observed media protection
+      placeholder: "TLS, G.711 A-law, SDES-SRTP; distinguish configured and observed settings"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Network and audio setup
+      description: Describe LAN/NAT/VPN topology and microphone/headset/output model without identifying addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Observed results
+      description: Mark each scenario passed, failed or not tested. A checked feature list is not independent proof.
+      value: |
+        - Registration and restart:
+        - Incoming/outgoing two-way audio:
+        - Answer, decline and hangup:
+        - Mute and hold/resume:
+        - DTMF digits, star and hash:
+        - Direct/attended transfer:
+        - Two accounts and outgoing identity:
+        - Background notifications and actions:
+        - Sleep/wake and network recovery:
+        - Headset removal and longer call:
+        - TLS/SRTP and certificate rejection:
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps and sanitized evidence
+      description: Include reproducible steps for failures and which checks you actually ran. Do not attach private logs.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed credentials and personal call/contact/network data, and distinguished observed results from untested scenarios.
+          required: true

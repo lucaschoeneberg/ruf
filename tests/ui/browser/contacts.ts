@@ -1,3 +1,4 @@
+import type { EnglishSmoke } from "./english-smoke";
 import type { Page } from "playwright-core";
 import type {
   FixtureSnapshot,
@@ -6,7 +7,12 @@ import type {
   FixtureCommand,
 } from "./types";
 // Exercise permission controls through IPC fixtures, never the personal address book.
-export default async function contactsPermissions(page: Page, baseUrl: string) {
+export default async function contactsPermissions(
+  page: Page,
+  baseUrl: string,
+  _capture = false,
+  englishSmoke?: EnglishSmoke,
+) {
   page.setDefaultTimeout(10000);
   await page.addInitScript(() => {
     window.isTauri = true;
@@ -17,6 +23,7 @@ export default async function contactsPermissions(page: Page, baseUrl: string) {
     let next = 0;
     window.__contactPermissionTest = {
       preferences: {
+        language: "system",
         startHidden: true,
         showCallerInNotifications: true,
         contacts: {
@@ -144,6 +151,12 @@ export default async function contactsPermissions(page: Page, baseUrl: string) {
         callbacks.delete(id);
       },
       async invoke(command, args) {
+        if (command === "get_localization")
+          return {
+            preference: "system",
+            locale: window.__rufTestLanguage,
+            revision: 0,
+          };
         const f = window.__contactPermissionTest;
         f.commands.push({ command, args });
         if (command === "plugin:event|listen") {
@@ -238,6 +251,7 @@ export default async function contactsPermissions(page: Page, baseUrl: string) {
       },
     };
   });
+  if (englishSmoke) return englishSmoke(page, "contacts", baseUrl);
   const ensure = (condition: unknown, message: string) => {
     if (!condition) throw new Error(message);
   };
