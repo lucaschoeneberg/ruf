@@ -32,6 +32,8 @@ Setup does not push, tag or publish a release.
 macOS builds request both `app,dmg`: Tauri retains Ruf.app so the signature and
 permission checks run against the finished bundle before uploading the DMG.
 DMG-only packaging removes its temporary app and cannot support those checks.
+Desktop jobs allow 60 minutes: the first complete cold Windows run took almost
+45 minutes, including native SDK compilation, tests, packaging and cache upload.
 
 Native workspace tests use the job's temporary directory. On failure, the
 desktop jobs retain only the three explicitly named early-media/refused-hold
