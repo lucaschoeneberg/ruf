@@ -59,7 +59,7 @@ Existing `AppInfo` and generated IPC DTOs are unchanged.
 
 ## Consumer changelog
 
-“Was ist neu?” displays the bundled root `CHANGELOG.md`, written as user-facing
+The What's new view displays the bundled root `CHANGELOG.md`, written as user-facing
 release notes rather than commits or implementation details. The supported format
 is `## Version heading` followed by one or more single-line `- Change` bullets.
 An optional document title (`# ...`) and blank lines are ignored. Remote content

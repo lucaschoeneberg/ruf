@@ -20,15 +20,16 @@ actions and the bundled IBM Plex Sans. Preserve native window controls.
 ## Layout and hierarchy
 
 The phone opens at 340 × 500 pixels, minimum 320 × 440. Keep header, scrolling
-content and the three destinations Tastatur/Kontakte/Verlauf usable at that
+content and the three destinations Dialer/Contacts/History usable at that
 minimum. Contacts/history retain reachable compact call controls during calls.
 The centered browser preview frame is separate from native-window layout.
 
 Settings open at 900 × 660 pixels, minimum 740 × 540, with a searchable sidebar,
 direct account list and scrolling content. Keep narrow/magnified layouts
 scrollable without hiding fields behind the save bar. The eight sections are
-Allgemein, SIP-Konten, Ton, Mitteilungen, Kontakte & Verlauf, Datenschutz,
-Diagnose & Hilfe and Über Ruf.
+General, SIP accounts, Audio, Notifications, Contacts & History, Privacy,
+Diagnostics & Help and About Ruf. These English names describe the current
+German interface.
 
 Use the shared 4px control radius and 13px body text. Tonal surfaces and 1px
 borders provide hierarchy. Avoid decorative gradients, shadows and dashboard
@@ -47,9 +48,9 @@ cards. Icons accompany clear labels; color alone never carries state.
 - Distinguish selected accounts, actual registration, queued operations and
   confirmed call/security outcomes. Keep mute/hangup reachable during supported
   pending states. Show unavailable/empty/error states without invented data.
-- Keep account management and security in SIP-Konten, contact permissions in
-  Datenschutz, display/history policy in Kontakte & Verlauf, and technical
-  checks in Diagnose & Hilfe. Test notifications remain anonymous and separate
+- Keep account management and security in SIP accounts, contact permissions in
+  Privacy, display/history policy in Contacts & History, and technical
+  checks in Diagnostics & Help. Test notifications remain anonymous and separate
   from real call actions.
 - Keep the existing Ruf icon and monochrome macOS tray template. Native icon
   assets and their regeneration commands are documented in

@@ -13,7 +13,7 @@ license includes a warranty disclaimer and liability limitation.
 [SPDX text](https://spdx.org/licenses/MIT.html),
 [MIT overview](https://choosealicense.com/licenses/mit/).
 
-`Copyright (c) 2026 SIP contributors` is the project's collective notice.
+`Copyright (c) 2026 Ruf contributors` is the project's collective notice.
 Contributors retain copyright in their work; this does not assign it to a maintainer
 or claim one person owns all contributions. Preserve existing copyright notices.
 
@@ -62,7 +62,7 @@ review remains necessary before a public production release.
 
 ## About page and project SBOM
 
-Settings → Über Ruf identifies **Mardu GmbH** as Ruf's author/developer and
+The About Ruf section in Settings identifies **Mardu GmbH** as Ruf's author/developer and
 links to its website, legal notice and website privacy policy. This attribution
 does not replace the project's collective copyright notice or third-party rights.
 

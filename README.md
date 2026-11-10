@@ -1,95 +1,94 @@
 <div align="center">
 
-<img src="apps/desktop/src-tauri/icons/128x128.png" alt="Ruf-Appsymbol" width="80">
+<img src="apps/desktop/src-tauri/icons/128x128.png" alt="Ruf app icon" width="80">
 
 # Ruf
 
-**Ein kompaktes SIP-Softphone für macOS und Windows.**
+**A compact SIP softphone for macOS and Windows.**
 
 [![CI](https://github.com/lucaschoeneberg/ruf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lucaschoeneberg/ruf/actions/workflows/ci.yml)
-[![Version: 0.1.0 Vorschau](https://img.shields.io/badge/Version-0.1.0%20Vorschau-3b82f6)](docs/releases/0.1.0.md)
-[![Zielplattformen: macOS und Windows](https://img.shields.io/badge/Zielplattformen-macOS%20%7C%20Windows-64748b)](docs/development.md)
-[![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-22c55e)](LICENSE)
+[![Version: 0.1.0 Preview](https://img.shields.io/badge/Version-0.1.0%20Preview-3b82f6)](docs/releases/0.1.0.md)
+[![Target platforms: macOS and Windows](https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows-64748b)](docs/development.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 
-[Screenshots](#screenshots) · [Funktionen](#funktionen) · [Lokal starten](#lokal-starten) · [Dokumentation](#weiterarbeiten)
+[Screenshots](#screenshots) · [Features](#features) · [Run locally](#run-locally) · [Documentation](#documentation)
 
 </div>
 
-Ruf verbindet deinen Desktop mit einer SIP-Telefonanlage. Wähle Nummern oder
-Nebenstellen, verwalte mehrere Konten und behalte Kontakte und vergangene Anrufe
-in einer übersichtlichen Oberfläche. Im Gespräch sind Stummschaltung, Halten,
-DTMF-Tastatur und Vermittlung direkt erreichbar.
+Ruf connects your desktop to a SIP telephone system. Dial numbers or extensions,
+manage multiple accounts, and keep contacts and recent calls in a clear interface.
+Mute, hold, the DTMF keypad and transfer controls stay within reach during a call.
 
-**Version 0.1.0 ist eine Vorschau für isolierte Testnetze.** Die Pakete sind noch
-nicht für eine öffentliche Produktionsfreigabe qualifiziert. Den aktuellen Umfang
-beschreiben die [Release-Notizen](docs/releases/0.1.0.md).
+**Version 0.1.0 is a preview for isolated test networks.** The packages are not yet
+qualified for public production distribution. See the
+[release notes](docs/releases/0.1.0.md) for the current scope.
 
 ## Screenshots
 
 <table>
   <tr>
-    <th>Wählen</th>
-    <th>Im Gespräch</th>
-    <th>Kontakte</th>
+    <th>Dialer</th>
+    <th>Active call</th>
+    <th>Contacts</th>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/dialer.png" alt="Ruf mit Kontoauswahl und kompakter Wähltastatur" width="260"></td>
-    <td><img src="docs/screenshots/call.png" alt="Gespräch mit Halten, Stummschaltung und Vermittlungsaktionen" width="260"></td>
-    <td><img src="docs/screenshots/contacts.png" alt="macOS-Kontaktansicht mit Suche und Favoriten" width="260"></td>
+    <td><img src="docs/screenshots/dialer.png" alt="Ruf account selection and compact dialer" width="260"></td>
+    <td><img src="docs/screenshots/call.png" alt="Active call with hold, mute and transfer controls" width="260"></td>
+    <td><img src="docs/screenshots/contacts.png" alt="macOS contacts with search and favorites" width="260"></td>
   </tr>
 </table>
 
 <details>
-<summary>SIP-Kontoeinstellungen ansehen</summary>
+<summary>View SIP account settings</summary>
 
-<img src="docs/screenshots/settings.png" alt="Übersicht der SIP-Konten und Kontoeinstellungen" width="900">
+<img src="docs/screenshots/settings.png" alt="SIP account overview and account settings" width="900">
 
 </details>
 
-Die Abbildungen zeigen die aktuelle Oberfläche mit fiktiven Demo-Konten und
-Kontakten. Sie sind keine Nachweise für reale Gespräche oder Betriebssystem-Freigaben.
+The screenshots show the current German interface with fictional demo accounts
+and contacts. They do not establish real calling or operating-system acceptance.
 
-## Funktionen
+## Features
 
-| Bereich                | Was Ruf bietet                                                                                                          |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Mehrere Konten**     | Bis zu acht gespeicherte SIP-Konten, unabhängig aktivierbar und mit auswählbarer ausgehender Identität.                 |
-| **Gespräche**          | Annehmen, Ablehnen, Auflegen, Stummschaltung, Halten und native DTMF-Töne für Ziffern, Stern und Raute.                 |
-| **Vermittlung**        | Direkt vermitteln oder eine Rückfrage starten, zwischen den Gesprächen wechseln und die Vermittlung abschließen.        |
-| **Kontakte auf macOS** | Nach ausdrücklicher Freigabe suchen, Favoriten nutzen und passende Kontakte beim Wählen oder im Gespräch erkennen.      |
-| **Lokaler Verlauf**    | Anrufergebnis und Dauer, Rückruf über das ursprüngliche Konto sowie einstellbare Speicherung und Aufbewahrung.          |
-| **Audio**              | Mikrofon, Gesprächslautsprecher und Klingelton getrennt auswählen und mit kurzen Audiotests prüfen.                     |
-| **Desktop**            | Tray-Menü, Hintergrundbetrieb, Tastenkürzel und Suche mit ⌘K beziehungsweise Strg+K; eingehende Mitteilungen auf macOS. |
+| Area                  | What Ruf offers                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Multiple accounts** | Up to eight saved SIP accounts, independently enabled, with a selectable outgoing identity.                         |
+| **Calls**             | Answer, reject, hang up, mute, hold and send native DTMF tones for digits, star and hash.                           |
+| **Transfers**         | Transfer directly or start a consultation, switch between calls and complete the attended transfer.                 |
+| **macOS contacts**    | Search after explicit permission, use favorites and identify matching contacts while dialing or on a call.          |
+| **Local history**     | Call outcomes and duration, callbacks through the original account, and configurable history storage and retention. |
+| **Audio**             | Select microphone, call speaker and ringtone outputs separately, and check them with short audio tests.             |
+| **Desktop**           | Tray menu, background operation, keyboard shortcuts and search with ⌘K or Ctrl+K; incoming notifications on macOS.  |
 
-Rust und Tauri 2 bilden die Desktop-Anwendung, Svelte die Oberfläche. SIP und
-Audio laufen nativ über baresip. Der eigene Code steht unter der
-[MIT-Lizenz](LICENSE); Abhängigkeiten behalten ihre jeweiligen Lizenzen.
+Rust and Tauri 2 power the desktop application, with Svelte for the interface.
+SIP and audio run natively through baresip. Original project code uses the
+[MIT license](LICENSE); dependencies retain their own licenses.
 
-## Stand und Grenzen
+## Status and limitations
 
-- Zielplattformen sind **macOS 14+ auf Apple Silicon** und **Windows 11 x64**.
-  Ein erfolgreicher Build ersetzt keine Prüfung auf physischer Audiohardware
-  oder gegen die eigene Telefonanlage. Ergebnisse und Grenzen stehen in den
-  [Prüfnachweisen](docs/verification/README.md).
-- Die macOS-Pakete sind derzeit ad hoc signiert, Windows-Installer unsigniert.
-  Die [Release-Checkliste](docs/release-checklist.md) enthält die offenen
-  Freigabeschritte.
-- Konten unterstützen UDP, TCP und TLS sowie erforderliches SDES-SRTP mit TLS.
-  UDP/TCP und gewöhnliches RTP sind unverschlüsselt. TLS prüft Zertifikat und
-  Host über das Betriebssystem; ein automatischer Klartext-Rückfall ist
-  ausgeschlossen. Die Gesprächsanzeige folgt dem tatsächlich beobachteten
-  Schutz. Schutz bis zur Telefonanlage ist keine Ende-zu-Ende-Verschlüsselung.
-- Höchstens zwei zusammengehörige Dialoge teilen sich ein hörbares Gespräch.
-  Passwörter liegen im macOS-Schlüsselbund beziehungsweise Windows Credential Manager.
-- Windows-Kontakte, Kalenderintegration und automatische Updates sind noch nicht verfügbar.
+- Target platforms are **macOS 14+ on Apple Silicon** and **Windows 11 x64**.
+  A successful build does not replace testing on physical audio hardware or
+  against your own telephone system. See the
+  [verification records](docs/verification/README.md) for results and boundaries.
+- macOS packages currently use ad hoc signing; Windows installers are unsigned.
+  The [release checklist](docs/release-checklist.md) tracks the remaining
+  qualification steps.
+- Accounts support UDP, TCP and TLS, plus required SDES-SRTP with TLS.
+  UDP/TCP and ordinary RTP are unencrypted. TLS verifies certificates and hosts
+  through the operating system, with no automatic plaintext fallback. Call
+  security indicators follow actual native observations. Protection to the
+  telephone system is not end-to-end encryption.
+- At most two related dialogs share one audible conversation. Passwords are
+  stored in macOS Keychain or Windows Credential Manager.
+- Windows contacts, calendar integration and automatic updates are not yet available.
 
-## Lokal starten
+## Run locally
 
-Voraussetzungen: Bun aus `.bun-version`, Rustup sowie die
-[Tauri-Systemvoraussetzungen](https://v2.tauri.app/start/prerequisites/)
-(Xcode auf macOS, MSVC Build Tools und WebView2 auf Windows). Für die native
-Telefonie werden außerdem CMake und OpenSSL benötigt; die plattformspezifische
-Einrichtung steht in [native/README.md](native/README.md).
+Requirements: the Bun version in `.bun-version`, Rustup and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+(Xcode on macOS; MSVC Build Tools and WebView2 on Windows). Native telephony also
+requires CMake and OpenSSL. Platform-specific setup is documented in
+[native/README.md](native/README.md).
 
 ```sh
 bun install --frozen-lockfile
@@ -97,30 +96,30 @@ bun run native:build
 bun run dev:native
 ```
 
-Eine frische Installation startet ohne SIP-Konto. Trage die Zugangsdaten deiner
-Telefonanlage in den Kontoeinstellungen ein; das Labor ist dafür nicht erforderlich.
-Die Vorschau bleibt auf isolierte Testnetze beschränkt.
-`bun run dev` startet Tauri ohne native Telefonie, `bun run dev:web` nur die
-Web-Oberfläche ohne native API.
+A fresh installation starts without a SIP account. Enter your telephone system's
+credentials in account settings; the test lab is not required. The preview
+remains limited to isolated test networks. `bun run dev` starts Tauri without
+native telephony; `bun run dev:web` starts only the web interface without the
+native API.
 
-Für das optionale [Asterisk-Labor](tests/interop/asterisk/README.md) werden zusätzlich
-Docker mit Compose, Python 3 und das `openssl`-Kommando benötigt:
+The optional [Asterisk lab](tests/interop/asterisk/README.md) additionally requires
+Docker with Compose, Python 3 and the `openssl` command:
 
 ```sh
 bun run test:asterisk
-# Nach Abschluss der Labortests:
+# After completing the lab tests:
 bun run lab:down
 ```
 
-`test:asterisk` erzeugt die synthetischen TLS-Testzertifikate, startet beziehungsweise
-erstellt die isolierte Testanlage neu und lässt sie anschließend laufen.
-Ein vorheriges `lab:up` ist auf einem frischen Checkout nicht erforderlich und kann
-ohne die erzeugten Zertifikate scheitern. Testkonto und Nebenstellen stehen im
-Laborleitfaden; die Test-CA wird nicht in den System-Vertrauensspeicher importiert.
+`test:asterisk` generates synthetic TLS test certificates, starts or recreates the
+isolated telephone system, and leaves it running afterward. A prior `lab:up` is
+unnecessary on a fresh checkout and can fail without the generated certificates.
+The lab guide documents the test account and extensions. The test CA is not
+imported into the system trust store.
 
-Rustup installiert die in `rust-toolchain.toml` festgelegte Version. Wenn Cargo
-über Homebrew oder einen anderen Paketmanager statt Rustup aufgerufen wird,
-muss dessen Toolchain ausdrücklich auf dieselbe Version eingestellt werden.
+Rustup installs the version pinned in `rust-toolchain.toml`. If Cargo comes from
+Homebrew or another package manager instead of Rustup, explicitly select the
+same toolchain version.
 
 ```sh
 bun run check
@@ -134,7 +133,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
-Nach dem SDK-Build prüfen diese Befehle zusätzlich die native Variante:
+After building the SDK, these commands also check the native variant:
 
 ```sh
 cargo clippy --locked --workspace --all-targets --features sip-desktop/native -- -D warnings
@@ -142,38 +141,38 @@ cargo test --locked --workspace --features sip-desktop/native
 bun run desktop:build --features native --bundles app,dmg
 ```
 
-Der gezeigte Paketbefehl baut auf macOS App und DMG; auf Windows ist
-`--bundles nsis` zu verwenden. Für portable Buildprüfungen entfällt
-`--features native`; diese Variante meldet `notLinked` und enthält keine native
-Telefonie. `linked` bestätigt ausschließlich die kompilierte Anbindung.
+The packaging command above builds the app and DMG on macOS; use
+`--bundles nsis` on Windows. Omit `--features native` for portable build checks.
+That variant reports `notLinked` and contains no native telephony. `linked`
+confirms compiled linkage only.
 
-Cargo nutzt ein gemeinsames `target/` im Root.
-Ohne `--workspace` prüfen Cargo-Befehle standardmäßig nur die portablen Pakete.
+Cargo uses a shared root `target/` directory. Without `--workspace`, Cargo commands
+check only the portable packages by default.
 
-## Aufbau
+## Project layout
 
-| Pfad                     | Verantwortung                                                      |
-| ------------------------ | ------------------------------------------------------------------ |
-| `apps/desktop/src`       | Svelte-Oberfläche                                                  |
-| `apps/desktop/src-tauri` | Tauri-App, IPC, Kontenspeicherung, Verlauf und Desktop-Integration |
-| `crates/phone-core`      | Plattformunabhängige Rust-Verträge und Validierung                 |
-| `crates/baresip-adapter` | Sichere Anbindung der nativen Telefonie-Engine                     |
-| `native`                 | Gepinnte native Builds und Lizenztexte                             |
-| `tests/interop`          | Lokale Asterisk-Anlage und echter Audiotest                        |
-| `.github`                | CI, plattformübergreifende Installer und Release-Entwürfe          |
+| Path                     | Responsibility                                                   |
+| ------------------------ | ---------------------------------------------------------------- |
+| `apps/desktop/src`       | Svelte interface                                                 |
+| `apps/desktop/src-tauri` | Tauri app, IPC, account storage, history and desktop integration |
+| `crates/phone-core`      | Platform-independent Rust contracts and validation               |
+| `crates/baresip-adapter` | Safe integration with the native telephony engine                |
+| `native`                 | Pinned native builds and license texts                           |
+| `tests/interop`          | Local Asterisk system and real audio tests                       |
+| `.github`                | CI, cross-platform installers and draft releases                 |
 
-## Weiterarbeiten
+## Documentation
 
-- [Architektur](docs/architecture.md) und [Entwicklungsablauf](docs/development.md)
-- [Interne API und generierte Typen](docs/api/README.md)
-- [GitHub, CI/CD und Signierung](docs/ci-cd.md)
-- [Prüfnachweise und Grenzen](docs/verification/README.md)
-- [Beitrag leisten](CONTRIBUTING.md)
-- [Verhaltensregeln](CODE_OF_CONDUCT.md), [Sicherheitsmeldungen](SECURITY.md) und
-  [Lizenzierung und Attribution](docs/licensing.md)
+- [Architecture](docs/architecture.md) and [development workflow](docs/development.md)
+- [Internal API and generated types](docs/api/README.md)
+- [GitHub, CI/CD and signing](docs/ci-cd.md)
+- [Verification records and limitations](docs/verification/README.md)
+- [Privacy policy draft](docs/privacy-policy-ruf.en.md)
+- [Contributing](CONTRIBUTING.md)
+- [Code of conduct](CODE_OF_CONDUCT.md), [security reports](SECURITY.md) and
+  [licensing and attribution](docs/licensing.md)
 
-GitHub-Workflows prüfen Quellcode, Browserzustände, native Builds und das
-Asterisk-Labor. Ein passender Versionstag erstellt nach erfolgreichen Checks einen
-Entwurf als Vorabversion mit Installern und SHA-256-Prüfsummen. Die Einrichtung
-von Repository-Regeln und die Produktionsfreigabe beschreibt der
-[CI/CD-Leitfaden](docs/ci-cd.md).
+GitHub workflows check source code, browser states, native builds and the Asterisk
+lab. A matching version tag creates a draft prerelease with installers and
+SHA-256 checksums after successful checks. The
+[CI/CD guide](docs/ci-cd.md) covers repository rules and production qualification.

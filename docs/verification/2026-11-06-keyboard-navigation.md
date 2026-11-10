@@ -1,142 +1,144 @@
-# Ruf: Suche, Menüs und Tastenkombinationen
+# Ruf: search, menus, and keyboard shortcuts
 
-Stand: 6. November 2026. Umsetzung im bestehenden Checkout; vorher vorhandene
-Änderungen wurden beibehalten.
+As of November 6, 2026. Implemented in the existing checkout; pre-existing
+changes were preserved.
 
-## Verhalten und Wiederverwendung
+## Behavior and reuse
 
-- Lupe im Telefonkopf und Cmd/Strg+K öffnen die Aktionssuche mit deutschen
-  Suchbegriffen, sichtbaren Kürzeln und begründeten, gesperrten Gesprächsaktionen.
-- Pfeiltasten wählen aus, Enter führt aus, Escape schließt und stellt den Fokus
-  wieder her. Darstellung im Browser bei 340 × 500 und 320 × 440 geprüft.
-- Cmd/Strg+1/2/3 wechseln die Ansicht; +L fokussiert das Nummernfeld, +F die
-  passende Suche. Kontakte erhalten den Fokus auch nach asynchronem Laden.
-- Ansicht-, Gespräch- und Hilfe-Menüs machen Navigation, Anrufaktionen und
-  Kürzel auffindbar. Tauri registriert das macOS-Hilfe-Menü für die Systemsuche.
-- Stummschaltung, Halten, Vermittlungsformular und Gesprächstastatur verwenden
-  die vorhandenen `CallPanel`-Handler. Veraltete native Menü-Token werden
-  ignoriert; Bestätigungssperren bleiben erhalten. Vermitteln öffnet zunächst
-  das vorhandene Formular und löst keinen Transfer aus.
-- Bestehende Tauri-Menüs, `listen`/`emit_to`, `perform`, `open_settings`,
-  generierte Gesprächsmodelle, Einstellungsnavigation, Icons und Design-Tokens
-  werden wiederverwendet. Keine neue Dependency oder zweite Audiopipeline.
+- The magnifying glass in the phone header and Cmd/Ctrl+K open the action
+  search with German search terms, visible shortcuts, and disabled call actions
+  with explanations.
+- Arrow keys select, Enter executes, and Escape closes and restores focus.
+  Browser rendering was checked at 340 × 500 and 320 × 440.
+- Cmd/Ctrl+1/2/3 switch views; +L focuses the number field, +F the relevant
+  search. Contacts receive focus even after asynchronous loading.
+- View, Call, and Help menus make navigation, call actions, and shortcuts
+  discoverable. Tauri registers the macOS Help menu for system search.
+- Mute, hold, the transfer form, and the in-call keypad use the existing
+  `CallPanel` handlers. Stale native menu tokens are ignored; confirmation
+  locks remain in place. Transfer first opens the existing form without
+  initiating a transfer.
+- Existing Tauri menus, `listen`/`emit_to`, `perform`, `open_settings`,
+  generated call models, settings navigation, icons, and design tokens
+  are reused. No new dependency or second audio pipeline.
 
-## API-Dokumentation
+## API documentation
 
-[Keyboard navigation](../api/keyboard-navigation.md) dokumentiert Kürzel,
-Menüverhalten, interne Fensterereignisse, erforderliche primitive Payloads,
-Tokenprüfung, Zustandsvalidierung und Fehlerverhalten. Bestehende Invoke-Befehle
-und Rust-DTOs wurden wiederverwendet. TypeScript-Generierung erzeugte keinen Diff.
+[Keyboard navigation](../api/keyboard-navigation.md) documents shortcuts,
+menu behavior, internal window events, required primitive payloads,
+token checks, state validation, and error behavior. Existing invoke commands
+and Rust DTOs were reused. TypeScript generation produced no diff.
 
-## Ausgeführte Prüfungen
+## Checks run
 
-Rust-Prüfungen liefen mit der festgelegten Toolchain 1.98.1; dazu wurde
-`/opt/homebrew/opt/rustup/bin` vor Homebrew-Rust in PATH gesetzt. Der erste
-Versions-/Desktop-Versuch erkannte korrekt die abweichende Systemversion 1.99.1.
+Rust checks ran with the pinned toolchain 1.98.1;
+`/opt/homebrew/opt/rustup/bin` was placed before Homebrew Rust in PATH. The first
+version/desktop attempt correctly detected the differing system version 1.99.1.
 
-Erfolgreich:
+Successful:
 
 - `bun run format:check`
-- `bun run check` — keine Fehler oder Warnungen
+- `bun run check` — no errors or warnings
 - `bun run build`
 - `bun run check:versions`
-- `bun run types:generate` und Diff-Prüfung der generierten Dateien
-- `bun run test:ui` — 93 Tests bestanden
+- `bun run types:generate` and a diff check of generated files
+- `bun run test:ui` — 93 tests passed
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`
-- `cargo test --locked --workspace` — einschließlich des vorhandenen explizit
-  ignorierten Tests für echte Schlüsselbund-Schreibzugriffe
+- `cargo test --locked --workspace` — including the existing explicitly
+  ignored test for real keychain writes
 - `bun run native:build`
 - `cargo clippy --locked --workspace --all-targets --features sip-desktop/native -- -D warnings`
-- `bun run test:asterisk` — Registrierung und Medien-Smoke-Test, 16
-  Asterisk-Szenarien, 13 Sicherheitsprüfungen und ein Neustart-/Incoming-Test
-- `bun run desktop:build` — portables macOS-App- und DMG-Bundle
+- `bun run test:asterisk` — registration and media smoke test, 16
+  Asterisk scenarios, 13 security checks, and one restart/incoming test
+- `bun run desktop:build` — portable macOS app and DMG bundle
 - `git diff --check`
 
-Der Shortcut-Test erkennt experimentell das Entfernen der Wiederholungssperre.
-Die vorübergehende Mutation wurde unmittelbar zurückgenommen. Die Browserprüfung
-wurde zunächst ohne Suchschaltfläche rot beobachtet und danach grün ausgeführt.
-Eine zusätzliche Fokusprüfung erforderte das Zurücksetzen ihrer synthetischen
-Kontaktfreigabe, damit nachfolgende Berechtigungsszenarien unabhängig bleiben.
+The shortcut test experimentally detects removal of the repeat guard.
+The temporary mutation was reverted immediately. The browser check was first
+observed failing without the search button, then run successfully.
+An additional focus check required resetting its synthetic contact permission
+so that subsequent permission scenarios remained independent.
 
-Ebenfalls erfolgreich abgeschlossen:
+Also completed successfully:
 
-- `bun run test:ui:flows` — alle acht Abläufe: Kontakte, Verlauf, Telefon,
-  Gesprächssteuerung, Tastenkürzel, Wählvorschläge, Einstellungen und Layout.
-- `bun run desktop:build --features native` — natives macOS-App- und DMG-Bundle
-  mit bestätigtem nativen SBOM-Buildkontext. Der erste Versuch scheiterte am
-  lokalen LLVM-Suchpfad/Prozesslimit. Die Wiederholung mit
-  `DYLD_FALLBACK_LIBRARY_PATH` auf das Toolchain-`lib`-Verzeichnis und
-  `CARGO_BUILD_JOBS=2` war erfolgreich; Cargo gab dabei noch die gespeicherte
-  Strip-Warnung des vorigen Buildscript-Builds aus.
+- `bun run test:ui:flows` — all eight flows: contacts, history, phone,
+  call controls, keyboard shortcuts, dial suggestions, settings, and layout.
+- `bun run desktop:build --features native` — native macOS app and DMG bundle
+  with confirmed native SBOM build context. The first attempt failed due to the
+  local LLVM search path/process limit. Repeating it with
+  `DYLD_FALLBACK_LIBRARY_PATH` pointing to the toolchain `lib` directory and
+  `CARGO_BUILD_JOBS=2` succeeded; Cargo still printed the cached strip warning
+  from the previous build-script build.
 
-## Verbleibende Grenzen
+## Remaining limitations
 
-Die native macOS-Menüsuche wurde über die Tauri-Integration eingebunden und
-kompiliert, aber nicht manuell im Systemmenü bedient. Windows-Laufzeit, externe
-SIP-Anbieter und physische Audiogeräte wurden in diesem Auftrag nicht geprüft.
-Lokale Bundles sind ad hoc signiert und nicht notarisiert. Kein Hosted-CI-Ergebnis
-wird behauptet.
+Native macOS menu search was integrated through Tauri and compiled, but was
+not manually exercised in the system menu. Windows runtime, external SIP
+providers, and physical audio devices were not tested in this task.
+Local bundles are ad hoc signed and not notarized. No hosted CI result
+is claimed.
 
-## Erweiterung: Kontakte und Verlauf gemeinsam durchsuchen
+## Extension: search contacts and history together
 
-Auf ausdrücklichen Wunsch wurden Kontakte und Verlauf in „Ruf durchsuchen“
-integriert. Ab zwei Zeichen erscheinen bis zu acht Treffer pro Quelle; weitere
-Treffer öffnen die vorhandene Einzelansicht mit übernommenem Suchtext.
-Kontakttreffer öffnen die Kontaktkarte, Verlaufstreffer die genauen Anrufdetails.
-Ein Rückruf bleibt eine getrennte explizite Aktion. Telefonnummern verwenden die
-bestehende Normalisierung. Die Kontakt-Anzeigepräferenzen werden berücksichtigt.
+At the user's explicit request, contacts and history were integrated into
+“Ruf durchsuchen” (“Search Ruf”). Starting at two characters, up to eight results
+per source appear; additional results open the existing individual view with
+the search text carried over. Contact results open the contact card; history
+results open the exact call details. Calling back remains a separate explicit
+action. Phone numbers use the existing normalization. Contact display
+preferences are respected.
 
-Zusätzlich zur bisherigen Änderungsliste wurde
-`tests/ui/browser/global-search.mjs` angelegt; angepasst wurden `ActionSearch`,
-`App`, `ContactsPanel`, `HistoryPanel`, `shortcuts.ts`, die Menübeschriftung in
-`shell.rs`, der Browser-Runner, seine vorhandenen Shortcut-/Call-Control-Prüfungen,
-`DESIGN.md` und die oben verlinkte API-Dokumentation.
+In addition to the previous change list,
+`tests/ui/browser/global-search.mjs` was added; changes were made to
+`ActionSearch`, `App`, `ContactsPanel`, `HistoryPanel`, `shortcuts.ts`, the menu
+label in `shell.rs`, the browser runner, its existing shortcut/call-control
+checks, `DESIGN.md`, and the API documentation linked above.
 
-Wiederverwendet: `getHistory`, `searchContacts`, generierte `Contact`-/
-`HistoryEntry`-Modelle, `historyTitle`, `historyOutcomes`, `normalizeDialNumber`,
-Kontakt-ID-Fokus und bestehende Detail-/Anrufsteuerung. Keine neue Dependency,
-kein neuer IPC-Befehl und keine DTO-Änderung.
+Reused: `getHistory`, `searchContacts`, generated `Contact`/`HistoryEntry`
+models, `historyTitle`, `historyOutcomes`, `normalizeDialNumber`, contact ID
+focus, and existing detail/call controls. No new dependency, no new IPC command,
+and no DTO change.
 
-Neue Browserfälle prüfen gemeinsame Treffer, explizites Öffnen ohne Anruf,
-formatierte Telefonnummern, Kontaktfreigabeentzug, verspätete Antworten,
-Quellfehler, beide „Alle Treffer“-Übergaben, Suchtext-/Fokusübernahme und
-IME-Bestätigung. Der neue Browserfall wurde vor der Implementierung rot beobachtet.
-Abschließende Prüfungen dieser Erweiterung:
+New browser cases check combined results, explicit opening without calling,
+formatted phone numbers, contact permission revocation, delayed responses,
+source errors, both “Alle Treffer” (“All results”) handoffs, search text/focus
+transfer, and IME confirmation. The new browser case was observed failing
+before implementation. Final checks for this extension:
 
-- `bun run check`: keine Fehler oder Warnungen.
-- `bun run test:ui`: 96 Tests bestanden.
-- `bun run test:ui:flows`: alle neun Browserabläufe bestanden, einschließlich
-  neuer globaler Suche und abschließend wiederholtem Gesamtlauf.
-- `bun run format:check`, `bun run check:versions`, `git diff --check`: bestanden.
-- `cargo clippy --locked --workspace --all-targets -- -D warnings` und
-  `cargo test --locked --workspace`: bestanden; der bestehende echte
-  Schlüsselbund-Schreibtest bleibt absichtlich ignoriert.
-- `bun run types:generate`: erfolgreich, generierte Dateien ohne Diff.
-- Web-Produktionsbuild und `bun run desktop:build --features native`: bestanden;
-  aktuelles natives macOS-App- und DMG-Bundle mit passendem SBOM erstellt.
-  Zwei erste Paketversuche scheiterten an `Resource temporarily unavailable`
-  (OS-Fehler 35). Mit `CARGO_BUILD_JOBS=1`, `TOKIO_WORKER_THREADS=1`,
-  `RAYON_NUM_THREADS=1` und dem beschriebenen LLVM-Bibliothekspfad gelang der
-  vollständige Build. Die ältere gecachte Strip-Warnung bleibt sichtbar.
+- `bun run check`: no errors or warnings.
+- `bun run test:ui`: 96 tests passed.
+- `bun run test:ui:flows`: all nine browser flows passed, including the new
+  global search and a final repeated full run.
+- `bun run format:check`, `bun run check:versions`, `git diff --check`: passed.
+- `cargo clippy --locked --workspace --all-targets -- -D warnings` and
+  `cargo test --locked --workspace`: passed; the existing real keychain write
+  test remains intentionally ignored.
+- `bun run types:generate`: succeeded, generated files without a diff.
+- Web production build and `bun run desktop:build --features native`: passed;
+  a current native macOS app and DMG bundle with a matching SBOM were created.
+  Two initial packaging attempts failed with `Resource temporarily unavailable`
+  (OS error 35). With `CARGO_BUILD_JOBS=1`, `TOKIO_WORKER_THREADS=1`,
+  `RAYON_NUM_THREADS=1`, and the LLVM library path described above, the full
+  build succeeded. The older cached strip warning remains visible.
 
-Die zusätzliche Suche wurde mit synthetischen Kontakten/Anrufdaten und bei
-320 × 440 Pixeln visuell geprüft. Die SIP-/Audioimplementierung blieb unverändert;
-der oben dokumentierte Asterisk-Lauf stammt aus der ersten Erweiterung und wurde
-für die reine gemeinsame Suche nicht wiederholt. Windows und die manuelle native
-Menübedienung bleiben ungeprüft.
+The additional search was visually checked with synthetic contacts/call data
+and at 320 × 440 pixels. The SIP/audio implementation remained unchanged;
+the Asterisk run documented above was from the first extension and was not
+repeated for the combined search alone. Windows and manual native menu
+interaction remain untested.
 
-## Lokale Installation und Signatur
+## Local installation and signing
 
-Am 6. November 2026 wurde auf Wunsch die ältere laufende Installation unter
-`/Applications/Ruf.app` aktualisiert. Der neue native Build wurde zunächst separat
-mit der gültigen vorhandenen Apple-Development-Identität signiert und mit
-`codesign --verify --deep --strict` geprüft. Die designated requirement stimmt
-mit der vorherigen Installation überein.
+On November 6, 2026, the older running installation at
+`/Applications/Ruf.app` was updated at the user's request. The new native build
+was first signed separately with the valid existing Apple Development identity
+and checked with `codesign --verify --deep --strict`. The designated requirement
+matches the previous installation.
 
-Ruf wurde über den regulären Quit-Ablauf beendet, die frühere App lokal als
-Rollback-Sicherung behalten, die geprüfte neue App eingesetzt und erneut
-geöffnet. Die installierte Binärdatei stimmt per SHA-256 mit dem vorher geprüften
-signierten Update überein; Signaturprüfung, eingebetteter nativer SBOM-Buildkontext
-und laufender neuer App-Prozess wurden danach bestätigt. Benutzerkonten,
-Schlüsselbunddaten und Verlauf wurden nicht manuell verändert. Es handelt sich
-um eine Apple-Development-Signatur, nicht um einen notarisierten Developer-ID-Release.
+Ruf was closed through the regular Quit flow, the previous app was retained
+locally as a rollback backup, the verified new app was installed and reopened.
+The installed binary's SHA-256 matches the previously verified signed update;
+signature verification, the embedded native SBOM build context, and the running
+new app process were then confirmed. User accounts, keychain data, and history
+were not changed manually. This is an Apple Development signature, not a
+notarized Developer ID release.

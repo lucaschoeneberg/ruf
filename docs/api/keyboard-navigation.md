@@ -1,7 +1,8 @@
 # Menus, action search and keyboard navigation
 
 Ruf provides window-local shortcuts, a searchable action list and native menus.
-The magnifier in the phone header and **Cmd/Ctrl+K** open **Ruf durchsuchen**.
+The magnifier in the phone header and **Cmd/Ctrl+K** open **Search Ruf**.
+Menu and section names below are English descriptions of the current German UI.
 The shared result list groups actions, contacts and local call history. Action
 search matches all entered words against German labels and action synonyms.
 Contact/history results start after two characters. No permission prompt or
@@ -22,7 +23,7 @@ search result. Individual contacts, history and settings searches remain availab
   existing literal native history matching by name, number and account. Requests
   are delayed 200 ms, and stale/unmounted responses are ignored.
 - At most eight contacts and eight history rows appear initially. Extra matches
-  expose **Alle … anzeigen**, opening the existing full panel with its query
+  expose **Show all …**, opening the existing full panel with its query
   preserved. History results open the exact record's details and focus its row
   after the matching page arrives. Deleted results cannot authorize a callback.
 - Calling always requires the existing contact call or history callback button.
@@ -44,7 +45,7 @@ query matching and existing `PhoneError` classifications.
 
 | Shortcut (Cmd on macOS, Ctrl on Windows) | Action                                                                                                              |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Cmd/Ctrl+1 / +2 / +3                     | Tastatur / Kontakte / Verlauf                                                                                       |
+| Cmd/Ctrl+1 / +2 / +3                     | Dialer / Contacts / History                                                                                         |
 | Cmd/Ctrl+L                               | Focus number entry while idle                                                                                       |
 | Cmd/Ctrl+F                               | Focus current contacts/history search; from dialer/start, open contacts search. In Settings, focus settings search. |
 | Cmd/Ctrl+K                               | Search actions, contacts and history; discover shortcuts                                                            |
@@ -66,13 +67,13 @@ Desktop shortcuts use Tauri native accelerators; webview fallback handlers run
 only in browser preview, preventing duplicate invocation. No system-wide shortcut
 registration is introduced. Browser preview cannot place or control calls.
 
-**Ansicht** exposes destinations, focused search and action search. **Gespräch**
+**View** exposes destinations, focused search and action search. **Call**
 exposes state-dependent call controls with visible accelerators. Tray controls
-reuse the conversation menu without accelerators. **Hilfe** opens the action/
+reuse the conversation menu without accelerators. **Help** opens the action/
 shortcut overview, first-run help and diagnostics. The Help submenu uses Tauri's
 `HELP_SUBMENU_ID`, which registers the native macOS Help menu and its system menu
 search. Windows uses the same menu entries and the cross-platform action search.
-The full shortcut reference is also searchable in Settings → Diagnose & Hilfe.
+The full shortcut reference is also searchable in Settings → Diagnostics & Help.
 
 ## Internal native-to-window events
 

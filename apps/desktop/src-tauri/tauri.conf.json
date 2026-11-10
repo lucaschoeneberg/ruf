@@ -31,7 +31,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "shortDescription": "Ruf · kompaktes SIP-Softphone",
+    "shortDescription": "Ruf · compact SIP softphone",
     "resources": {
       "../../../LICENSE": "LICENSE",
       "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",

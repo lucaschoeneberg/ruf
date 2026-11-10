@@ -46,8 +46,8 @@ the phone session lock. Worker/lock failures use `storageFailure`. Non-macOS
 permission queries return `unsupported`. Tauri rejects malformed arguments and
 denied command permissions. No HTTP status codes or credentials are involved.
 
-The Datenschutz section in Ruf Settings displays the current Contacts permission
-and offers an explicit request. `section: "contacts"` opens Kontakte & Verlauf for
+The Privacy section in Ruf Settings displays the current Contacts permission
+and offers an explicit request. `section: "contacts"` opens Contacts & History for
 display, matching and history preferences; permission controls are under
 `section: "privacy"`. After denial, macOS does not prompt again; use the system privacy
 pane and enable Ruf there. The status refreshes when the window regains focus.
@@ -87,7 +87,8 @@ type ContactsSnapshot = {
   SIP account ID. It can change if the source replaces, links or unlinks a record.
   macOS's native contact unification is respected; this app does not merge namesakes.
 - `name` uses the native name formatter, falling back to organization, first phone
-  number or `Ohne Namen`. `organization` is empty when absent. Names are plain text.
+  number or the unnamed-contact label (`Ohne Namen` in the German UI).
+  `organization` is empty when absent. Names are plain text.
 - `phones` contains all labeled source phone numbers; contacts without a number
   remain visible. `number` retains its source spelling. `label` is the localized
   native label, or `Telefon` for an unlabeled number.
@@ -148,7 +149,7 @@ The compact phonebook calls a single supported number directly from its row;
 contacts with several numbers first expand an inline number chooser. Only one
 contact is expanded at a time. The star beside search toggles favorites-only
 filtering; the count is shown beside the heading. Source/privacy information
-remains in Einstellungen → Datenschutz instead of being repeated below the list.
+remains in Settings → Privacy instead of being repeated below the list.
 Inline details expose every original number, per-number copying, the fixed Apple
 Contacts app action targeting that contact's native ID and a scoped call-history link.
 The ID is percent-encoded into an `addressbook://` link and passed directly to
@@ -224,7 +225,7 @@ revocation or read failure clears the projection; withheld numbers are not resol
 Notifications use the same selected reference and preserve the anonymous setting.
 
 `contacts.matchGermanNumbers` defaults to true and can be disabled in
-Kontakte & Verlauf. With this explicit setting, national numbers beginning with
+Contacts & History. With this explicit setting, national numbers beginning with
 one 0 and at least seven dial characters match the corresponding +49/0049 form.
 Other countries, short extensions and service codes retain conservative exact
 matching. Multiple source contacts owning equivalent forms yield no identity.

@@ -19,8 +19,9 @@ service errors and timeouts return `nativeFailure`; unsupported delivery context
 can return `engineUnavailable`. Success reports OS acceptance, not proof of
 visible delivery: Focus and OS display choices still apply.
 
-The test is silent and contains only “Testbenachrichtigung” and
-“Benachrichtigungen von Ruf sind aktiviert.” It has no caller/account information,
+The test is silent and contains only the German text “Testbenachrichtigung”
+(“Test notification”) and “Benachrichtigungen von Ruf sind aktiviert.”
+(“Notifications from Ruf are enabled.”). It has no caller/account information,
 call token, Answer/Reject buttons or incoming-call category. macOS uses its own
 UUID identifier namespace and independent five-second settings/acceptance waits;
 it does not wait on the real-call delivery queue or touch its active token or

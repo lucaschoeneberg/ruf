@@ -89,8 +89,8 @@ macOS Contacts also needs `NSContactsUsageDescription` and the signed
 `com.apple.security.personal-information.addressbook` resource entitlement when
 using Hardened Runtime. Run `bun run test:macos-contacts target/aarch64-apple-darwin/release/bundle/macos/Ruf.app`
 after building; desktop CI verifies the shipped signature before artifact upload.
-The check never requests access or reads any contact. In Ruf open Einstellungen →
-Datenschutz to see the OS permission and explicitly request access. After denial,
+The check never requests access or reads any contact. In Ruf open Settings →
+Privacy to see the OS permission and explicitly request access. After denial,
 the app opens System Settings → Privacy & Security → Contacts instead of trying
 to prompt again. Only the user changes the system permission; never reset TCC
 automatically. See [Apple's Address Book entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.personal-information.addressbook)
