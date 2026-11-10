@@ -102,7 +102,9 @@ Neither repository URLs nor production signing identities are invented.
 
 Local checks can validate workflow syntax and build the current host's package.
 Only execution on GitHub can verify hosted cache, permissions, Windows packaging
-and release upload behavior. Record those results after the first connected run.
+and release upload behavior. The [10 November hosted verification](verification/2026-11-10-github-actions.md)
+records five successful CI jobs and validated native installers for its frozen
+revision. Draft-release upload remains a separate, unqualified workflow.
 
 ## Build-specific software inventories
 
@@ -114,5 +116,6 @@ The compiled Cargo build validates that context before embedding the frontend.
 After success, a CLI-only export reads the SBOM from the executable itself. A
 hash manifest associates that JSON with the executable and current installers.
 Both artifact collection and draft creation include one SBOM and one hash manifest
-per target. Hosted execution is still required to verify Windows packaging and
-GitHub artifact/upload behavior.
+per target. The [hosted verification record](verification/2026-11-10-github-actions.md)
+includes observed Windows/macOS packaging, artifact uploads and independently
+checked installer/SBOM hashes for its stated revision.
