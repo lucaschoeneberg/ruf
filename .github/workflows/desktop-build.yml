@@ -75,6 +75,21 @@ jobs:
       - run: bun run build
       - run: cargo clippy --locked --workspace --all-targets --features sip-desktop/native -- -D warnings
       - run: cargo test --locked --workspace --features sip-desktop/native
+        env:
+          TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - name: Retain synthetic PCM after a failed native check
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: native-test-recordings-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/sip-events-early-pcm.wav
+            ${{ runner.temp }}/sip-events-refusal-pcm-488.wav
+            ${{ runner.temp }}/sip-events-refusal-pcm-491.wav
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build the installer
         run: bun run desktop:build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --features native
       - name: Verify signed microphone permissions

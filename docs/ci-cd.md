@@ -33,6 +33,11 @@ macOS builds request both `app,dmg`: Tauri retains Ruf.app so the signature and
 permission checks run against the finished bundle before uploading the DMG.
 DMG-only packaging removes its temporary app and cannot support those checks.
 
+Native workspace tests use the job's temporary directory. On failure, the
+desktop jobs retain only the three explicitly named early-media/refused-hold
+WAV recordings for seven days. These fixtures contain generated test tones;
+the recordings help distinguish sender scheduling from native media failures.
+
 The shared setup installs the pinned Bun version from `.bun-version` and runs
 `bun install --frozen-lockfile`. It explicitly installs the Rust toolchain from
 `rust-toolchain.toml`, without relying on Rustup's deprecated auto-installation.
@@ -44,12 +49,12 @@ PR workflows have read-only content permissions, do not persist checkout
 credentials and do not receive signing secrets. Draft creation alone uses write
 permission. Fork PRs never run the tag release path.
 
-## Repository setup after connecting GitHub
+## Repository settings
 
 Enable Actions. Protect `main` with a ruleset requiring a pull request, review and
 the actual check names from the first workflow run. Include Portable checks and
-both desktop jobs and Asterisk SIP/RTP echo; prohibit force pushes. The files cannot enforce server-side
-rules before a repository exists. Dependabot should be enabled there as well.
+both desktop jobs and Asterisk SIP/RTP echo; prohibit force pushes. The files do
+not activate server-side rules themselves. Dependabot should be enabled there as well.
 Enable private vulnerability reporting and publish a maintained private contact
 as described in [SECURITY.md](../SECURITY.md). Community files and issue templates
 are versioned here; they do not activate GitHub settings by themselves.

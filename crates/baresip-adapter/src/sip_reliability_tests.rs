@@ -29,8 +29,11 @@ fn early_media_pcm_continues_after_sdp_less_ringing() {
     let _guard = crate::NATIVE_TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let mut lab = Lab::new("early-pcm");
     let recording = std::env::temp_dir().join("sip-events-early-pcm.wav");
+    if let Err(error) = std::fs::remove_file(&recording) {
+        assert_eq!(error.kind(), ErrorKind::NotFound, "{error}");
+    }
+    let mut lab = Lab::new("early-pcm");
     let invite = lab.outgoing();
     let port: u16 = invite
         .lines()
@@ -49,33 +52,24 @@ fn early_media_pcm_continues_after_sdp_less_ringing() {
     lab.reply(&invite, "183 Session Progress", "", &body);
     lab.wait(|s| s.call == CallState::EarlyMedia);
     let mut sequence = 0_u16;
-    let mut send_audio = |half_period: usize| {
-        let mut next = Instant::now();
-        for _ in 0..120 {
-            let mut packet = vec![0x80, 0];
-            packet.extend_from_slice(&sequence.to_be_bytes());
-            packet.extend_from_slice(&(u32::from(sequence) * 160).to_be_bytes());
-            packet.extend_from_slice(&1234_u32.to_be_bytes());
-            packet.extend((0..160).map(|i| {
-                if i % (half_period * 2) < half_period {
-                    0x9c
-                } else {
-                    0x1c
-                }
-            }));
-            rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
-            sequence = sequence.wrapping_add(1);
-            next += Duration::from_millis(20);
-            thread::sleep(next.saturating_duration_since(Instant::now()));
-        }
-    };
     // The pre-ringing 400Hz tone cannot satisfy the post-ringing 500Hz check.
-    send_audio(10);
+    assert!(
+        stream_tone_until(&rtp, port, &mut sequence, 10, || {
+            std::fs::metadata(&recording).is_ok_and(|m| m.len() >= 32000)
+        }),
+        "pre-ringing PCM timed out"
+    );
     let baseline = std::fs::metadata(&recording).unwrap().len() as usize;
     assert!(baseline > 16000);
     lab.reply(&invite, "180 Ringing", "", "");
     lab.settle();
-    send_audio(8);
+    assert!(
+        stream_tone_until(&rtp, port, &mut sequence, 8, || recorded_500_hz_pcm(
+            &recording, baseline
+        )),
+        "fresh 500Hz PCM after 180 timed out: baseline={baseline}, recorded={:?}",
+        std::fs::metadata(&recording).map(|m| m.len())
+    );
     let bytes = std::fs::read(&recording).unwrap();
     assert!(
         bytes.len() >= baseline + 16000,

@@ -1669,12 +1669,67 @@ fn contains_500_hz_pcm(samples: &[i16]) -> bool {
     })
 }
 
+fn recorded_500_hz_pcm(path: &std::path::Path, baseline: usize) -> bool {
+    let bytes = std::fs::read(path).unwrap_or_default();
+    let samples: Vec<_> = bytes
+        .get(baseline..)
+        .unwrap_or_default()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes(*b))
+        .collect();
+    contains_500_hz_pcm(&samples)
+}
+
+fn stream_tone_until(
+    rtp: &UdpSocket,
+    port: u16,
+    sequence: &mut u16,
+    half_period: usize,
+    mut ready: impl FnMut() -> bool,
+) -> bool {
+    let deadline = Instant::now() + TIMEOUT;
+    let mut next = Instant::now();
+    let mut packets = 0;
+    while Instant::now() < deadline {
+        let sent = Instant::now();
+        let mut packet = vec![0x80, 0];
+        packet.extend_from_slice(&sequence.to_be_bytes());
+        packet.extend_from_slice(&(u32::from(*sequence) * 160).to_be_bytes());
+        packet.extend_from_slice(&1234_u32.to_be_bytes());
+        packet.extend((0..160).map(|i| {
+            if i % (half_period * 2) < half_period {
+                0x9c
+            } else {
+                0x1c
+            }
+        }));
+        rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
+        *sequence = sequence.wrapping_add(1);
+        packets += 1;
+        if packets % 10 == 0 && ready() {
+            return true;
+        }
+        next += Duration::from_millis(20);
+        // A delayed runner must not inject a catch-up burst into the jitter buffer.
+        if next <= sent {
+            next = sent + Duration::from_millis(20);
+        }
+        thread::sleep(next.saturating_duration_since(Instant::now()));
+    }
+    ready()
+}
+
 fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {
     let _guard = crate::NATIVE_TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let mut lab = Lab::new(label);
     let recording = std::env::temp_dir().join(format!("sip-events-{label}.wav"));
+    if let Err(error) = std::fs::remove_file(&recording) {
+        assert_eq!(error.kind(), ErrorKind::NotFound, "{error}");
+    }
+    let mut lab = Lab::new(label);
     let dialog = lab.incoming();
     let port: u16 = dialog
         .lines()
@@ -1687,21 +1742,6 @@ fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {
         .unwrap();
     let rtp = UdpSocket::bind("127.0.0.1:9000").unwrap();
     let mut sequence = 0_u16;
-    let mut send_audio = || {
-        let mut next = Instant::now();
-        for _ in 0..120 {
-            let mut packet = vec![0x80, 0];
-            packet.extend_from_slice(&sequence.to_be_bytes());
-            packet.extend_from_slice(&(u32::from(sequence) * 160).to_be_bytes());
-            packet.extend_from_slice(&1234_u32.to_be_bytes());
-            // Known nonzero 500 Hz PCMU square wave; no microphone/hardware.
-            packet.extend((0..160).map(|i| if i % 16 < 8 { 0x9c } else { 0x1c }));
-            rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
-            sequence = sequence.wrapping_add(1);
-            next += Duration::from_millis(20);
-            thread::sleep(next.saturating_duration_since(Instant::now()));
-        }
-    };
     let assert_tone = |bytes: &[u8], phase: &str| {
         assert!(
             bytes.len() >= 16000,
@@ -1722,7 +1762,12 @@ fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {
         );
         println!("{status} {phase}: fresh PCM={} samples", samples.len());
     };
-    send_audio();
+    assert!(
+        stream_tone_until(&rtp, port, &mut sequence, 8, || recorded_500_hz_pcm(
+            &recording, 0
+        )),
+        "{status}: baseline tone timed out"
+    );
     assert_tone(&std::fs::read(&recording).unwrap(), "baseline");
     let id = lab.engine.snapshot().unwrap().call_id.unwrap();
     lab.engine.set_call_muted(&id, true).unwrap();
@@ -1735,7 +1780,14 @@ fn refused_hold_restores_incoming_pcm(status: &str, label: &str) {
     assert!(state.calls[0].muted);
     // Restarting aufile can truncate its file. Measure the new pipeline only.
     let baseline = std::fs::metadata(&recording).unwrap().len();
-    send_audio();
+    assert!(
+        stream_tone_until(&rtp, port, &mut sequence, 8, || recorded_500_hz_pcm(
+            &recording,
+            baseline as usize
+        )),
+        "{status}: post-refusal tone timed out: baseline={baseline}, recorded={:?}",
+        std::fs::metadata(&recording).map(|m| m.len())
+    );
     let bytes = std::fs::read(&recording).unwrap();
     let fresh = &bytes[(baseline as usize)..];
     assert_tone(fresh, "post-refusal");
