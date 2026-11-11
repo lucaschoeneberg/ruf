@@ -79,6 +79,12 @@ test("both offline release-note bundles retain every release and change", async 
   expect(german.map((entry) => entry.changes.length)).toEqual(
     english.map((entry) => entry.changes.length),
   );
-  expect(german[0]?.title).toBe("0.1.0 · Vorschau");
-  expect(german[0]?.changes[0]).toContain("Durchsuche Ruf");
+  const manifest: { version: string } = await Bun.file(
+    new URL("../../package.json", import.meta.url),
+  ).json();
+  expect(german[0]?.title).toBe(`${manifest.version} · Vorschau`);
+  expect(english[0]?.title).toBe(`${manifest.version} · Preview`);
+  expect(
+    german.find((entry) => entry.title === "0.1.0 · Vorschau")?.changes[0],
+  ).toContain("Durchsuche Ruf");
 });

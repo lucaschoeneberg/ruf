@@ -1,5 +1,11 @@
 # What's new in Ruf?
 
+## 0.1.1 · Preview
+
+- Free Developer Preview with German and English phone/settings UI, native menus and app-owned notifications. No in-app purchases.
+- Fix platform-specific menu compilation and keep synthetic localization polling consistent across desktop targets.
+- Add current UI media, a first-call tester guide and a compatibility-report form for controlled SIP testing.
+
 ## 0.1.0 · Preview
 
 - Search Ruf with ⌘K on Mac or Ctrl+K on Windows for actions, authorized contacts and past calls. Results open existing details; a call starts only through its explicit call action. Keyboard shortcuts and native menus provide direct access to call controls.

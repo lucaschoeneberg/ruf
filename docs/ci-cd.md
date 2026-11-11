@@ -1,6 +1,6 @@
 # Git and CI/CD
 
-The 0.1.0 preview is hosted in the public
+The Ruf Developer Preview is hosted in the public
 [mardu-systems/ruf repository](https://github.com/mardu-systems/ruf).
 The initial release-preparation snapshot was pushed to `main` on 10 November 2026.
 Setup does not push, tag or publish a release.
@@ -23,7 +23,7 @@ Setup does not push, tag or publish a release.
   job must pass before a separate write-enabled job downloads this run's two
   installers and creates a **draft prerelease**. It does not publish.
   An existing release is not updated; correct/delete an obsolete draft explicitly
-  before retrying draft creation. [0.1.0 notes](releases/0.1.0.md) describe this
+  before retrying draft creation. [0.1.1 notes](releases/0.1.1.md) describe this
   preview; add notes matching each new version before tagging. The draft includes
   `SHA256SUMS` with plain installer filenames, verifiable after downloading all
   installers and the checksum file into the same directory. Matching per-target

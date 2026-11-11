@@ -7,7 +7,7 @@
 **A compact SIP softphone for macOS and Windows.**
 
 [![CI](https://github.com/mardu-systems/ruf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mardu-systems/ruf/actions/workflows/ci.yml)
-[![Version: 0.1.0 Developer Preview](https://img.shields.io/badge/Version-0.1.0%20Developer%20Preview-3b82f6)](docs/releases/0.1.0.md)
+[![Version: 0.1.1 Developer Preview](https://img.shields.io/badge/Version-0.1.1%20Developer%20Preview-3b82f6)](docs/releases/0.1.1.md)
 [![Target platforms: macOS and Windows](https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows-64748b)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 
@@ -19,12 +19,11 @@ Ruf connects your desktop to a SIP telephone system. Dial numbers or extensions,
 manage multiple accounts, and keep contacts and recent calls in a clear interface.
 Mute, hold, the DTMF keypad and transfer controls stay within reach during a call.
 
-**Ruf 0.1.0 Developer Preview is free and has no in-app purchases.** It is intended
-for isolated test networks and is not qualified for production use. The first
-release is being prepared; public installers appear in
-[GitHub Releases](https://github.com/mardu-systems/ruf/releases) only after publication.
+**Ruf 0.1.1 Developer Preview is free and has no in-app purchases.** It is intended
+for isolated test networks and is not qualified for production use. Published installers are listed in
+[GitHub Releases](https://github.com/mardu-systems/ruf/releases).
 You can [build from source](#run-locally) now. Read the
-[tester guide](docs/testing-preview.md) and [release notes](docs/releases/0.1.0.md)
+[tester guide](docs/testing-preview.md) and [release notes](docs/releases/0.1.1.md)
 before connecting a test account.
 
 ## UI demo
@@ -183,7 +182,7 @@ check only the portable packages by default.
 - [GitHub, CI/CD and signing](docs/ci-cd.md)
 - [Verification records and limitations](docs/verification/README.md)
 - [Try the preview and report compatibility](docs/testing-preview.md)
-- [First release preparation and community task drafts](docs/releases/0.1.0-launch.md)
+- [Community task drafts](docs/releases/0.1.0-launch.md)
 - [Privacy policy draft](docs/privacy-policy-ruf.en.md)
 - [Contributing](CONTRIBUTING.md)
 - [Code of conduct](CODE_OF_CONDUCT.md), [security reports](SECURITY.md) and

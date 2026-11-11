@@ -14,7 +14,7 @@ interoperability or OS permissions.
 - `social-preview.png`: 1280×640 repository sharing image using the canonical
   Ruf mark, actual dialer capture and bundled IBM Plex Sans.
 - The same generation writes an MP4 to ignored
-  `artifacts/release-preparation/media/ruf-0.1.0-ui-demo.mp4` for later sharing.
+  `artifacts/release-preparation/media/ruf-0.1.1-ui-demo.mp4` for later sharing.
 
 Regenerate from the repository root:
 

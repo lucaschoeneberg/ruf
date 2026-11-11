@@ -9,7 +9,7 @@ import type {
 // Store artwork uses only synthetic IPC responses. No native process, SIP peer,
 // system address book, credentials, microphone or persisted user data is read.
 // Keep this initializer self-contained for Playwright context.addInitScript.
-export function installAppStoreFixtures() {
+export function installAppStoreFixtures(version = "0.1.1") {
   window.isTauri = true;
   localStorage.setItem("sip.introduction.v1", "seen");
   const callbacks = new Map<number, FixtureCallback>();
@@ -214,8 +214,7 @@ export function installAppStoreFixtures() {
         )
       )
         return;
-      if (command === "get_app_info")
-        return { version: "0.1.0", telephony: "linked" };
+      if (command === "get_app_info") return { version, telephony: "linked" };
       if (command === "get_engine_snapshot") return structuredClone(state);
       if (command === "get_preferences")
         return {

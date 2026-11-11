@@ -1,6 +1,6 @@
 # Release checklist
 
-Ruf 0.1.0 is a development preview for isolated test networks. A passing build
+Ruf 0.1.1 is a development preview for isolated test networks. A passing build
 allows a reviewable installer draft; it does not establish production readiness.
 Use [development commands](development.md) and [CI/release behavior](ci-cd.md).
 

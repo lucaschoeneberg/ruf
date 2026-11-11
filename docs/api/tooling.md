@@ -50,7 +50,8 @@ use the checked-in PNG without running the generator. See the
 `bun run media:repository` accepts no arguments and requires the existing
 Playwright/Chromium installation plus `ffmpeg` on PATH. Optional
 `SIP_UI_BROWSER_EXECUTABLE` selects a browser executable. It captures the actual
-English UI through the existing synthetic App Store fixtures, then overwrites
+English UI through the existing synthetic App Store fixtures, taking the version
+from the root package manifest, then overwrites
 only the documented media in `docs/screenshots`. PNG frames and a capture report
 are written to ignored `output/playwright/repository`; a 30-second MP4 goes to
 ignored `artifacts/release-preparation/media`. Off-origin browser traffic is

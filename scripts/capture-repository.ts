@@ -7,6 +7,10 @@ import { chromium } from "playwright-core";
 import { installAppStoreFixtures } from "../tests/ui/browser/app-store-fixtures.ts";
 
 const root = resolve(import.meta.dir, "..");
+const manifest: typeof import("../package.json") = await Bun.file(
+  join(root, "package.json"),
+).json();
+const version = manifest.version;
 const output = join(root, "docs/screenshots");
 const scratch = join(root, "output/playwright/repository");
 const media = join(root, "artifacts/release-preparation/media");
@@ -76,7 +80,7 @@ try {
     reducedMotion: "reduce",
   });
   await context.addInitScript({
-    content: `window.__rufTestLanguage = "en"; (${installAppStoreFixtures.toString()})();`,
+    content: `window.__rufTestLanguage = "en"; (${installAppStoreFixtures.toString()})(${JSON.stringify(version)});`,
   });
   const page = await context.newPage();
   const errors: string[] = [];
@@ -198,7 +202,7 @@ try {
         ? "main{grid-template-columns:260px 1fr;gap:30px;padding:32px}h1{font-size:30px}p{font-size:16px}"
         : "";
     await stage.setContent(
-      `<style>${css}${layout}</style><main><section><div class="brand"><img src="data:image/svg+xml;base64,${icon}" alt="">Ruf</div><small>0.1.0 DEVELOPER PREVIEW</small><h1>${frame.heading}</h1><p>${frame.detail}</p><div class="tag">Rust · Tauri · Svelte · baresip</div><p class="note">UI preview with sample data.<br>No live call or audio in this walkthrough.</p></section><div class="window"><div class="title">Ruf</div><img class="screen" src="${frame.image}" alt="Ruf interface"></div></main>`,
+      `<style>${css}${layout}</style><main><section><div class="brand"><img src="data:image/svg+xml;base64,${icon}" alt="">Ruf</div><small>${version} DEVELOPER PREVIEW</small><h1>${frame.heading}</h1><p>${frame.detail}</p><div class="tag">Rust · Tauri · Svelte · baresip</div><p class="note">UI preview with sample data.<br>No live call or audio in this walkthrough.</p></section><div class="window"><div class="title">Ruf</div><img class="screen" src="${frame.image}" alt="Ruf interface"></div></main>`,
     );
     await stage.evaluate(() => document.fonts.ready);
     await stage.locator("img").evaluateAll(async (images) => {
@@ -214,7 +218,7 @@ try {
   const first = frames[0]!;
   await stage.setViewportSize({ width: 1280, height: 640 });
   await stage.setContent(
-    `<style>${css}main{grid-template-columns:1fr 360px;gap:70px;padding:32px 90px}h1{font-size:52px}p{font-size:21px}</style><main><section><div class="brand"><img src="data:image/svg+xml;base64,${icon}" alt="">Ruf</div><h1>Your SIP account.<br>A compact desktop phone.</h1><p>Open source. Rust, Tauri and Svelte.<br>macOS and Windows targets.</p><div class="tag">0.1.0 Developer Preview · Free</div><p class="note">github.com/mardu-systems/ruf<br>Interface preview with sample data.</p></section><div class="window"><div class="title">Ruf</div><img class="screen" src="${first.image}" alt="Ruf dialer"></div></main>`,
+    `<style>${css}main{grid-template-columns:1fr 360px;gap:70px;padding:32px 90px}h1{font-size:52px}p{font-size:21px}</style><main><section><div class="brand"><img src="data:image/svg+xml;base64,${icon}" alt="">Ruf</div><h1>Your SIP account.<br>A compact desktop phone.</h1><p>Open source. Rust, Tauri and Svelte.<br>macOS and Windows targets.</p><div class="tag">${version} Developer Preview · Free</div><p class="note">github.com/mardu-systems/ruf<br>Interface preview with sample data.</p></section><div class="window"><div class="title">Ruf</div><img class="screen" src="${first.image}" alt="Ruf dialer"></div></main>`,
   );
   await stage.evaluate(() => document.fonts.ready);
   await stage.locator("img").evaluateAll(async (images) => {
@@ -258,7 +262,7 @@ try {
       "yuv420p",
       "-movflags",
       "+faststart",
-      join(media, "ruf-0.1.0-ui-demo.mp4"),
+      join(media, `ruf-${version}-ui-demo.mp4`),
     ],
     { stdio: "pipe" },
   );

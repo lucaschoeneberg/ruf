@@ -1,5 +1,11 @@
 # Was ist neu in Ruf?
 
+## 0.1.1 · Vorschau
+
+- Kostenlose Developer Preview mit deutscher und englischer Telefonoberfläche, Einstellungen, nativen Menüs und App-Mitteilungen. Keine In-App-Käufe.
+- Plattformspezifische Menü-Kompilierung korrigiert und synthetische Sprachtest-Abfragen für die Desktop-Ziele vereinheitlicht.
+- Aktuelle UI-Medien, eine Anleitung für den ersten Testanruf und ein Formular für Kompatibilitätsberichte ergänzt.
+
 ## 0.1.0 · Vorschau
 
 - Durchsuche Ruf mit ⌘K auf dem Mac oder Strg+K unter Windows nach Aktionen, freigegebenen Kontakten und früheren Anrufen. Ergebnisse öffnen vorhandene Details; ein Anruf startet nur über die ausdrückliche Anrufaktion. Tastenkombinationen und native Menüs bieten direkten Zugriff auf Gesprächsaktionen.

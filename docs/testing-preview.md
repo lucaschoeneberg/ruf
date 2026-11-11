@@ -1,13 +1,13 @@
 # Try the Ruf Developer Preview
 
-Ruf 0.1.0 is a free Developer Preview for people with a test SIP account or PBX.
+Ruf 0.1.1 is a free Developer Preview for people with a test SIP account or PBX.
 There are no in-app purchases. Use an isolated test environment and keep another
 way to make important calls. Provider and platform qualification is still open.
 
 ## Get the preview
 
 Check [GitHub Releases](https://github.com/mardu-systems/ruf/releases) for a
-published **Ruf 0.1.0 Developer Preview**. Until that release is published there
+published **Ruf 0.1.1 Developer Preview**. Until that release is published there
 is no public installer; use the [source setup](../README.md#run-locally).
 GitHub's automatic source archives are not desktop installers.
 

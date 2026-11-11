@@ -283,7 +283,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "baresip-adapter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "libc",
@@ -2991,7 +2991,7 @@ dependencies = [
 
 [[package]]
 name = "phone-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3793,7 +3793,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "sip-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "baresip-adapter",
  "getrandom 0.4.3",
