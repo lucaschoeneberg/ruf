@@ -116,6 +116,10 @@ remains limited to isolated test networks. `bun run dev` starts Tauri without
 native telephony; `bun run dev:web` starts only the web interface without the
 native API.
 
+Use `bun run clean` to remove local build and test outputs. Preview with
+`bun run clean --dry-run`; add `--all` to also remove the native SDK and
+workspace dependencies. See the [cleanup contract](docs/api/tooling.md#cleanup).
+
 The optional [Asterisk lab](tests/interop/asterisk/README.md) additionally requires
 Docker with Compose, Python 3 and the `openssl` command:
 
