@@ -105,7 +105,7 @@ jobs:
           TEMP: ${{ runner.temp }}
       - name: Retain synthetic PCM after a failed native check
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-test-recordings-${{ matrix.target }}
           path: |
@@ -122,7 +122,7 @@ jobs:
       - name: Verify signed contacts permissions
         if: runner.os == 'macOS'
         run: bun run test:macos-contacts target/${{ matrix.target }}/release/bundle/macos/Ruf.app
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.target }}
           path: |
