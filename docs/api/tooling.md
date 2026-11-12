@@ -33,6 +33,20 @@ with `localization` selecting only the language-switch/changelog-race flow.
 An unsupported `SIP_UI_LANGUAGE` fails the command. These are test-runner
 controls, not application preference or language overrides.
 
+## Native network and media regressions
+
+`bun run test:network-roam` requires the pinned Rust toolchain, a C compiler,
+CMake and the matching staged native SDK. It uses no new arguments or environment
+variables. In addition to the existing network state-machine, call-action and
+macOS DNS-lifetime checks, it builds and runs the native jitter-buffer probe.
+That probe emits six JSON lines comparing fixed 100–200 ms and adaptive 40–200 ms
+profiles at 0, 12 and 40 ms synthetic arrival variation. Each line includes
+`profile`, `minimum_ms`, `input_jitter_ms`, `first_playout_ms`, `packets_sent`,
+`packets_played` and `put_errors`. Every scenario must play 100 packets without
+insertion errors. Missing SDK/tools, compilation or assertion/probe failures
+exit nonzero; temporary harness build directories are removed on exit. No
+microphone, speaker, real call or end-to-end latency measurement is involved.
+
 ## DMG artwork
 
 `bun apps/desktop/src-tauri/dmg/generate.ts` requires macOS and an existing

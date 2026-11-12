@@ -1,6 +1,6 @@
 # Native baresip SDK
 
-`bun run native:build` fetches the exact baresip/re 4.12.0 revisions in
+`bun run native:build` fetches the exact baresip/re 4.13.0 revisions in
 [sources.json](sources.json), verifies clean source checkouts, builds static
 libraries and stages `native/install/<Rust target>/`. Re-running is supported.
 Sources, build trees, SDKs, recordings and diagnostic logs are ignored by Git.
@@ -26,6 +26,21 @@ sentinel or second SIP message builder is used.
 The native SBOM hashes each library’s ordered patch texts and rejects stale
 manifests, so control hooks remain part of the exported build identity.
 Do not edit the fetched checkouts; update the pins deliberately instead.
+After changing pins, move an existing clean `native/build/sources/` directory
+aside before rebuilding. The builder deliberately rejects a checkout at an old
+revision rather than resetting or overwriting local sources. Staged SDKs must
+also be rebuilt; exact source and patch checks reject the previous SDK.
+
+### Integration of 4.13
+
+The existing media path now uses upstream RTP-padding removal, bounded multipart
+SDP parsing, stronger jitter adaptation and retained initial source module/device
+identity. The application keeps its adaptive 40–200 ms range and existing
+mute/hold/resume APIs. Upstream transmit-thread start/stop helpers are private and
+need no adapter calls. Custom close headers and optional AMR/ZRTP/WebRTC-AEC
+modules are not enabled without a product requirement. All eight local patches
+remain; only the NAT-test and call-control-header contexts needed rebasing.
+See the [behavioral contract](../docs/api/sip-events.md#native-sdk-413).
 
 Supported build hosts: macOS arm64, Windows MSVC x64; Linux x64/arm64 is available
 for headless interoperability tests. Cross compilation is not implemented.
@@ -196,9 +211,11 @@ native/build/latency-probe
 ```
 
 This uses a virtual clock and synthetic RTP timing: fixed 100–200 ms versus
-adaptive 40–200 ms, no jitter and a repeated 0–12 ms arrival variation. Each
+adaptive 40–200 ms, no jitter and repeated 0–12 ms / 0–40 ms arrival variations. Each
 scenario must play all 100 packets with no insertion errors. It does not test
 hardware latency, larger jitter spikes, packet loss or a real VPN call.
+`bun run test:network-roam` also builds this probe with strict compiler warnings
+and runs all six scenarios, together with its existing network/call/DNS harnesses.
 
 The bridge uses a dedicated libre thread and message queue. A bounded pending
 queue rejects overload, and a timer observes an allocation-free shutdown flag.
@@ -216,7 +233,7 @@ production releases.
 
 - [Upstream build and source](https://github.com/baresip/baresip)
 - [Library integration](https://github.com/baresip/baresip/wiki/Using-baresip-as-a-Library)
-- [Pinned public API](https://github.com/baresip/baresip/blob/9cfab81550acc4bd38d6580d79b45cc6eea65cd6/include/baresip.h)
+- [Pinned public API](https://github.com/baresip/baresip/blob/8a4f18c1c1b5331daa026236dcdd108deff601e8/include/baresip.h)
 - [Recorded verification and limits](../docs/verification/README.md#native-sip-and-audio)
 
 ## Sound routing

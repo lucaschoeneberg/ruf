@@ -40,7 +40,7 @@ Apache-2.0 components retain their own conditions and notices. Discuss copyleft
 or unusual terms before inclusion; open source does not mean material can be
 redistributed as MIT. Do not import material with unresolved rights or license terms.
 
-Native builds link baresip and libre 4.12.0 (BSD-3-Clause) plus host-resolved
+Native builds link baresip and libre 4.13.0 (BSD-3-Clause) plus host-resolved
 OpenSSL 3.x (Apache-2.0). Exact source pins, selected modules and license texts
 are recorded under `native/` and in THIRD_PARTY_NOTICES. The SDK records the
 resolved OpenSSL version. Complete the source-file/transitive-module inventory

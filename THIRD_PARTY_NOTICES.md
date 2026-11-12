@@ -37,8 +37,8 @@ in desktop bundles. Own application code remains MIT.
 
 | Component                             | Version/revision                                                         | License and source                                                                                     |
 | ------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| baresip, selected G.711/audio modules | 4.12.0 / `9cfab81550acc4bd38d6580d79b45cc6eea65cd6`                      | BSD-3-Clause; [source](https://github.com/baresip/baresip), [license](native/licenses/baresip-LICENSE) |
-| libre/re (including rem)              | 4.12.0 / `65555dad439de9d6a81b3ee6092b9c096585249b`                      | BSD-3-Clause; [source](https://github.com/baresip/re), [license](native/licenses/re-LICENSE)           |
+| baresip, selected G.711/audio modules | 4.13.0 / `8a4f18c1c1b5331daa026236dcdd108deff601e8`                      | BSD-3-Clause; [source](https://github.com/baresip/baresip), [license](native/licenses/baresip-LICENSE) |
+| libre/re (including rem)              | 4.13.0 / `b827bcaf55a18be141ca7bcee1e22872a3a29656`                      | BSD-3-Clause; [source](https://github.com/baresip/re), [license](native/licenses/re-LICENSE)           |
 | OpenSSL                               | Host-resolved 3.x; exact version recorded in SDK manifest (local: 3.5.9) | Apache-2.0; [source](https://github.com/openssl/openssl), [license](native/licenses/openssl-LICENSE)   |
 
 The libre SDK includes a local [SIP NAT patch](native/patches/README.md) applied
