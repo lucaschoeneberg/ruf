@@ -1,5 +1,15 @@
 # Local libre SIP NAT extension
 
+## Upstream 4.13 compatibility
+
+The exact 4.13.0 baresip/libre release commits are in `native/sources.json`.
+All eight ordered patches remain in the SDK identity. The NAT test registrations
+now retain upstream's `sip_transp_udp_sock` test, and the call-control header
+extension retains upstream's `call_set_close_headers` declaration. These are
+context changes only; local policy and control implementations are unchanged.
+Upstream provides the multipart-SDP bounds fix, RTP-padding removal, jitter
+adaptation and source-device retention without an additional local media patch.
+
 ## SIP reliability patches
 
 `re-reliability.patch` and `baresip-reliability.patch` apply after the existing
@@ -64,7 +74,7 @@ ordinary native scenario tests cover the same lifecycle on other platforms.
 
 ## Baresip REFER policy
 
-`baresip-refer-policy.patch` applies to the pinned baresip 4.12.0 revision. It
+`baresip-refer-policy.patch` applies to the pinned baresip 4.13.0 revision. It
 enforces the existing disabled account transfer flag for out-of-dialog REFER,
 returning 405 with the actual Allow list before a request can be accepted.
 In-dialog rejection uses libre's existing 501 path. The app also removes REFER,
@@ -72,12 +82,12 @@ replaces and norefersub advertisements. No transfer target is dialed automatical
 The SDK builder preserves pristine upstream checkouts, applies this small patch
 in an isolated copy and records exact patch text in sdk.json. Adapter builds
 reject older SDKs. Native SIP tests cover both request forms and call survival.
-Upstream BSD notices and source pins are unchanged.
+The patch preserves upstream BSD notices; source pins are recorded in `sources.json`.
 
 ## Libre NAT patch
 
 `re-sip-nat.patch` applies only to re revision
-`65555dad439de9d6a81b3ee6092b9c096585249b` (4.12.0). The SDK builder verifies
+`b827bcaf55a18be141ca7bcee1e22872a3a29656` (4.13.0). The SDK builder verifies
 the original checkout is pristine, copies it into an isolated build tree,
 checks/applies the patch and runs both native regression cases. The SDK manifest
 contains the exact patch text; the Rust adapter rejects any different/missing

@@ -1,12 +1,12 @@
 {
   "baresip": {
     "url": "https://github.com/baresip/baresip.git",
-    "version": "4.12.0",
-    "commit": "9cfab81550acc4bd38d6580d79b45cc6eea65cd6"
+    "version": "4.13.0",
+    "commit": "8a4f18c1c1b5331daa026236dcdd108deff601e8"
   },
   "re": {
     "url": "https://github.com/baresip/re.git",
-    "version": "4.12.0",
-    "commit": "65555dad439de9d6a81b3ee6092b9c096585249b"
+    "version": "4.13.0",
+    "commit": "b827bcaf55a18be141ca7bcee1e22872a3a29656"
   }
 }

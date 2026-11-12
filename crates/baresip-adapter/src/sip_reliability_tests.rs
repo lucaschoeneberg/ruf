@@ -2,6 +2,115 @@
 use super::*;
 
 #[test]
+fn multipart_sdp_answer_skips_non_sdp_parts_and_rejects_short_boundaries() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    for valid in [true, false] {
+        let mut lab = Lab::new("multipart-answer");
+        let invite = lab.outgoing();
+        let body = if valid {
+            format!(
+                "--ruf-boundary\r\nContent-Type: text/plain\r\n\r\nsynthetic metadata\r\n\
+                 --ruf-boundary\r\nContent-Type: application/sdp\r\n\r\n{}\r\n\
+                 --ruf-boundary--\r\n",
+                sdp(1, "sendrecv")
+            )
+        } else {
+            // Adjacent boundaries previously underflowed the part length.
+            "--ruf-boundary--ruf-boundary--\r\n".into()
+        };
+        lab.reply_with_content_type(
+            &invite,
+            "200 OK",
+            "",
+            &body,
+            "multipart/mixed;boundary=ruf-boundary",
+        );
+        lab.receive("multipart answer ACK", |p| p.starts_with("ACK "));
+        if valid {
+            let id = lab.wait(|s| s.call == CallState::Active).call_id.unwrap();
+            lab.engine.hangup_call(&id).unwrap();
+        } else {
+            let bye = lab.receive("invalid multipart dialog cleanup", |p| {
+                p.starts_with("BYE ")
+            });
+            lab.reply(&bye, "200 OK", "", "");
+            let ended = lab.wait(|s| s.call == CallState::Idle);
+            assert!(ended.calls.is_empty());
+            assert_eq!(ended.last_error.unwrap().code, ErrorCode::NativeFailure);
+            // A malformed remote body must not take down the engine.
+            let retry = lab.outgoing();
+            lab.reply(&retry, "200 OK", "", &sdp(2, "sendrecv"));
+            let id = lab.wait(|s| s.call == CallState::Active).call_id.unwrap();
+            lab.engine.hangup_call(&id).unwrap();
+        }
+        lab.settle();
+    }
+}
+
+#[test]
+fn padded_rtp_decodes_payload_without_padding_noise() {
+    let _guard = crate::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let recording = std::env::temp_dir().join("sip-events-rtp-padding.wav");
+    if let Err(error) = std::fs::remove_file(&recording) {
+        assert_eq!(error.kind(), ErrorKind::NotFound, "{error}");
+    }
+    let mut lab = Lab::new("rtp-padding");
+    let invite = lab.outgoing();
+    let port: u16 = invite
+        .lines()
+        .find_map(|line| line.strip_prefix("m=audio "))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let rtp = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let answer = sdp(1, "sendrecv").replace(
+        "m=audio 9000",
+        &format!("m=audio {}", rtp.local_addr().unwrap().port()),
+    );
+    lab.reply(&invite, "200 OK", "", &answer);
+    let id = lab.wait(|s| s.call == CallState::Active).call_id.unwrap();
+    let mut next = Instant::now();
+    for sequence in 0..120_u16 {
+        let mut packet = vec![0xa0, 0]; // RTP v2, padding flag, PCMU.
+        packet.extend_from_slice(&sequence.to_be_bytes());
+        packet.extend_from_slice(&(u32::from(sequence) * 160).to_be_bytes());
+        packet.extend_from_slice(&1234_u32.to_be_bytes());
+        packet.extend_from_slice(&[0xfe; 160]); // 20 ms of quiet G.711 PCM (+8).
+        packet.extend_from_slice(&[0; 159]); // Loud if incorrectly decoded.
+        packet.push(160); // RFC 3550: total padding size, including this byte.
+        rtp.send_to(&packet, ("127.0.0.1", port)).unwrap();
+        next += Duration::from_millis(20);
+        wait_for_next_rtp_frame(next);
+    }
+    lab.engine.hangup_call(&id).unwrap();
+    lab.settle();
+    let bytes = std::fs::read(&recording).unwrap();
+    // Skip the WAV header. Require decoded payload rather than zero-filled
+    // player underruns, which would also pass a silence-only assertion.
+    let samples: Vec<_> = bytes[44..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes(*b))
+        .collect();
+    assert!(
+        samples.iter().filter(|&&sample| sample == 8).count() >= 8000,
+        "padded RTP must produce at least one second of decoded payload"
+    );
+    assert!(
+        samples.iter().all(|sample| sample.unsigned_abs() <= 8),
+        "RTP padding must never reach the audio decoder"
+    );
+}
+
+#[test]
 fn early_media_tone_detection_uses_fresh_windows() {
     let tone: Vec<i16> = (0..16000)
         .map(|i| if i % 16 < 8 { 9852 } else { -9852 })

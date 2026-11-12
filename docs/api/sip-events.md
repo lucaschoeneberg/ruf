@@ -206,3 +206,24 @@ native Rust tests; GuardMalloc additionally detects access after owner release.
 See [call controls](call-controls.md#protocol-outcomes-and-cleanup) for accepted
 invalid hold answers, rejected SDP rollback, terminal 408/481 and fresh local
 resume watchdog intervals.
+
+## Native SDK 4.13
+
+Native builds use the pinned baresip/libre 4.13.0 releases through the existing
+adapter. No IPC commands, DTO fields, required/optional inputs or error-code tags
+change. Existing source/patch identity checks require rebuilding older staged SDKs.
+
+Multipart SDP answers select the `application/sdp` body rather than accompanying
+metadata. A successful SIP answer with malformed multipart data or no usable SDP
+cannot establish a call: the native session ACKs the response, closes the unusable
+dialog and reports the existing `nativeFailure` outcome. The engine remains
+available for subsequent calls. No remote body or SIP headers enter error messages.
+
+Valid incoming RTP padding is removed before codec decoding and does not become
+audible PCM. This does not add a policy for rejecting malformed padding lengths.
+The existing adaptive jitter buffer retains its configured 40–200 ms range;
+4.13 weights measured jitter more strongly, trading buffering delay for headroom
+on variable paths. This is not an end-to-end latency guarantee. Native mute,
+hold/resume, source selection, TLS/SRTP requirements and transfer policy retain
+their existing contracts. Upstream audio-source retention is used internally;
+there is no new microphone permission or capture path.
