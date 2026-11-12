@@ -6,6 +6,33 @@ The former `.mjs` entry points now use `.ts`; callers should prefer the stable
 environment variables, native linkage requirements and output formats remain
 unchanged. No desktop IPC commands or generated Rust DTOs change.
 
+## Cleanup
+
+`bun run clean` requires no arguments. It recursively removes only these
+repository-local generated directories: `target`, `apps/desktop/dist`,
+`apps/desktop/src-tauri/gen`, `artifacts`, `.playwright-cli` and
+`output/playwright`. This includes local installers, screenshots and test reports.
+Run it after stopping development servers, builds and tests.
+
+Optional flags (combinable):
+
+- `--dry-run`: print the selected paths without deleting anything.
+- `--all`: also remove `native/build`, `native/install`, root `node_modules`
+  and `apps/desktop/node_modules`. Afterwards run `bun install --frozen-lockfile`
+  and, before native builds/checks, `bun run native:build`.
+
+Paths are resolved from the script location, independently of the working
+directory. Missing directories are accepted, so repeated cleanup succeeds.
+Source files, lockfiles, `.env` files outside these output directories and
+installed application data are preserved. Custom/external Cargo target directories
+and global tool caches are outside this command's scope. No arbitrary paths are
+accepted. Unknown arguments fail before deletion; filesystem errors stop cleanup
+with a nonzero exit code and may leave earlier paths already removed. Success
+exits zero and prints each selected path; there is no structured response or DTO.
+Symlinked parents of selected paths are rejected before any deletion, including
+in dry-run mode, so nested outputs cannot redirect cleanup outside the repository.
+A symlink at a selected final path is removed as a link without following it.
+
 ## Type checking
 
 | Command                 | Input                              | Output and failure behavior                                                                                                                                                                                  |
