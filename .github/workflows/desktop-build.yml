@@ -19,11 +19,15 @@ jobs:
             bundle: dmg
             bundles: app,dmg
             artifact: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            openssl-cache-path: native/build/openssl-macos14/install
+            openssl-recipe: native/build-openssl-macos.sh
           - runner: windows-2022
             target: x86_64-pc-windows-msvc
             bundle: nsis
             bundles: nsis
             artifact: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            openssl-cache-path: native/build/x86_64-pc-windows-msvc/vcpkg
+            openssl-recipe: native/vcpkg.*
     env:
       CI: true
       # Preserve the Finder background and drag-to-Applications icon layout.
@@ -44,32 +48,25 @@ jobs:
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: native/install/${{ matrix.target }}
-          key: native-sdk-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ steps.native-toolchain.outputs.fingerprint }}-${{ hashFiles('native/*.ts', 'native/sources.json', 'native/vcpkg.json', 'native/patches/**', 'native/openssl-probe/**', 'scripts/check-native-sdk.ts', '.github/workflows/desktop-build.yml', '.bun-version', 'rust-toolchain.toml') }}
+          key: native-sdk-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ steps.native-toolchain.outputs.fingerprint }}-${{ hashFiles('native/*.ts', 'native/*.sh', 'native/sources.json', 'native/vcpkg.json', 'native/patches/**', 'native/openssl-probe/**', 'scripts/check-native-sdk.ts', '.github/workflows/desktop-build.yml', '.bun-version', 'rust-toolchain.toml') }}
       - name: Validate the restored SDK and rerun its NAT regressions
         if: steps.native-sdk.outputs.cache-hit == 'true'
         run: bun scripts/check-native-sdk.ts ${{ matrix.target }}
-      - name: Build OpenSSL for the macOS deployment target
+      - name: Restore OpenSSL independently of the SIP SDK
+        if: steps.native-sdk.outputs.cache-hit != 'true'
+        id: openssl
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ matrix.openssl-cache-path }}
+          key: openssl-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ steps.native-toolchain.outputs.fingerprint }}-${{ hashFiles(matrix.openssl-recipe) }}
+      - name: Select the macOS OpenSSL prefix
         if: runner.os == 'macOS' && steps.native-sdk.outputs.cache-hit != 'true'
         shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p native/build/openssl-macos14
-          curl --fail --location --retry 2 --output native/build/openssl-3.5.9.tar.gz \
-            https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
-          echo '603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a  native/build/openssl-3.5.9.tar.gz' | shasum -a 256 -c -
-          tar -xzf native/build/openssl-3.5.9.tar.gz -C native/build/openssl-macos14
-          export OPENSSL_ROOT_DIR="$PWD/native/build/openssl-macos14/install"
-          (
-            cd native/build/openssl-macos14/openssl-3.5.9
-            perl ./Configure darwin64-arm64-cc no-shared no-zlib \
-              --prefix="$OPENSSL_ROOT_DIR" --openssldir="$OPENSSL_ROOT_DIR/ssl" \
-              --libdir=lib -mmacosx-version-min=14.0
-            make -j4
-            make test HARNESS_JOBS=4
-            make install_sw
-            cp LICENSE.txt "$OPENSSL_ROOT_DIR/LICENSE.txt"
-          )
-          echo "OPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR" >> "$GITHUB_ENV"
+        run: echo "OPENSSL_ROOT_DIR=$GITHUB_WORKSPACE/native/build/openssl-macos14/install" >> "$GITHUB_ENV"
+      - name: Build OpenSSL for the macOS deployment target
+        if: runner.os == 'macOS' && steps.native-sdk.outputs.cache-hit != 'true' && steps.openssl.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash native/build-openssl-macos.sh
       - name: Build pinned native SDK
         if: steps.native-sdk.outputs.cache-hit != 'true'
         run: bun run native:build
@@ -79,6 +76,12 @@ jobs:
         with:
           path: native/install/${{ matrix.target }}
           key: ${{ steps.native-sdk.outputs.cache-primary-key }}
+      - name: Save qualified OpenSSL independently of the SIP SDK
+        if: steps.native-sdk.outputs.cache-hit != 'true' && steps.openssl.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ matrix.openssl-cache-path }}
+          key: ${{ steps.openssl.outputs.cache-primary-key }}
       - run: bun run check:versions
       - run: bun run test:network-roam
       - name: Verify macOS service timeout recovery

@@ -41,10 +41,31 @@ regressions; application compilation and tests remain unconditional. Rust
 dependency caches are also saved after failed non-PR runs so a later test failure
 does not force the same dependency compilation again.
 
-Native test execution builds once and runs the existing NAT, SIP-event and
-remaining tests in separate processes through `bun run test:native`. Linux uses
-`--adapter`. All partitions must pass; workspace integration/doc tests remain in
-the remaining partition, and the Asterisk job still runs its opt-in scenarios.
+When the SDK misses, OpenSSL has its own exact cache: the macOS static install is
+keyed by `native/build-openssl-macos.sh`, Windows' vcpkg install by
+`native/vcpkg.*`. Both include the existing runner/compiler fingerprint and target,
+without SIP pins, patches or application sources. No fallback keys are used.
+The macOS recipe retains its checksum, minimum OS, static flags and full OpenSSL
+tests; Windows still runs its pinned vcpkg manifest installation. Existing SDK
+discovery validates headers, archives and macOS object deployment metadata before
+use. OpenSSL is saved after SDK qualification, before app checks, only on non-PR
+runs. A complete SDK hit skips this OpenSSL restore/build path. The first run
+must populate the independent cache; PRs do not publish trusted shared caches.
+
+Native test execution builds once, discovers the compiled native unit tests and
+runs at most six test processes through `bun run test:native`. Linux uses
+`--adapter`. Each NAT test and named SIP timeout/deadline case runs with an exact
+filter in its own process; the longest blackout/hold cases start first. Ordinary
+SIP tests share a serial process, skipping the individually scheduled cases.
+Workspace/integration/doc tests remain in the remaining partition. All partitions
+must pass; ignored tests retain their ordinary Cargo behavior, all protocol timers
+and assertions stay unchanged, and Asterisk still runs its opt-in scenarios.
+
+Each process's stdout and stderr are streamed immediately with a `[native:…]`
+prefix, even before a partial libtest line ends. Start/result messages identify
+the command filter, duration and exit status. Per-process raw logs remain in a
+printed temporary directory on failure and are removed after success. There are
+no overlapping GitHub log groups or deferred full-log replay.
 
 Native workspace tests use the job's temporary directory. On failure, the
 desktop jobs retain only the three explicitly named early-media/refused-hold

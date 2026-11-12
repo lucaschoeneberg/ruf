@@ -45,6 +45,14 @@ workspace tests, Asterisk tests and installer checks continue to execute. SDK
 cache hits skip only upstream SDK/OpenSSL compilation; Rust build outputs and
 application source files are outside this cache.
 
+On a complete SDK miss, desktop CI can restore OpenSSL independently: the macOS
+static install uses the checksum-pinned `build-openssl-macos.sh` recipe, and
+Windows retains its pinned vcpkg installed tree. Their exact target/compiler keys
+do not depend on baresip/libre pins or local SIP patches. SDK discovery still
+validates the resulting headers/static libraries and macOS minimum. Both cache
+layers are saved only from non-PR runs after SDK qualification; see
+[CI cache behavior](../docs/ci-cd.md).
+
 ## Prerequisites
 
 - All platforms: Git, Bun 1.4.4, CMake 3.22+, platform C/C++ compiler, pinned Rustup toolchain.

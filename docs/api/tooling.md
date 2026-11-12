@@ -73,6 +73,22 @@ conversion exit nonzero. See [media provenance](../screenshots/README.md).
   regression and screenshot wrappers. They are not standalone CLI commands.
 
 Native workspace tests still return failure when any Cargo partition fails and
-retain its logs. Bun process spawning forwards both output streams to each
-partition's log and waits for every child before reporting results. These tooling
-commands expose process exit codes, not HTTP status codes.
+retain its logs. `bun run test:native` accepts only the optional `--adapter` flag
+for headless adapter checks; other arguments fail before building. It builds the
+selected suite once, discovers native libtest names and requires both the NAT and
+SIP modules. Discovery/build errors exit nonzero rather than silently running an
+empty native suite.
+
+At most six test processes run together. Each NAT test and SIP test whose name
+identifies a timeout/deadline, missing ACK, refused compensation, bounded failure
+or long local hold runs separately with an exact filter. Ordinary SIP tests and
+remaining workspace/integration/doc tests stay covered without repeating those
+isolated tests. Existing ignored-test behavior and timer durations are unchanged.
+
+Both stdout/stderr streams appear immediately with `[native:<partition>]` prefixes,
+including partial lines; matching raw bytes are kept in each partition's `.log`.
+Start, pass/fail, elapsed-time and exit-status messages are streamed as work ends.
+Every selected child is awaited even if another fails. Any failure exits nonzero
+and prints `Native checks failed; logs: <directory>`; success removes those
+temporary logs and retains `NATIVE_CHECKS_OK`. These tooling commands expose
+process exit codes, not HTTP status codes. See [CI cache behavior](../ci-cd.md).
