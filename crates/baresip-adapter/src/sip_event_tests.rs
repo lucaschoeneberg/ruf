@@ -114,6 +114,17 @@ impl Lab {
     }
 
     fn reply(&self, request: &str, status: &str, extra: &str, body: &str) {
+        self.reply_with_content_type(request, status, extra, body, "application/sdp");
+    }
+
+    fn reply_with_content_type(
+        &self,
+        request: &str,
+        status: &str,
+        extra: &str,
+        body: &str,
+        content_type: &str,
+    ) {
         let to = header(request, "To:");
         let to_tag = if to.contains(";tag=") {
             ""
@@ -126,9 +137,9 @@ impl Lab {
             format!("<sip:peer@{}>", self.peer.local_addr().unwrap())
         };
         let content_type = if body.is_empty() {
-            ""
+            String::new()
         } else {
-            "Content-Type: application/sdp\r\n"
+            format!("Content-Type: {content_type}\r\n")
         };
         self.send(&format!(
             "SIP/2.0 {status}\r\nVia: {}\r\nFrom: {}\r\nTo: {to}{to_tag}\r\nCall-ID: {}\r\nCSeq: {}\r\nContact: {contact}\r\n{extra}{content_type}Content-Length: {}\r\n\r\n{body}",

@@ -1,8 +1,9 @@
 --- a/include/baresip.h
 +++ b/include/baresip.h
-@@ -236,6 +236,10 @@
+@@ -236,7 +236,11 @@
  void call_hangupf(struct call *call, uint16_t scode, const char *reason,
  		  const char *fmt, ...);
+ int  call_set_close_headers(struct call *call, const char *fmt, ...);
  int  call_modify(struct call *call);
 +typedef void (call_control_h)(struct call *call, int kind, int status, void *arg);
 +void call_set_control_handler(struct call *call, call_control_h *handler, void *arg);

@@ -42,6 +42,7 @@ try {
     ),
     [],
   );
+  run(join(build, windows ? "Release/latency_probe.exe" : "latency_probe"), []);
   if (process.platform === "darwin")
     execFileSync(join(build, "dns_refresh_test"), [], {
       cwd: root,

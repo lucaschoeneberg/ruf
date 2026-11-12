@@ -752,12 +752,13 @@ diff --git a/test/test.c b/test/test.c
 index 3fbeab0..4edd2f8 100644
 --- a/test/test.c
 +++ b/test/test.c
-@@ -205,6 +205,8 @@ static const struct test tests[] = {
+@@ -205,7 +205,9 @@ static const struct test tests[] = {
  	TEST(test_sip_param),
  	TEST(test_sip_parse),
  	TEST(test_sip_via),
 +	TEST(test_sip_nat),
 +	TEST(test_sip_nat_registration),
+ 	TEST(test_sip_transp_udp_sock),
  #ifdef USE_TLS
  	TEST(test_sip_transp_add_client_cert),
  	TEST(test_sip_transp_wss_verify_host),
@@ -776,12 +777,13 @@ diff --git a/test/test.h b/test/test.h
 index 6a20ce0..5294bc9 100644
 --- a/test/test.h
 +++ b/test/test.h
-@@ -317,6 +317,8 @@ int test_sip_msg(void);
+@@ -317,7 +317,9 @@ int test_sip_msg(void);
  int test_sip_param(void);
  int test_sip_parse(void);
  int test_sip_via(void);
 +int test_sip_nat(void);
 +int test_sip_nat_registration(void);
  int test_sip_dns(void);
+ int test_sip_transp_udp_sock(void);
  #ifdef USE_TLS
  int test_sip_transp_add_client_cert(void);
