@@ -20,7 +20,7 @@ phone-core.workspace = true
 libc.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-core = "0.62.2"
+windows-core = "0.100.0"
 windows = { version = "0.62.2", features = [
   "Data_Xml_Dom",
   "Foundation",
